@@ -1,0 +1,1326 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clawd Pet 动画触发一览</title>
+<style>
+  :root { --ink:#2b2b2b; --muted:#7d766c; --clawd:#e17f50; --soft:#fbe6da; --paper:#fbf6ee; --card:#fff; --line:#e6ddd0; }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 64px; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 14px/1.6 "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif; }
+  header { max-width: 1180px; margin: 0 auto; padding: 28px 24px 8px; }
+  h1 { margin: 0 0 6px; font-size: 26px; }
+  header p { margin: 0; color: var(--muted); }
+  .stats { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0 4px; }
+  .stat { padding: 8px 14px; background: var(--card); border: 2px solid var(--ink); border-radius: 10px; box-shadow: 3px 3px 0 rgba(0,0,0,.12); }
+  .stat b { font-size: 20px; margin-right: 4px; }
+  nav { position: sticky; top: 0; z-index: 5; background: var(--paper); border-bottom: 2px solid var(--line); }
+  nav div { max-width: 1180px; margin: 0 auto; padding: 10px 24px; display: flex; flex-wrap: wrap; gap: 6px; }
+  nav a { padding: 4px 12px; border: 2px solid var(--ink); border-radius: 999px; background: var(--card); color: var(--ink); text-decoration: none; font-size: 13px; }
+  nav a:hover { background: var(--soft); }
+  main { max-width: 1180px; margin: 0 auto; padding: 0 24px 60px; }
+  h2 { margin: 36px 0 6px; font-size: 21px; }
+  h3 { margin: 26px 0 10px; font-size: 15px; color: var(--clawd); }
+  .intro { margin: 0 0 14px; color: var(--muted); max-width: 900px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 18px 0 0; padding: 12px 16px; background: var(--card); border: 2px dashed var(--line); border-radius: 10px; font-size: 13px; }
+  .legend ol { margin: 4px 0 0; padding-left: 20px; }
+  .row { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 18px; margin-bottom: 10px; padding: 14px 16px; background: var(--card); border: 2px solid var(--ink); border-radius: 10px; box-shadow: 3px 3px 0 rgba(0,0,0,.1); }
+  .info h4 { margin: 0 0 4px; font-size: 15px; }
+  .info p { margin: 0 0 6px; color: #4d4841; font-size: 13px; }
+  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .badge { padding: 1px 9px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+  .badge.loop { background: #e3eefb; color: #1f5fa8; }
+  .badge.force { background: #fde2dc; color: #b3391d; }
+  .badge.polite { background: #e4f3e2; color: #2c7a35; }
+  .badge.scene { background: #efe4f7; color: #6a3a94; }
+  .dur { color: var(--muted); font-size: 12px; }
+  .say { color: #4d4841; font-size: 12px; }
+  code { font: 12px "Cascadia Mono", Consolas, monospace; padding: 1px 5px; background: var(--paper); border-radius: 4px; }
+  .info > code { color: var(--muted); }
+  .thumbs { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; }
+  figure { width: 84px; margin: 0; text-align: center; }
+  figure img { width: 84px; height: 84px; image-rendering: pixelated; background: #f4efe6; border-radius: 8px; display: block; }
+  figcaption { margin-top: 2px; font-size: 11px; line-height: 1.3; color: #4d4841; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  figcaption b { color: var(--clawd); }
+  .scenes { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 8px; }
+  .scene { display: flex; align-items: flex-start; gap: 2px; padding: 6px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; }
+  .scene figure, .scene figure img { width: 68px; }
+  .scene figure img { height: 68px; }
+  .arrow { align-self: center; margin-bottom: 16px; color: var(--muted); }
+  .weights { margin: 10px 0 4px; border-collapse: collapse; background: var(--card); font-size: 12px; }
+  .weights th, .weights td { padding: 4px 8px; border: 1px solid var(--line); text-align: center; white-space: nowrap; }
+  .weights th { text-align: left; }
+  .weights small { display: block; color: var(--muted); }
+  .note ul { margin: 6px 0 0; padding-left: 20px; }
+  .thumbs.loose { padding: 14px 16px; background: var(--card); border: 2px solid var(--ink); border-radius: 10px; }
+  .note { margin: 12px 0; padding: 10px 14px; border-left: 4px solid var(--clawd); background: var(--soft); border-radius: 0 8px 8px 0; font-size: 13px; }
+  @media (max-width: 760px) { .row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Clawd Pet 动画触发一览</h1>
+  <p>每个动画什么时候播、怎么触发、播多久。动画列表直接取自 <code>ui/anims.js</code>，改完后运行 <code>npm run triggers</code> 重新生成本页。</p>
+  <div class="stats">
+    <div class="stat"><b>134</b>个触发时机</div>
+    <div class="stat"><b>398</b>个动画有固定戏份</div>
+    <div class="stat"><b>2</b>个只随机出现</div>
+    <div class="stat"><b>400</b>个动画总数</div>
+  </div>
+  <div class="legend">
+    <div>
+      <b>播放方式</b><br>
+      <span class="badge loop">循环</span> 状态持续多久就播多久
+      <span class="badge force">一次性 · 会打断</span> 立刻播，Claude 正忙也插进来
+      <span class="badge polite">一次性 · 让路</span> Claude 正忙时不显示
+      <span class="badge scene">场景 · 让路</span> 几个动画接着演，一有别的事就停
+    </div>
+    <div>
+      <b>同时满足多个条件时，谁说了算</b>（从高到低）
+      <ol><li>被拎起来</li><li>有待审批的权限请求</li><li>「会打断」的一次性动画</li><li>Claude 正在忙的状态动画</li><li>「让路」的一次性动画、它自己的场景</li><li>睡觉</li><li>歇着</li></ol>
+    </div>
+    <div>一行里有多个动画时，每次随机选一个。灰色小字是它在 <code>ui/anims.js</code> 里的名字，告诉我要改哪一行时用得上。鼠标停在缩略图上能看到动画的英文代号和单圈时长。</div>
+  </div>
+</header>
+<nav><div><a href="#claude">一、Claude Code 联动</a><a href="#life">二、它自己的生活</a><a href="#holidays">三、节日</a><a href="#touch">四、你和它的互动</a><a href="#system">五、系统联动</a><a href="#unused">六、还没安排戏份的动画</a></div></nav>
+<main>
+<section id="claude"><h2>一、Claude Code 联动</h2><p class="intro">Claude Code 每发生一件事就通过 hook 通知桌宠。每个会话各记一个状态；多个会话同时在跑时，显示最紧急的那个：等你确认 &gt; 压缩上下文 &gt; 干活 &gt; 思考。</p><h3>会话开始与结束</h3>
+<div class="row">
+  <div class="info">
+    <h4>新开或恢复一个会话</h4>
+    <p><code>SessionStart</code>，来源是 startup 或 resume，且没有别的会话在忙。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.2 秒</span></p>
+    <code>ANIMS.hello</code>
+  </div>
+  <div class="thumbs"><figure title="emo_nihao · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_nihao.gif" alt=""><figcaption>你好呀</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>执行 /clear</h4>
+    <p><code>SessionStart</code>，来源是 clear。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5 秒</span></p>
+    <code>ANIMS.cleared</code>
+  </div>
+  <div class="thumbs"><figure title="life_sweep_floor · 1.8s"><img loading="lazy" src="../ui/assets/clawd/life_sweep_floor.gif" alt=""><figcaption>扫地</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>会话退出</h4>
+    <p><code>SessionEnd</code>（/clear 引起的除外），且没有别的会话在忙。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.6 秒</span></p>
+    <code>ANIMS.bye</code>
+  </div>
+  <div class="thumbs"><figure title="walk_out_door · 2.6s"><img loading="lazy" src="../ui/assets/clawd/walk_out_door.gif" alt=""><figcaption>开门离开</figcaption></figure></div>
+</div>
+<h3>思考与干活</h3>
+<div class="row">
+  <div class="info">
+    <h4>你发出一条消息</h4>
+    <p><code>UserPromptSubmit</code>。每次提问随机选一种思考姿势，直到 Claude 开始用工具。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.thinking</code>
+  </div>
+  <div class="thumbs"><figure title="dev_thinking · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_thinking.gif" alt=""><figcaption>思考中</figcaption></figure><figure title="desk_think · 2.4s"><img loading="lazy" src="../ui/assets/clawd/desk_think.gif" alt=""><figcaption>书桌前思考</figcaption></figure><figure title="idea_bulb · 1.9s"><img loading="lazy" src="../ui/assets/clawd/idea_bulb.gif" alt=""><figcaption>灵光一闪</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>用工具：写代码</h4>
+    <p><code>PreToolUse</code>，工具是 Edit / MultiEdit / Write / NotebookEdit。连续用同一类工具不换动画；每次开始时按图上的比例抽。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.tools.edit</code>
+  </div>
+  <div class="thumbs"><figure title="desk_typing · 0.9s"><img loading="lazy" src="../ui/assets/clawd/desk_typing.gif" alt=""><figcaption>书桌打字 <b>30%</b></figcaption></figure><figure title="dev_laptop_front · 0.8s"><img loading="lazy" src="../ui/assets/clawd/dev_laptop_front.gif" alt=""><figcaption>笔记本打字 <b>30%</b></figcaption></figure><figure title="dev_matrix · 1.4s"><img loading="lazy" src="../ui/assets/clawd/dev_matrix.gif" alt=""><figcaption>黑客帝国 <b>30%</b></figcaption></figure><figure title="dev_keyboard_smash · 1.0s"><img loading="lazy" src="../ui/assets/clawd/dev_keyboard_smash.gif" alt=""><figcaption>暴躁砸键盘 <b>10%</b></figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>用工具：读文件</h4>
+    <p><code>PreToolUse</code>，工具是 Read / NotebookRead。连续用同一类工具不换动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.tools.read</code>
+  </div>
+  <div class="thumbs"><figure title="read_stack · 2.7s"><img loading="lazy" src="../ui/assets/clawd/read_stack.gif" alt=""><figcaption>书堆旁阅读</figcaption></figure><figure title="dev_docs_scroll · 3.5s"><img loading="lazy" src="../ui/assets/clawd/dev_docs_scroll.gif" alt=""><figcaption>翻长文档</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>用工具：翻找线索</h4>
+    <p><code>PreToolUse</code>，工具是 Grep / Glob / LS / ToolSearch。连续用同一类工具不换动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.tools.search</code>
+  </div>
+  <div class="thumbs"><figure title="dev_bug_hunt · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_bug_hunt.gif" alt=""><figcaption>放大镜找bug</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>用工具：上网查资料</h4>
+    <p><code>PreToolUse</code>，工具是 WebFetch / WebSearch。连续用同一类工具不换动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.tools.web</code>
+  </div>
+  <div class="thumbs"><figure title="dev_wifi_search · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_wifi_search.gif" alt=""><figcaption>找信号</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>用工具：派出小分队</h4>
+    <p><code>PreToolUse</code>，工具是 Task / Agent（派出子代理）。连续用同一类工具不换动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.tools.agent</code>
+  </div>
+  <div class="thumbs"><figure title="dev_pair_program · 2.2s"><img loading="lazy" src="../ui/assets/clawd/dev_pair_program.gif" alt=""><figcaption>结对编程</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>用工具：排计划</h4>
+    <p><code>PreToolUse</code>，工具是 TodoWrite / TaskCreate / TaskUpdate / TaskList。连续用同一类工具不换动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.tools.todo</code>
+  </div>
+  <div class="thumbs"><figure title="dev_kanban · 3.1s"><img loading="lazy" src="../ui/assets/clawd/dev_kanban.gif" alt=""><figcaption>看板挪卡片</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>用工具：调用 MCP</h4>
+    <p><code>PreToolUse</code>，工具名以 <code>mcp__</code> 开头。连续用同一类工具不换动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.tools.mcp</code>
+  </div>
+  <div class="thumbs"><figure title="dev_cable_plug · 3.2s"><img loading="lazy" src="../ui/assets/clawd/dev_cable_plug.gif" alt=""><figcaption>插网线</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>用工具：摆弄 Git</h4>
+    <p><code>PreToolUse</code>，Bash / PowerShell 命令里出现 <code>git </code>。连续用同一类工具不换动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.tools.git</code>
+  </div>
+  <div class="thumbs"><figure title="dev_git_graph · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_git_graph.gif" alt=""><figcaption>提交图</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>用工具：跑测试</h4>
+    <p><code>PreToolUse</code>，命令里出现 test / jest / vitest / pytest / mocha。连续用同一类工具不换动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.tools.test</code>
+  </div>
+  <div class="thumbs"><figure title="dev_test_suite · 3.3s"><img loading="lazy" src="../ui/assets/clawd/dev_test_suite.gif" alt=""><figcaption>测试全绿</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>用工具：装依赖</h4>
+    <p><code>PreToolUse</code>，命令是 npm / pnpm / yarn / bun / pip / uv / cargo 的 install / add / i / ci。连续用同一类工具不换动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.tools.install</code>
+  </div>
+  <div class="thumbs"><figure title="dev_node_modules · 2.7s"><img loading="lazy" src="../ui/assets/clawd/dev_node_modules.gif" alt=""><figcaption>依赖太重</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>用工具：编译中</h4>
+    <p><code>PreToolUse</code>，命令里出现 build / compile / tsc / make / cargo b。连续用同一类工具不换动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.tools.build</code>
+  </div>
+  <div class="thumbs"><figure title="dev_compile_bar · 3.0s"><img loading="lazy" src="../ui/assets/clawd/dev_compile_bar.gif" alt=""><figcaption>等编译</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>用工具：跑命令</h4>
+    <p><code>PreToolUse</code>，其他 Bash / PowerShell / Monitor 命令。连续用同一类工具不换动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.tools.bash</code>
+  </div>
+  <div class="thumbs"><figure title="dev_terminal · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_terminal.gif" alt=""><figcaption>终端敲命令</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>用工具：忙活中</h4>
+    <p><code>PreToolUse</code>，以上都不是的工具。连续用同一类工具不换动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.tools.other</code>
+  </div>
+  <div class="thumbs"><figure title="dev_robot_arm · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_robot_arm.gif" alt=""><figcaption>操控机械臂</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>有子代理在跑</h4>
+    <p><code>SubagentStart</code> 到 <code>SubagentStop</code> 之间，盖过上面的工具动画。标签显示「小分队 ×N」。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.subagents</code>
+  </div>
+  <div class="thumbs"><figure title="dev_pair_program · 2.2s"><img loading="lazy" src="../ui/assets/clawd/dev_pair_program.gif" alt=""><figcaption>结对编程</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>压缩上下文</h4>
+    <p><code>PreCompact</code> 到 <code>PostCompact</code> 之间。手动 /compact 结束后回到待命，自动压缩结束后回到思考。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.compacting</code>
+  </div>
+  <div class="thumbs"><figure title="dev_zip · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_zip.gif" alt=""><figcaption>压缩打包</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>任务跑了 5 分钟以上</h4>
+    <p>从你发消息算起超过 5 分钟还在忙，之后每 4 分钟来一次。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">3.1–5.8 秒</span></p>
+    <code>ANIMS.longTask</code>
+  </div>
+  <div class="thumbs"><figure title="dev_coffee_to_code · 1.6s"><img loading="lazy" src="../ui/assets/clawd/dev_coffee_to_code.gif" alt=""><figcaption>咖啡变代码</figcaption></figure><figure title="dev_hourglass · 3.1s"><img loading="lazy" src="../ui/assets/clawd/dev_hourglass.gif" alt=""><figcaption>沙漏等待</figcaption></figure><figure title="dev_pomodoro · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_pomodoro.gif" alt=""><figcaption>番茄钟</figcaption></figure></div>
+</div>
+<h3>需要你确认</h3>
+<div class="row">
+  <div class="info">
+    <h4>Claude 请求权限（开着审批气泡）</h4>
+    <p><code>PermissionRequest</code>。头顶弹出「拒绝 / 总是允许 / 允许」，直到你作答，或你在原界面答了。优先级仅次于被拎起来。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.permission</code>
+  </div>
+  <div class="thumbs"><figure title="emo_pretty_please · 1.6s"><img loading="lazy" src="../ui/assets/clawd/emo_pretty_please.gif" alt=""><figcaption>可怜巴巴</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>你在气泡里点了允许</h4>
+    <p>点「允许」或「总是允许」。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">1.6 秒</span></p>
+    <code>ANIMS.allowed</code>
+  </div>
+  <div class="thumbs"><figure title="emo_thumbs_up · 1.6s"><img loading="lazy" src="../ui/assets/clawd/emo_thumbs_up.gif" alt=""><figcaption>点个赞</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>你在气泡里点了拒绝</h4>
+    <p>点「拒绝」。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">3.2–3.8 秒</span></p>
+    <code>ANIMS.denied</code>
+  </div>
+  <div class="thumbs"><figure title="emo_sad_shuffle · 3.8s"><img loading="lazy" src="../ui/assets/clawd/emo_sad_shuffle.gif" alt=""><figcaption>垂头丧气</figcaption></figure><figure title="emo_puffed_cheeks · 1.6s"><img loading="lazy" src="../ui/assets/clawd/emo_puffed_cheeks.gif" alt=""><figcaption>鼓气包</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>要你去原界面作答</h4>
+    <p>气泡关着时的权限请求；AskUserQuestion、退出计划模式；或 <code>Notification</code> 的 permission_prompt / elicitation_dialog。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.waiting</code>
+  </div>
+  <div class="thumbs"><figure title="emo_impatient · 1.2s"><img loading="lazy" src="../ui/assets/clawd/emo_impatient.gif" alt=""><figcaption>不耐烦</figcaption></figure></div>
+</div>
+<h3>出错</h3>
+<div class="row">
+  <div class="info">
+    <h4>一次工具调用失败</h4>
+    <p><code>PostToolUseFailure</code>（你主动中断的不算）。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">2–2.4 秒</span></p>
+    <code>ANIMS.toolError</code>
+  </div>
+  <div class="thumbs"><figure title="emo_facepalm · 2.0s"><img loading="lazy" src="../ui/assets/clawd/emo_facepalm.gif" alt=""><figcaption>捂脸无语</figcaption></figure><figure title="emo_awkward · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_awkward.gif" alt=""><figcaption>尴尬沉默</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>同一轮里第 3 次失败</h4>
+    <p>同一条消息的处理过程中累计到第 3 次工具失败时，换成这个。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">4.2 秒</span></p>
+    <code>ANIMS.manyErrors</code>
+  </div>
+  <div class="thumbs"><figure title="dev_this_is_fine · 2.1s"><img loading="lazy" src="../ui/assets/clawd/dev_this_is_fine.gif" alt=""><figcaption>服务器着火没事</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>API 出错，这一轮中止</h4>
+    <p><code>StopFailure</code>（限流、服务器错误等）。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">4.8 秒</span><span class="say">💬 呜…出错了（错误类型）</span></p>
+    <code>ANIMS.apiError</code>
+  </div>
+  <div class="thumbs"><figure title="dev_bsod · 2.4s"><img loading="lazy" src="../ui/assets/clawd/dev_bsod.gif" alt=""><figcaption>蓝屏了</figcaption></figure></div>
+</div>
+<h3>完成</h3>
+<div class="row">
+  <div class="info">
+    <h4>Claude 答完了</h4>
+    <p><code>Stop</code>，耗时不到 5 分钟。气泡总会弹；动画只在没有别的会话在忙时播。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.8–3.8 秒</span><span class="say">💬 项目名 搞定啦～</span></p>
+    <code>ANIMS.done</code>
+  </div>
+  <div class="thumbs"><figure title="dev_ship_it · 2.8s"><img loading="lazy" src="../ui/assets/clawd/dev_ship_it.gif" alt=""><figcaption>打包发货</figcaption></figure><figure title="emo_victory_dance · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_victory_dance.gif" alt=""><figcaption>胜利之舞</figcaption></figure><figure title="dev_lgtm · 1.9s"><img loading="lazy" src="../ui/assets/clawd/dev_lgtm.gif" alt=""><figcaption>盖章通过</figcaption></figure><figure title="emo_thumbs_up · 1.6s"><img loading="lazy" src="../ui/assets/clawd/emo_thumbs_up.gif" alt=""><figcaption>点个赞</figcaption></figure><figure title="dev_pr_merged · 3.1s"><img loading="lazy" src="../ui/assets/clawd/dev_pr_merged.gif" alt=""><figcaption>顶开合并</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>长任务完成</h4>
+    <p><code>Stop</code>，耗时 5 分钟以上。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4–6.4 秒</span><span class="say">💬 项目名 跑了 N 分钟，终于搞定啦！</span></p>
+    <code>ANIMS.bigDone</code>
+  </div>
+  <div class="thumbs"><figure title="dev_deploy_rocket · 3.2s"><img loading="lazy" src="../ui/assets/clawd/dev_deploy_rocket.gif" alt=""><figcaption>发射上线</figcaption></figure><figure title="emo_joy_burst · 2.0s"><img loading="lazy" src="../ui/assets/clawd/emo_joy_burst.gif" alt=""><figcaption>开心炸裂</figcaption></figure><figure title="sport_podium · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sport_podium.gif" alt=""><figcaption>领奖台</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>睡眠时段里完成</h4>
+    <p><code>Stop</code> 时正处在睡眠时段。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4 秒</span><span class="say">💬 项目名 搞定…困了 💤</span></p>
+    <code>ANIMS.sleepyDone</code>
+  </div>
+  <div class="thumbs"><figure title="emo_yawn · 4.0s"><img loading="lazy" src="../ui/assets/clawd/emo_yawn.gif" alt=""><figcaption>打哈欠</figcaption></figure></div>
+</div>
+<div class="note">完成之后的余韵：任务跑了 1 分钟以上，它会开心 3 分钟；长任务完成会得意 5 分钟（见「它自己的生活 → 情绪」）。如果完成时键鼠已经一阵没动静，「搞定啦」的气泡会一直留着，等你碰了电脑它再提醒一次「已经搞定啦，快去看看～」。</div>
+<div class="note">没有动画的情况：按 Esc 中断不会触发 <code>Stop</code>，桌宠要等约 1 分钟后的 idle_prompt 通知才回到待命；会话超过 30 分钟没有任何事件，也会当作已结束。</div></section>
+<section id="life"><h2>二、它自己的生活</h2><p class="intro">Claude 没活给它的时候，它过自己的日子：演完一个<b>场景</b>，歇一会儿，再演下一个。一个场景由一到几个动画按顺序接成（图里的箭头就是顺序），循环的那几步平分 20–50 秒，标了 ×N 的只播 N 遍；只有一个动画的场景播 20–30 秒。歇多久由「活跃度」决定：悠闲 30–70 秒（约三分之一时间在活动），活泼 10–25 秒（约六成），闹腾 3–8 秒（约八成），安静则只待着不演场景。任何别的事（Claude 开工、你逗它、系统事件）都会打断当前场景，之后至少安静 6 秒再接着过日子。</p><h3>下一个场景怎么抽</h3>
+<div class="note">按下表的权重抽一个种类，再从这个种类里挑一个最近没演过的场景。两行权重分别对应<b>你在用电脑</b>和<b>键鼠一阵没动静</b>（你可能走开了，也可能在看视频）：后一种情况下它更爱运动和变装，同时会无聊、想你。小字是平常时段里的占比。<table class="weights">
+<tr><th>场景种类</th><td>作息</td><td>爱好</td><td>音乐</td><td>运动</td><td>角色扮演</td><td>家务</td><td>折腾小项目</td><td>当季</td><td>小意外</td><td>随机惊喜</td><td>情绪（有情绪时）</td><td>节日（当天）</td></tr>
+<tr><th>你在用电脑时</th><td>30<small>32%</small></td><td>14<small>15%</small></td><td>8<small>8%</small></td><td>10<small>11%</small></td><td>8<small>8%</small></td><td>6<small>6%</small></td><td>4<small>4%</small></td><td>10<small>11%</small></td><td>2<small>2%</small></td><td>3<small>3%</small></td><td>30</td><td>40</td></tr>
+<tr><th>一阵没操作时</th><td>18<small>18%</small></td><td>10<small>10%</small></td><td>10<small>10%</small></td><td>20<small>20%</small></td><td>20<small>20%</small></td><td>5<small>5%</small></td><td>3<small>3%</small></td><td>10<small>10%</small></td><td>3<small>3%</small></td><td>3<small>3%</small></td><td>30</td><td>40</td></tr>
+</table>
+    <ul>
+      <li><b>看时间</b>：每个作息时段会把某些种类调多或调少（写在下面每个时段里），比如傍晚运动 ×1.8、深夜不运动。</li>
+      <li><b>有连续性</b>：演完爱好、音乐、运动、角色扮演、家务、小项目里的一种，有 40% 的可能接着演同一种（最多连 3 个），所以会出现「连着练几项」「连换几套衣服」。</li>
+      <li><b>有开场</b>：开始运动先热身拉伸一遍，开始变装先转圈传送一遍；接着演同一种时不再重复。</li>
+    </ul></div>
+<div class="row">
+  <div class="info">
+    <h4>开场动作</h4>
+    <p>见上面第三条，各播一遍。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span></p>
+    <code>SCENE_INTRO</code>
+  </div>
+  <div class="thumbs"><figure title="sport_warmup · 2.5s"><img loading="lazy" src="../ui/assets/clawd/sport_warmup.gif" alt=""><figcaption>热身拉伸</figcaption></figure><figure title="teleport · 1.8s"><img loading="lazy" src="../ui/assets/clawd/teleport.gif" alt=""><figcaption>转圈传送</figcaption></figure></div>
+</div>
+<h3>歇着和小动作</h3>
+<div class="row">
+  <div class="info">
+    <h4>两个场景之间歇着</h4>
+    <p>每次歇下来换一个姿势。有情绪时换成那种情绪的姿势（见下面「情绪」）。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.idle</code>
+  </div>
+  <div class="thumbs"><figure title="tea_sip · 2.0s"><img loading="lazy" src="../ui/assets/clawd/tea_sip.gif" alt=""><figcaption>抿一口茶</figcaption></figure><figure title="vibe_nod · 1.2s"><img loading="lazy" src="../ui/assets/clawd/vibe_nod.gif" alt=""><figcaption>戴耳机点头</figcaption></figure><figure title="desk_coffee · 1.6s"><img loading="lazy" src="../ui/assets/clawd/desk_coffee.gif" alt=""><figcaption>书桌喝咖啡</figcaption></figure><figure title="read_glasses · 2.7s"><img loading="lazy" src="../ui/assets/clawd/read_glasses.gif" alt=""><figcaption>戴眼镜看书</figcaption></figure><figure title="emo_meditate · 2.6s"><img loading="lazy" src="../ui/assets/clawd/emo_meditate.gif" alt=""><figcaption>冥想平静</figcaption></figure><figure title="bubble_wand · 1.8s"><img loading="lazy" src="../ui/assets/clawd/bubble_wand.gif" alt=""><figcaption>吹泡泡</figcaption></figure><figure title="life_goldfish · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_goldfish.gif" alt=""><figcaption>看金鱼</figcaption></figure><figure title="fidget_spinner · 0.7s"><img loading="lazy" src="../ui/assets/clawd/fidget_spinner.gif" alt=""><figcaption>指尖陀螺</figcaption></figure><figure title="emo_daydream · 3.6s"><img loading="lazy" src="../ui/assets/clawd/emo_daydream.gif" alt=""><figcaption>发白日梦</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>小动作</h4>
+    <p>没有特别情绪时，轮到演场景有 30% 的可能改成只来一个小动作，然后少歇一半时间。不会连着来两个。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">1.6–2.9 秒</span></p>
+    <code>QUIRKS</code>
+  </div>
+  <div class="thumbs"><figure title="turn_around · 2.0s"><img loading="lazy" src="../ui/assets/clawd/turn_around.gif" alt=""><figcaption>转身看看</figcaption></figure><figure title="emo_hiccup · 1.4s"><img loading="lazy" src="../ui/assets/clawd/emo_hiccup.gif" alt=""><figcaption>打嗝</figcaption></figure><figure title="emo_sneeze · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_sneeze.gif" alt=""><figcaption>打喷嚏</figcaption></figure><figure title="emo_confused · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_confused.gif" alt=""><figcaption>一脸问号</figcaption></figure><figure title="idea_ding · 1.6s"><img loading="lazy" src="../ui/assets/clawd/idea_ding.gif" alt=""><figcaption>灯泡点亮</figcaption></figure><figure title="emo_mischief · 1.4s"><img loading="lazy" src="../ui/assets/clawd/emo_mischief.gif" alt=""><figcaption>坏笑搓手</figcaption></figure><figure title="emo_giggle · 0.9s"><img loading="lazy" src="../ui/assets/clawd/emo_giggle.gif" alt=""><figcaption>捂嘴偷笑</figcaption></figure><figure title="emo_wink · 1.4s"><img loading="lazy" src="../ui/assets/clawd/emo_wink.gif" alt=""><figcaption>眨眼放电</figcaption></figure><figure title="stretch_tall · 1.3s"><img loading="lazy" src="../ui/assets/clawd/stretch_tall.gif" alt=""><figcaption>拉长跳</figcaption></figure><figure title="emo_mind_blown · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_mind_blown.gif" alt=""><figcaption>脑洞大开</figcaption></figure><figure title="emo_mood_swings · 2.1s"><img loading="lazy" src="../ui/assets/clawd/emo_mood_swings.gif" alt=""><figcaption>情绪多变</figcaption></figure><figure title="desk_flail · 1.4s"><img loading="lazy" src="../ui/assets/clawd/desk_flail.gif" alt=""><figcaption>从椅子上蹦起</figcaption></figure><figure title="emo_awe · 2.1s"><img loading="lazy" src="../ui/assets/clawd/emo_awe.gif" alt=""><figcaption>惊叹</figcaption></figure><figure title="emo_jiayou · 1.4s"><img loading="lazy" src="../ui/assets/clawd/emo_jiayou.gif" alt=""><figcaption>加油!</figcaption></figure></div>
+</div>
+<h3>作息：一天九个时段</h3>
+<div class="row">
+  <div class="info">
+    <h4>06:30–09:00 早晨</h4>
+    <p>这个时段的专属场景。这段时间：运动 ×1.4、家务 ×1.3、角色扮演 ×0.6。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>ROUTINE[0] · 早晨</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="life_brush_teeth · 1.3s"><img loading="lazy" src="../ui/assets/clawd/life_brush_teeth.gif" alt=""><figcaption>刷牙</figcaption></figure><span class="arrow">→</span><figure title="life_shower_sing · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_shower_sing.gif" alt=""><figcaption>洗澡唱歌</figcaption></figure><span class="arrow">→</span><figure title="life_hair_dryer · 1.2s"><img loading="lazy" src="../ui/assets/clawd/life_hair_dryer.gif" alt=""><figcaption>吹风机</figcaption></figure></div><div class="scene"><figure title="life_toast_pop · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_toast_pop.gif" alt=""><figcaption>吐司弹起来</figcaption></figure><span class="arrow">→</span><figure title="desk_coffee · 1.6s"><img loading="lazy" src="../ui/assets/clawd/desk_coffee.gif" alt=""><figcaption>书桌喝咖啡</figcaption></figure></div><div class="scene"><figure title="life_cereal_pour · 2.9s"><img loading="lazy" src="../ui/assets/clawd/life_cereal_pour.gif" alt=""><figcaption>倒麦片</figcaption></figure><span class="arrow">→</span><figure title="life_smoothie_blend · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_smoothie_blend.gif" alt=""><figcaption>榨果昔</figcaption></figure></div><div class="scene"><figure title="chef_arrives · 2.4s"><img loading="lazy" src="../ui/assets/clawd/chef_arrives.gif" alt=""><figcaption>跳进厨房戴帽子 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="cook_egg · 1.6s"><img loading="lazy" src="../ui/assets/clawd/cook_egg.gif" alt=""><figcaption>煎鸡蛋</figcaption></figure><span class="arrow">→</span><figure title="cook_pancake · 1.6s"><img loading="lazy" src="../ui/assets/clawd/cook_pancake.gif" alt=""><figcaption>翻松饼</figcaption></figure></div><div class="scene"><figure title="sport_warmup · 2.5s"><img loading="lazy" src="../ui/assets/clawd/sport_warmup.gif" alt=""><figcaption>热身拉伸</figcaption></figure><span class="arrow">→</span><figure title="sport_jogging · 1.6s"><img loading="lazy" src="../ui/assets/clawd/sport_jogging.gif" alt=""><figcaption>晨跑</figcaption></figure><span class="arrow">→</span><figure title="stretch_tall · 1.3s"><img loading="lazy" src="../ui/assets/clawd/stretch_tall.gif" alt=""><figcaption>拉长跳</figcaption></figure></div><div class="scene"><figure title="sea_day_night · 3.9s"><img loading="lazy" src="../ui/assets/clawd/sea_day_night.gif" alt=""><figcaption>日出日落</figcaption></figure></div><div class="scene"><figure title="life_water_plant · 3.0s"><img loading="lazy" src="../ui/assets/clawd/life_water_plant.gif" alt=""><figcaption>浇花</figcaption></figure></div><div class="scene"><figure title="life_window_wipe · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_window_wipe.gif" alt=""><figcaption>擦窗画爱心</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>09:00–11:30 上午</h4>
+    <p>这个时段的专属场景。这段时间：折腾小项目 ×2、运动 ×1.2。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>ROUTINE[1] · 上午</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="emo_jiayou · 1.4s"><img loading="lazy" src="../ui/assets/clawd/emo_jiayou.gif" alt=""><figcaption>加油!</figcaption></figure><span class="arrow">→</span><figure title="emo_determined · 1.2s"><img loading="lazy" src="../ui/assets/clawd/emo_determined.gif" alt=""><figcaption>斗志燃烧</figcaption></figure></div><div class="scene"><figure title="dev_todo · 3.1s"><img loading="lazy" src="../ui/assets/clawd/dev_todo.gif" alt=""><figcaption>待办打勾</figcaption></figure></div><div class="scene"><figure title="dev_inbox_zero · 3.3s"><img loading="lazy" src="../ui/assets/clawd/dev_inbox_zero.gif" alt=""><figcaption>清空收件箱</figcaption></figure></div><div class="scene"><figure title="dev_slide_chart · 3.1s"><img loading="lazy" src="../ui/assets/clawd/dev_slide_chart.gif" alt=""><figcaption>汇报图表</figcaption></figure></div><div class="scene"><figure title="cos_teacher_chalk · 2.8s"><img loading="lazy" src="../ui/assets/clawd/cos_teacher_chalk.gif" alt=""><figcaption>老师写黑板</figcaption></figure></div><div class="scene"><figure title="read_glasses · 2.7s"><img loading="lazy" src="../ui/assets/clawd/read_glasses.gif" alt=""><figcaption>戴眼镜看书</figcaption></figure></div><div class="scene"><figure title="life_crossword · 2.4s"><img loading="lazy" src="../ui/assets/clawd/life_crossword.gif" alt=""><figcaption>填字游戏</figcaption></figure></div><div class="scene"><figure title="desk_coffee · 1.6s"><img loading="lazy" src="../ui/assets/clawd/desk_coffee.gif" alt=""><figcaption>书桌喝咖啡</figcaption></figure></div><div class="scene"><figure title="life_post_letter · 3.0s"><img loading="lazy" src="../ui/assets/clawd/life_post_letter.gif" alt=""><figcaption>寄信</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>11:30–13:00 午饭</h4>
+    <p>这个时段的专属场景。这段时间：运动 ×0.5。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>ROUTINE[2] · 午饭</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="chef_arrives · 2.4s"><img loading="lazy" src="../ui/assets/clawd/chef_arrives.gif" alt=""><figcaption>跳进厨房戴帽子 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="cook_veggies · 1.6s"><img loading="lazy" src="../ui/assets/clawd/cook_veggies.gif" alt=""><figcaption>颠锅炒青菜</figcaption></figure><span class="arrow">→</span><figure title="stir_soup · 1.2s"><img loading="lazy" src="../ui/assets/clawd/stir_soup.gif" alt=""><figcaption>搅汤</figcaption></figure><span class="arrow">→</span><figure title="life_noodle_slurp · 1.6s"><img loading="lazy" src="../ui/assets/clawd/life_noodle_slurp.gif" alt=""><figcaption>吸溜面条</figcaption></figure></div><div class="scene"><figure title="life_dumpling_steam · 2.0s"><img loading="lazy" src="../ui/assets/clawd/life_dumpling_steam.gif" alt=""><figcaption>揭笼屉</figcaption></figure><span class="arrow">→</span><figure title="life_wash_dishes · 1.9s"><img loading="lazy" src="../ui/assets/clawd/life_wash_dishes.gif" alt=""><figcaption>洗碗</figcaption></figure></div><div class="scene"><figure title="life_burger_stack · 2.4s"><img loading="lazy" src="../ui/assets/clawd/life_burger_stack.gif" alt=""><figcaption>叠汉堡</figcaption></figure><span class="arrow">→</span><figure title="life_soda_fizz · 1.8s"><img loading="lazy" src="../ui/assets/clawd/life_soda_fizz.gif" alt=""><figcaption>摇汽水</figcaption></figure></div><div class="scene"><figure title="life_microwave_wait · 2.6s"><img loading="lazy" src="../ui/assets/clawd/life_microwave_wait.gif" alt=""><figcaption>等微波炉</figcaption></figure><span class="arrow">→</span><figure title="life_pizza_munch · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_pizza_munch.gif" alt=""><figcaption>大口吃披萨</figcaption></figure></div><div class="scene"><figure title="life_fridge_raid · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_fridge_raid.gif" alt=""><figcaption>偷吃冰箱</figcaption></figure><span class="arrow">→</span><figure title="life_noodle_slurp · 1.6s"><img loading="lazy" src="../ui/assets/clawd/life_noodle_slurp.gif" alt=""><figcaption>吸溜面条</figcaption></figure></div><div class="scene"><figure title="life_sushi_belt · 2.4s"><img loading="lazy" src="../ui/assets/clawd/life_sushi_belt.gif" alt=""><figcaption>回转寿司</figcaption></figure></div><div class="scene"><figure title="life_wash_dishes · 1.9s"><img loading="lazy" src="../ui/assets/clawd/life_wash_dishes.gif" alt=""><figcaption>洗碗</figcaption></figure><span class="arrow">→</span><figure title="life_trash_out · 3.4s"><img loading="lazy" src="../ui/assets/clawd/life_trash_out.gif" alt=""><figcaption>倒垃圾</figcaption></figure></div><div class="scene"><figure title="life_apple_crunch · 1.6s"><img loading="lazy" src="../ui/assets/clawd/life_apple_crunch.gif" alt=""><figcaption>咔嚓啃苹果</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>13:00–14:00 午后</h4>
+    <p>这个时段的专属场景。这段时间：运动 ×0.3、音乐 ×0.6、角色扮演 ×0.6。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>ROUTINE[3] · 午后</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="emo_yawn · 4.0s"><img loading="lazy" src="../ui/assets/clawd/emo_yawn.gif" alt=""><figcaption>打哈欠 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="emo_daydream · 3.6s"><img loading="lazy" src="../ui/assets/clawd/emo_daydream.gif" alt=""><figcaption>发白日梦</figcaption></figure></div><div class="scene"><figure title="tea_sip · 2.0s"><img loading="lazy" src="../ui/assets/clawd/tea_sip.gif" alt=""><figcaption>抿一口茶</figcaption></figure></div><div class="scene"><figure title="life_goldfish · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_goldfish.gif" alt=""><figcaption>看金鱼</figcaption></figure><span class="arrow">→</span><figure title="life_feed_pet · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_feed_pet.gif" alt=""><figcaption>喂小宠物</figcaption></figure></div><div class="scene"><figure title="emo_meditate · 2.6s"><img loading="lazy" src="../ui/assets/clawd/emo_meditate.gif" alt=""><figcaption>冥想平静</figcaption></figure></div><div class="scene"><figure title="armchair_arrive · 2.4s"><img loading="lazy" src="../ui/assets/clawd/armchair_arrive.gif" alt=""><figcaption>跳上扶手椅 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="read_glasses · 2.7s"><img loading="lazy" src="../ui/assets/clawd/read_glasses.gif" alt=""><figcaption>戴眼镜看书</figcaption></figure></div><div class="scene"><figure title="life_knit_scarf · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_knit_scarf.gif" alt=""><figcaption>织围巾</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>14:00–16:30 下午茶</h4>
+    <p>这个时段的专属场景。这段时间：运动 ×1.2。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>ROUTINE[4] · 下午茶</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="life_boba_straw · 1.8s"><img loading="lazy" src="../ui/assets/clawd/life_boba_straw.gif" alt=""><figcaption>珍珠奶茶</figcaption></figure></div><div class="scene"><figure title="tea_sip · 2.0s"><img loading="lazy" src="../ui/assets/clawd/tea_sip.gif" alt=""><figcaption>抿一口茶</figcaption></figure><span class="arrow">→</span><figure title="tea_talk · 2.9s"><img loading="lazy" src="../ui/assets/clawd/tea_talk.gif" alt=""><figcaption>喝茶聊天</figcaption></figure></div><div class="scene"><figure title="life_cookie_jar · 3.5s"><img loading="lazy" src="../ui/assets/clawd/life_cookie_jar.gif" alt=""><figcaption>偷拿饼干</figcaption></figure><span class="arrow">→</span><figure title="life_cake_strawberry · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_cake_strawberry.gif" alt=""><figcaption>先吃草莓</figcaption></figure></div><div class="scene"><figure title="life_donut_toss · 1.7s"><img loading="lazy" src="../ui/assets/clawd/life_donut_toss.gif" alt=""><figcaption>甜甜圈套圈</figcaption></figure></div><div class="scene"><figure title="life_jelly_wobble · 1.8s"><img loading="lazy" src="../ui/assets/clawd/life_jelly_wobble.gif" alt=""><figcaption>戳果冻</figcaption></figure></div><div class="scene"><figure title="life_smoothie_blend · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_smoothie_blend.gif" alt=""><figcaption>榨果昔</figcaption></figure></div><div class="scene"><figure title="desk_coffee · 1.6s"><img loading="lazy" src="../ui/assets/clawd/desk_coffee.gif" alt=""><figcaption>书桌喝咖啡</figcaption></figure></div><div class="scene"><figure title="life_apple_crunch · 1.6s"><img loading="lazy" src="../ui/assets/clawd/life_apple_crunch.gif" alt=""><figcaption>咔嚓啃苹果</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>16:30–17:30 傍晚</h4>
+    <p>这个时段的专属场景。这段时间：运动 ×1.8、家务 ×1.3。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>ROUTINE[5] · 傍晚</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="sport_jogging · 1.6s"><img loading="lazy" src="../ui/assets/clawd/sport_jogging.gif" alt=""><figcaption>晨跑</figcaption></figure><span class="arrow">→</span><figure title="sport_cycling · 0.7s"><img loading="lazy" src="../ui/assets/clawd/sport_cycling.gif" alt=""><figcaption>骑自行车</figcaption></figure></div><div class="scene"><figure title="sport_frisbee · 3.6s"><img loading="lazy" src="../ui/assets/clawd/sport_frisbee.gif" alt=""><figcaption>飞盘传接</figcaption></figure></div><div class="scene"><figure title="life_water_plant · 3.0s"><img loading="lazy" src="../ui/assets/clawd/life_water_plant.gif" alt=""><figcaption>浇花</figcaption></figure><span class="arrow">→</span><figure title="life_carrot_pull · 2.4s"><img loading="lazy" src="../ui/assets/clawd/life_carrot_pull.gif" alt=""><figcaption>拔萝卜</figcaption></figure></div><div class="scene"><figure title="life_fishing · 2.6s"><img loading="lazy" src="../ui/assets/clawd/life_fishing.gif" alt=""><figcaption>钓鱼</figcaption></figure></div><div class="scene"><figure title="life_photo_polaroid · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_photo_polaroid.gif" alt=""><figcaption>拍立得</figcaption></figure></div><div class="scene"><figure title="picnic_basket · 2.1s"><img loading="lazy" src="../ui/assets/clawd/picnic_basket.gif" alt=""><figcaption>提野餐篮</figcaption></figure></div><div class="scene"><figure title="sea_day_night · 3.9s"><img loading="lazy" src="../ui/assets/clawd/sea_day_night.gif" alt=""><figcaption>日出日落</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>17:30–19:30 晚饭</h4>
+    <p>这个时段的专属场景。这段时间：运动 ×0.5。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>ROUTINE[6] · 晚饭</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="life_fridge_raid · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_fridge_raid.gif" alt=""><figcaption>偷吃冰箱</figcaption></figure><span class="arrow">→</span><figure title="chef_arrives · 2.4s"><img loading="lazy" src="../ui/assets/clawd/chef_arrives.gif" alt=""><figcaption>跳进厨房戴帽子 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="cook_veggies · 1.6s"><img loading="lazy" src="../ui/assets/clawd/cook_veggies.gif" alt=""><figcaption>颠锅炒青菜</figcaption></figure><span class="arrow">→</span><figure title="stir_soup · 1.2s"><img loading="lazy" src="../ui/assets/clawd/stir_soup.gif" alt=""><figcaption>搅汤</figcaption></figure></div><div class="scene"><figure title="life_dumpling_steam · 2.0s"><img loading="lazy" src="../ui/assets/clawd/life_dumpling_steam.gif" alt=""><figcaption>揭笼屉</figcaption></figure></div><div class="scene"><figure title="life_sushi_belt · 2.4s"><img loading="lazy" src="../ui/assets/clawd/life_sushi_belt.gif" alt=""><figcaption>回转寿司</figcaption></figure></div><div class="scene"><figure title="life_pizza_munch · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_pizza_munch.gif" alt=""><figcaption>大口吃披萨</figcaption></figure><span class="arrow">→</span><figure title="life_soda_fizz · 1.8s"><img loading="lazy" src="../ui/assets/clawd/life_soda_fizz.gif" alt=""><figcaption>摇汽水</figcaption></figure></div><div class="scene"><figure title="life_noodle_slurp · 1.6s"><img loading="lazy" src="../ui/assets/clawd/life_noodle_slurp.gif" alt=""><figcaption>吸溜面条</figcaption></figure><span class="arrow">→</span><figure title="life_wash_dishes · 1.9s"><img loading="lazy" src="../ui/assets/clawd/life_wash_dishes.gif" alt=""><figcaption>洗碗</figcaption></figure></div><div class="scene"><figure title="life_burger_stack · 2.4s"><img loading="lazy" src="../ui/assets/clawd/life_burger_stack.gif" alt=""><figcaption>叠汉堡</figcaption></figure></div><div class="scene"><figure title="life_wash_dishes · 1.9s"><img loading="lazy" src="../ui/assets/clawd/life_wash_dishes.gif" alt=""><figcaption>洗碗</figcaption></figure><span class="arrow">→</span><figure title="life_trash_out · 3.4s"><img loading="lazy" src="../ui/assets/clawd/life_trash_out.gif" alt=""><figcaption>倒垃圾</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>19:30–22:30 晚间</h4>
+    <p>这个时段的专属场景。这段时间：音乐 ×1.8、角色扮演 ×1.4、运动 ×0.5、家务 ×0.5。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>ROUTINE[7] · 晚间</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="walk_in · 2.6s"><img loading="lazy" src="../ui/assets/clawd/walk_in.gif" alt=""><figcaption>走进房间 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="life_tv_remote · 2.6s"><img loading="lazy" src="../ui/assets/clawd/life_tv_remote.gif" alt=""><figcaption>换台</figcaption></figure><span class="arrow">→</span><figure title="life_popcorn_catch · 1.3s"><img loading="lazy" src="../ui/assets/clawd/life_popcorn_catch.gif" alt=""><figcaption>接爆米花</figcaption></figure></div><div class="scene"><figure title="life_video_game · 1.3s"><img loading="lazy" src="../ui/assets/clawd/life_video_game.gif" alt=""><figcaption>打游戏</figcaption></figure></div><div class="scene"><figure title="life_karaoke · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_karaoke.gif" alt=""><figcaption>卡拉OK</figcaption></figure></div><div class="scene"><figure title="armchair_arrive · 2.4s"><img loading="lazy" src="../ui/assets/clawd/armchair_arrive.gif" alt=""><figcaption>跳上扶手椅 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="read_glasses · 2.7s"><img loading="lazy" src="../ui/assets/clawd/read_glasses.gif" alt=""><figcaption>戴眼镜看书</figcaption></figure></div><div class="scene"><figure title="life_jigsaw · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_jigsaw.gif" alt=""><figcaption>拼图</figcaption></figure></div><div class="scene"><figure title="life_crossword · 2.4s"><img loading="lazy" src="../ui/assets/clawd/life_crossword.gif" alt=""><figcaption>填字游戏</figcaption></figure></div><div class="scene"><figure title="life_knit_scarf · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_knit_scarf.gif" alt=""><figcaption>织围巾</figcaption></figure></div><div class="scene"><figure title="life_bubble_bath · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_bubble_bath.gif" alt=""><figcaption>泡泡浴</figcaption></figure><span class="arrow">→</span><figure title="life_hair_dryer · 1.2s"><img loading="lazy" src="../ui/assets/clawd/life_hair_dryer.gif" alt=""><figcaption>吹风机</figcaption></figure></div><div class="scene"><figure title="sea_telescope · 2.5s"><img loading="lazy" src="../ui/assets/clawd/sea_telescope.gif" alt=""><figcaption>望远镜观星</figcaption></figure><span class="arrow">→</span><figure title="emo_wish_star · 2.1s"><img loading="lazy" src="../ui/assets/clawd/emo_wish_star.gif" alt=""><figcaption>对流星许愿</figcaption></figure></div><div class="scene"><figure title="life_phone_call · 2.5s"><img loading="lazy" src="../ui/assets/clawd/life_phone_call.gif" alt=""><figcaption>打电话</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>22:30–06:30 深夜</h4>
+    <p>这个时段的专属场景。这段时间：不运动、不家务、音乐 ×0.3、角色扮演 ×0.4、小意外 ×0.5。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>ROUTINE[8] · 深夜</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="sea_telescope · 2.5s"><img loading="lazy" src="../ui/assets/clawd/sea_telescope.gif" alt=""><figcaption>望远镜观星</figcaption></figure><span class="arrow">→</span><figure title="emo_wish_star · 2.1s"><img loading="lazy" src="../ui/assets/clawd/emo_wish_star.gif" alt=""><figcaption>对流星许愿</figcaption></figure></div><div class="scene"><figure title="life_fridge_raid · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_fridge_raid.gif" alt=""><figcaption>偷吃冰箱</figcaption></figure></div><div class="scene"><figure title="sea_hot_cocoa · 2.7s"><img loading="lazy" src="../ui/assets/clawd/sea_hot_cocoa.gif" alt=""><figcaption>窗边热可可</figcaption></figure></div><div class="scene"><figure title="life_brush_teeth · 1.3s"><img loading="lazy" src="../ui/assets/clawd/life_brush_teeth.gif" alt=""><figcaption>刷牙</figcaption></figure><span class="arrow">→</span><figure title="emo_yawn · 4.0s"><img loading="lazy" src="../ui/assets/clawd/emo_yawn.gif" alt=""><figcaption>打哈欠 <b>×1</b></figcaption></figure></div><div class="scene"><figure title="emo_meditate · 2.6s"><img loading="lazy" src="../ui/assets/clawd/emo_meditate.gif" alt=""><figcaption>冥想平静</figcaption></figure></div><div class="scene"><figure title="read_glasses · 2.7s"><img loading="lazy" src="../ui/assets/clawd/read_glasses.gif" alt=""><figcaption>戴眼镜看书</figcaption></figure></div><div class="scene"><figure title="emo_yawn · 4.0s"><img loading="lazy" src="../ui/assets/clawd/emo_yawn.gif" alt=""><figcaption>打哈欠 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="emo_daydream · 3.6s"><img loading="lazy" src="../ui/assets/clawd/emo_daydream.gif" alt=""><figcaption>发白日梦</figcaption></figure></div></div>
+</div>
+<h3>随时可能做的事</h3>
+<div class="row">
+  <div class="info">
+    <h4>爱好</h4>
+    <p>画画、钓鱼、拍照、折纸、拼图这些随时都可能做的小爱好。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>LIFE.hobby</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="life_paint_easel · 3.1s"><img loading="lazy" src="../ui/assets/clawd/life_paint_easel.gif" alt=""><figcaption>画画</figcaption></figure></div><div class="scene"><figure title="life_photo_polaroid · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_photo_polaroid.gif" alt=""><figcaption>拍立得</figcaption></figure><span class="arrow">→</span><figure title="life_selfie · 1.8s"><img loading="lazy" src="../ui/assets/clawd/life_selfie.gif" alt=""><figcaption>自拍</figcaption></figure></div><div class="scene"><figure title="life_fishing · 2.6s"><img loading="lazy" src="../ui/assets/clawd/life_fishing.gif" alt=""><figcaption>钓鱼</figcaption></figure></div><div class="scene"><figure title="life_origami_crane · 2.6s"><img loading="lazy" src="../ui/assets/clawd/life_origami_crane.gif" alt=""><figcaption>折纸鹤</figcaption></figure></div><div class="scene"><figure title="life_feed_pet · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_feed_pet.gif" alt=""><figcaption>喂小宠物</figcaption></figure><span class="arrow">→</span><figure title="life_goldfish · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_goldfish.gif" alt=""><figcaption>看金鱼</figcaption></figure></div><div class="scene"><figure title="bubble_wand · 1.8s"><img loading="lazy" src="../ui/assets/clawd/bubble_wand.gif" alt=""><figcaption>吹泡泡</figcaption></figure><span class="arrow">→</span><figure title="bubble_big · 1.6s"><img loading="lazy" src="../ui/assets/clawd/bubble_big.gif" alt=""><figcaption>吹大泡泡</figcaption></figure></div><div class="scene"><figure title="fidget_spinner · 0.7s"><img loading="lazy" src="../ui/assets/clawd/fidget_spinner.gif" alt=""><figcaption>指尖陀螺</figcaption></figure><span class="arrow">→</span><figure title="spinner_head · 0.7s"><img loading="lazy" src="../ui/assets/clawd/spinner_head.gif" alt=""><figcaption>头顶陀螺</figcaption></figure></div><div class="scene"><figure title="life_yoyo · 1.6s"><img loading="lazy" src="../ui/assets/clawd/life_yoyo.gif" alt=""><figcaption>玩溜溜球</figcaption></figure><span class="arrow">→</span><figure title="life_dice_roll · 1.9s"><img loading="lazy" src="../ui/assets/clawd/life_dice_roll.gif" alt=""><figcaption>掷骰子</figcaption></figure></div><div class="scene"><figure title="life_jigsaw · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_jigsaw.gif" alt=""><figcaption>拼图</figcaption></figure></div><div class="scene"><figure title="life_knit_scarf · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_knit_scarf.gif" alt=""><figcaption>织围巾</figcaption></figure></div><div class="scene"><figure title="life_post_letter · 3.0s"><img loading="lazy" src="../ui/assets/clawd/life_post_letter.gif" alt=""><figcaption>寄信</figcaption></figure></div><div class="scene"><figure title="life_carrot_pull · 2.4s"><img loading="lazy" src="../ui/assets/clawd/life_carrot_pull.gif" alt=""><figcaption>拔萝卜</figcaption></figure><span class="arrow">→</span><figure title="life_water_plant · 3.0s"><img loading="lazy" src="../ui/assets/clawd/life_water_plant.gif" alt=""><figcaption>浇花</figcaption></figure></div><div class="scene"><figure title="life_video_game · 1.3s"><img loading="lazy" src="../ui/assets/clawd/life_video_game.gif" alt=""><figcaption>打游戏</figcaption></figure></div><div class="scene"><figure title="life_cookie_jar · 3.5s"><img loading="lazy" src="../ui/assets/clawd/life_cookie_jar.gif" alt=""><figcaption>偷拿饼干</figcaption></figure></div><div class="scene"><figure title="life_popcorn_catch · 1.3s"><img loading="lazy" src="../ui/assets/clawd/life_popcorn_catch.gif" alt=""><figcaption>接爆米花</figcaption></figure></div><div class="scene"><figure title="stairs_climb · 1.8s"><img loading="lazy" src="../ui/assets/clawd/stairs_climb.gif" alt=""><figcaption>爬楼梯</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>音乐</h4>
+    <p>弹琴、打鼓、打碟、K 歌。晚间更常见，深夜很少。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>LIFE.music</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="guitar_rock · 1.0s"><img loading="lazy" src="../ui/assets/clawd/guitar_rock.gif" alt=""><figcaption>弹电吉他</figcaption></figure><span class="arrow">→</span><figure title="guitar_solo · 0.7s"><img loading="lazy" src="../ui/assets/clawd/guitar_solo.gif" alt=""><figcaption>吉他独奏</figcaption></figure><span class="arrow">→</span><figure title="rock_jump · 0.9s"><img loading="lazy" src="../ui/assets/clawd/rock_jump.gif" alt=""><figcaption>摇滚跳跃</figcaption></figure></div><div class="scene"><figure title="guitar_chill · 1.4s"><img loading="lazy" src="../ui/assets/clawd/guitar_chill.gif" alt=""><figcaption>木吉他弹唱</figcaption></figure></div><div class="scene"><figure title="life_piano · 1.6s"><img loading="lazy" src="../ui/assets/clawd/life_piano.gif" alt=""><figcaption>弹钢琴</figcaption></figure></div><div class="scene"><figure title="life_violin · 1.6s"><img loading="lazy" src="../ui/assets/clawd/life_violin.gif" alt=""><figcaption>拉小提琴</figcaption></figure></div><div class="scene"><figure title="life_drums · 0.9s"><img loading="lazy" src="../ui/assets/clawd/life_drums.gif" alt=""><figcaption>打鼓</figcaption></figure></div><div class="scene"><figure title="phones_on · 2.9s"><img loading="lazy" src="../ui/assets/clawd/phones_on.gif" alt=""><figcaption>戴上耳机 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="vibe_headphones · 1.7s"><img loading="lazy" src="../ui/assets/clawd/vibe_headphones.gif" alt=""><figcaption>戴耳机摇摆</figcaption></figure><span class="arrow">→</span><figure title="vibe_nod · 1.2s"><img loading="lazy" src="../ui/assets/clawd/vibe_nod.gif" alt=""><figcaption>戴耳机点头</figcaption></figure></div><div class="scene"><figure title="dj_deck · 1.0s"><img loading="lazy" src="../ui/assets/clawd/dj_deck.gif" alt=""><figcaption>打碟</figcaption></figure><span class="arrow">→</span><figure title="dj_vinyl · 2.1s"><img loading="lazy" src="../ui/assets/clawd/dj_vinyl.gif" alt=""><figcaption>举起黑胶</figcaption></figure></div><div class="scene"><figure title="cos_conductor_baton · 1.9s"><img loading="lazy" src="../ui/assets/clawd/cos_conductor_baton.gif" alt=""><figcaption>指挥家</figcaption></figure></div><div class="scene"><figure title="life_karaoke · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_karaoke.gif" alt=""><figcaption>卡拉OK</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>运动</h4>
+    <p>健身房、有氧、球类、运动会、武道、街头。早晨和傍晚更常见，饭点少，深夜不做。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>LIFE.sports</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="sport_dumbbell_curl · 1.9s"><img loading="lazy" src="../ui/assets/clawd/sport_dumbbell_curl.gif" alt=""><figcaption>哑铃弯举</figcaption></figure><span class="arrow">→</span><figure title="sport_barbell · 2.2s"><img loading="lazy" src="../ui/assets/clawd/sport_barbell.gif" alt=""><figcaption>举杠铃</figcaption></figure><span class="arrow">→</span><figure title="sport_pullups · 1.4s"><img loading="lazy" src="../ui/assets/clawd/sport_pullups.gif" alt=""><figcaption>引体向上</figcaption></figure></div><div class="scene"><figure title="sport_pushups · 1.4s"><img loading="lazy" src="../ui/assets/clawd/sport_pushups.gif" alt=""><figcaption>俯卧撑</figcaption></figure><span class="arrow">→</span><figure title="sport_squats · 1.6s"><img loading="lazy" src="../ui/assets/clawd/sport_squats.gif" alt=""><figcaption>背人深蹲</figcaption></figure><span class="arrow">→</span><figure title="sport_punch_bag · 1.4s"><img loading="lazy" src="../ui/assets/clawd/sport_punch_bag.gif" alt=""><figcaption>打沙袋</figcaption></figure></div><div class="scene"><figure title="sport_treadmill · 1.3s"><img loading="lazy" src="../ui/assets/clawd/sport_treadmill.gif" alt=""><figcaption>跑步机</figcaption></figure><span class="arrow">→</span><figure title="sport_rowing_machine · 1.3s"><img loading="lazy" src="../ui/assets/clawd/sport_rowing_machine.gif" alt=""><figcaption>划船机</figcaption></figure><span class="arrow">→</span><figure title="sport_tire_flip · 2.3s"><img loading="lazy" src="../ui/assets/clawd/sport_tire_flip.gif" alt=""><figcaption>翻轮胎</figcaption></figure></div><div class="scene"><figure title="sport_rope_climb · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sport_rope_climb.gif" alt=""><figcaption>爬绳敲钟</figcaption></figure></div><div class="scene"><figure title="sport_jump_rope · 0.7s"><img loading="lazy" src="../ui/assets/clawd/sport_jump_rope.gif" alt=""><figcaption>跳绳</figcaption></figure><span class="arrow">→</span><figure title="sport_jumping_jacks · 0.9s"><img loading="lazy" src="../ui/assets/clawd/sport_jumping_jacks.gif" alt=""><figcaption>开合跳</figcaption></figure><span class="arrow">→</span><figure title="sport_hula_hoop · 0.8s"><img loading="lazy" src="../ui/assets/clawd/sport_hula_hoop.gif" alt=""><figcaption>转呼啦圈</figcaption></figure></div><div class="scene"><figure title="sport_jogging · 1.6s"><img loading="lazy" src="../ui/assets/clawd/sport_jogging.gif" alt=""><figcaption>晨跑</figcaption></figure><span class="arrow">→</span><figure title="sport_cycling · 0.7s"><img loading="lazy" src="../ui/assets/clawd/sport_cycling.gif" alt=""><figcaption>骑自行车</figcaption></figure></div><div class="scene"><figure title="soccer_keepy · 1.5s"><img loading="lazy" src="../ui/assets/clawd/soccer_keepy.gif" alt=""><figcaption>颠足球</figcaption></figure><span class="arrow">→</span><figure title="soccer_header · 0.8s"><img loading="lazy" src="../ui/assets/clawd/soccer_header.gif" alt=""><figcaption>头顶球</figcaption></figure><span class="arrow">→</span><figure title="sport_goal_kick · 3.1s"><img loading="lazy" src="../ui/assets/clawd/sport_goal_kick.gif" alt=""><figcaption>射门得分</figcaption></figure><span class="arrow">→</span><figure title="sport_bicycle_kick · 2.9s"><img loading="lazy" src="../ui/assets/clawd/sport_bicycle_kick.gif" alt=""><figcaption>倒挂金钩</figcaption></figure></div><div class="scene"><figure title="sport_goalie_dive · 1.9s"><img loading="lazy" src="../ui/assets/clawd/sport_goalie_dive.gif" alt=""><figcaption>守门员扑救</figcaption></figure></div><div class="scene"><figure title="sport_ball_spin · 1.4s"><img loading="lazy" src="../ui/assets/clawd/sport_ball_spin.gif" alt=""><figcaption>指尖转球</figcaption></figure><span class="arrow">→</span><figure title="sport_crossover · 1.3s"><img loading="lazy" src="../ui/assets/clawd/sport_crossover.gif" alt=""><figcaption>胯下运球</figcaption></figure><span class="arrow">→</span><figure title="sport_dunk · 3.4s"><img loading="lazy" src="../ui/assets/clawd/sport_dunk.gif" alt=""><figcaption>扣篮</figcaption></figure></div><div class="scene"><figure title="sport_ping_pong · 1.1s"><img loading="lazy" src="../ui/assets/clawd/sport_ping_pong.gif" alt=""><figcaption>乒乓球对打</figcaption></figure><span class="arrow">→</span><figure title="sport_tennis_serve · 2.6s"><img loading="lazy" src="../ui/assets/clawd/sport_tennis_serve.gif" alt=""><figcaption>网球发球</figcaption></figure></div><div class="scene"><figure title="sport_baseball · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sport_baseball.gif" alt=""><figcaption>棒球全垒打</figcaption></figure></div><div class="scene"><figure title="sport_bowling · 2.9s"><img loading="lazy" src="../ui/assets/clawd/sport_bowling.gif" alt=""><figcaption>保龄球全中</figcaption></figure></div><div class="scene"><figure title="sport_golf_putt · 2.1s"><img loading="lazy" src="../ui/assets/clawd/sport_golf_putt.gif" alt=""><figcaption>高尔夫推杆</figcaption></figure></div><div class="scene"><figure title="sport_frisbee · 3.6s"><img loading="lazy" src="../ui/assets/clawd/sport_frisbee.gif" alt=""><figcaption>飞盘传接</figcaption></figure><span class="arrow">→</span><figure title="sport_dodgeball · 3.9s"><img loading="lazy" src="../ui/assets/clawd/sport_dodgeball.gif" alt=""><figcaption>躲避球</figcaption></figure></div><div class="scene"><figure title="sport_sprint_start · 3.0s"><img loading="lazy" src="../ui/assets/clawd/sport_sprint_start.gif" alt=""><figcaption>起跑冲刺</figcaption></figure><span class="arrow">→</span><figure title="sport_hurdles · 1.6s"><img loading="lazy" src="../ui/assets/clawd/sport_hurdles.gif" alt=""><figcaption>跨栏</figcaption></figure><span class="arrow">→</span><figure title="sport_finish_line · 2.5s"><img loading="lazy" src="../ui/assets/clawd/sport_finish_line.gif" alt=""><figcaption>冲过终点线</figcaption></figure><span class="arrow">→</span><figure title="sport_podium · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sport_podium.gif" alt=""><figcaption>领奖台 <b>×2</b></figcaption></figure></div><div class="scene"><figure title="sport_high_jump · 3.3s"><img loading="lazy" src="../ui/assets/clawd/sport_high_jump.gif" alt=""><figcaption>背越式跳高</figcaption></figure><span class="arrow">→</span><figure title="sport_shot_put · 2.7s"><img loading="lazy" src="../ui/assets/clawd/sport_shot_put.gif" alt=""><figcaption>推铅球</figcaption></figure></div><div class="scene"><figure title="sport_sack_race · 1.6s"><img loading="lazy" src="../ui/assets/clawd/sport_sack_race.gif" alt=""><figcaption>袋鼠跳</figcaption></figure><span class="arrow">→</span><figure title="sport_tug_of_war · 1.9s"><img loading="lazy" src="../ui/assets/clawd/sport_tug_of_war.gif" alt=""><figcaption>拔河</figcaption></figure><span class="arrow">→</span><figure title="sport_pom_poms · 1.9s"><img loading="lazy" src="../ui/assets/clawd/sport_pom_poms.gif" alt=""><figcaption>啦啦队花球</figcaption></figure></div><div class="scene"><figure title="sport_karate_chop · 2.3s"><img loading="lazy" src="../ui/assets/clawd/sport_karate_chop.gif" alt=""><figcaption>空手劈板</figcaption></figure><span class="arrow">→</span><figure title="sport_sumo_stomp · 2.7s"><img loading="lazy" src="../ui/assets/clawd/sport_sumo_stomp.gif" alt=""><figcaption>相扑踏步</figcaption></figure><span class="arrow">→</span><figure title="sport_fencing · 2.2s"><img loading="lazy" src="../ui/assets/clawd/sport_fencing.gif" alt=""><figcaption>击剑刺气球</figcaption></figure></div><div class="scene"><figure title="sport_yoga_tree · 2.6s"><img loading="lazy" src="../ui/assets/clawd/sport_yoga_tree.gif" alt=""><figcaption>瑜伽树式</figcaption></figure><span class="arrow">→</span><figure title="sport_splits · 2.1s"><img loading="lazy" src="../ui/assets/clawd/sport_splits.gif" alt=""><figcaption>劈叉</figcaption></figure><span class="arrow">→</span><figure title="sport_ballet · 2.1s"><img loading="lazy" src="../ui/assets/clawd/sport_ballet.gif" alt=""><figcaption>芭蕾旋转</figcaption></figure></div><div class="scene"><figure title="sport_headspin · 1.0s"><img loading="lazy" src="../ui/assets/clawd/sport_headspin.gif" alt=""><figcaption>霹雳舞头转</figcaption></figure><span class="arrow">→</span><figure title="sport_cartwheel · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sport_cartwheel.gif" alt=""><figcaption>侧手翻</figcaption></figure><span class="arrow">→</span><figure title="sport_limbo · 2.7s"><img loading="lazy" src="../ui/assets/clawd/sport_limbo.gif" alt=""><figcaption>林波舞钻杆</figcaption></figure></div><div class="scene"><figure title="sport_kickflip · 2.3s"><img loading="lazy" src="../ui/assets/clawd/sport_kickflip.gif" alt=""><figcaption>滑板尖翻</figcaption></figure><span class="arrow">→</span><figure title="sport_parkour · 2.0s"><img loading="lazy" src="../ui/assets/clawd/sport_parkour.gif" alt=""><figcaption>跑酷翻越</figcaption></figure><span class="arrow">→</span><figure title="sport_roller_skates · 2.1s"><img loading="lazy" src="../ui/assets/clawd/sport_roller_skates.gif" alt=""><figcaption>溜冰鞋摇晃</figcaption></figure></div><div class="scene"><figure title="sport_unicycle · 1.8s"><img loading="lazy" src="../ui/assets/clawd/sport_unicycle.gif" alt=""><figcaption>骑独轮车</figcaption></figure><span class="arrow">→</span><figure title="sport_juggling · 1.2s"><img loading="lazy" src="../ui/assets/clawd/sport_juggling.gif" alt=""><figcaption>抛球杂耍</figcaption></figure><span class="arrow">→</span><figure title="sport_pogo · 1.4s"><img loading="lazy" src="../ui/assets/clawd/sport_pogo.gif" alt=""><figcaption>弹簧高跷</figcaption></figure></div><div class="scene"><figure title="sport_trampoline · 1.6s"><img loading="lazy" src="../ui/assets/clawd/sport_trampoline.gif" alt=""><figcaption>蹦床空翻</figcaption></figure></div><div class="scene"><figure title="sport_archery · 1.6s"><img loading="lazy" src="../ui/assets/clawd/sport_archery.gif" alt=""><figcaption>射箭正中靶心</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>角色扮演</h4>
+    <p>变装小剧场：故事、舞台、职业体验。晚间更常见。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>LIFE.cosplay</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="cos_wizard_staff · 1.9s"><img loading="lazy" src="../ui/assets/clawd/cos_wizard_staff.gif" alt=""><figcaption>法杖悬浮</figcaption></figure><span class="arrow">→</span><figure title="cos_wizard_spell · 1.8s"><img loading="lazy" src="../ui/assets/clawd/cos_wizard_spell.gif" alt=""><figcaption>巫师施法</figcaption></figure><span class="arrow">→</span><figure title="cos_genie_lamp · 2.4s"><img loading="lazy" src="../ui/assets/clawd/cos_genie_lamp.gif" alt=""><figcaption>神灯精灵</figcaption></figure></div><div class="scene"><figure title="cos_knight_horse · 1.4s"><img loading="lazy" src="../ui/assets/clawd/cos_knight_horse.gif" alt=""><figcaption>骑竹马冲锋</figcaption></figure><span class="arrow">→</span><figure title="cos_knight_shield · 1.3s"><img loading="lazy" src="../ui/assets/clawd/cos_knight_shield.gif" alt=""><figcaption>骑士举盾</figcaption></figure><span class="arrow">→</span><figure title="cos_sword_slash · 1.7s"><img loading="lazy" src="../ui/assets/clawd/cos_sword_slash.gif" alt=""><figcaption>剑客劈苹果</figcaption></figure><span class="arrow">→</span><figure title="cos_dragon_fire · 1.3s"><img loading="lazy" src="../ui/assets/clawd/cos_dragon_fire.gif" alt=""><figcaption>小龙喷火</figcaption></figure></div><div class="scene"><figure title="cos_royal_wave · 1.8s"><img loading="lazy" src="../ui/assets/clawd/cos_royal_wave.gif" alt=""><figcaption>国王巡游挥手</figcaption></figure><span class="arrow">→</span><figure title="cos_royal_knighting · 2.2s"><img loading="lazy" src="../ui/assets/clawd/cos_royal_knighting.gif" alt=""><figcaption>册封小骑士</figcaption></figure><span class="arrow">→</span><figure title="cos_princess_twirl · 1.3s"><img loading="lazy" src="../ui/assets/clawd/cos_princess_twirl.gif" alt=""><figcaption>公主转圈</figcaption></figure></div><div class="scene"><figure title="cos_pirate_spyglass · 2.2s"><img loading="lazy" src="../ui/assets/clawd/cos_pirate_spyglass.gif" alt=""><figcaption>海盗望远镜</figcaption></figure><span class="arrow">→</span><figure title="cos_sailor_row · 2.2s"><img loading="lazy" src="../ui/assets/clawd/cos_sailor_row.gif" alt=""><figcaption>水手划船</figcaption></figure><span class="arrow">→</span><figure title="cos_pirate_treasure · 2.5s"><img loading="lazy" src="../ui/assets/clawd/cos_pirate_treasure.gif" alt=""><figcaption>海盗挖宝</figcaption></figure></div><div class="scene"><figure title="cos_ninja_dash · 1.1s"><img loading="lazy" src="../ui/assets/clawd/cos_ninja_dash.gif" alt=""><figcaption>忍者瞬移</figcaption></figure><span class="arrow">→</span><figure title="cos_ninja_star · 1.7s"><img loading="lazy" src="../ui/assets/clawd/cos_ninja_star.gif" alt=""><figcaption>忍者飞镖</figcaption></figure></div><div class="scene"><figure title="cos_hero_change · 3.0s"><img loading="lazy" src="../ui/assets/clawd/cos_hero_change.gif" alt=""><figcaption>电话亭变身 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="cos_hero_fly · 1.0s"><img loading="lazy" src="../ui/assets/clawd/cos_hero_fly.gif" alt=""><figcaption>超人飞行</figcaption></figure></div><div class="scene"><figure title="cos_spy_sneak · 2.9s"><img loading="lazy" src="../ui/assets/clawd/cos_spy_sneak.gif" alt=""><figcaption>报纸后的间谍</figcaption></figure><span class="arrow">→</span><figure title="cos_detective_trail · 2.6s"><img loading="lazy" src="../ui/assets/clawd/cos_detective_trail.gif" alt=""><figcaption>侦探追脚印</figcaption></figure></div><div class="scene"><figure title="cos_cowboy_tumbleweed · 2.1s"><img loading="lazy" src="../ui/assets/clawd/cos_cowboy_tumbleweed.gif" alt=""><figcaption>警长与风滚草</figcaption></figure><span class="arrow">→</span><figure title="cos_cowboy_lasso · 2.1s"><img loading="lazy" src="../ui/assets/clawd/cos_cowboy_lasso.gif" alt=""><figcaption>牛仔套索</figcaption></figure></div><div class="scene"><figure title="cos_scientist_potion · 2.4s"><img loading="lazy" src="../ui/assets/clawd/cos_scientist_potion.gif" alt=""><figcaption>科学家调药水</figcaption></figure><span class="arrow">→</span><figure title="cos_mad_lightning · 1.1s"><img loading="lazy" src="../ui/assets/clawd/cos_mad_lightning.gif" alt=""><figcaption>疯狂科学家</figcaption></figure></div><div class="scene"><figure title="cos_box_robot · 2.1s"><img loading="lazy" src="../ui/assets/clawd/cos_box_robot.gif" alt=""><figcaption>纸箱机器人</figcaption></figure><span class="arrow">→</span><figure title="cos_robot_beep · 2.1s"><img loading="lazy" src="../ui/assets/clawd/cos_robot_beep.gif" alt=""><figcaption>机器人舞</figcaption></figure><span class="arrow">→</span><figure title="cos_mech_pilot · 1.8s"><img loading="lazy" src="../ui/assets/clawd/cos_mech_pilot.gif" alt=""><figcaption>机甲驾驶员</figcaption></figure></div><div class="scene"><figure title="cos_dino_roar · 1.8s"><img loading="lazy" src="../ui/assets/clawd/cos_dino_roar.gif" alt=""><figcaption>恐龙连帽衫</figcaption></figure><span class="arrow">→</span><figure title="cos_bunny_hop · 1.4s"><img loading="lazy" src="../ui/assets/clawd/cos_bunny_hop.gif" alt=""><figcaption>兔耳蹦跳</figcaption></figure><span class="arrow">→</span><figure title="cos_frog_tongue · 2.0s"><img loading="lazy" src="../ui/assets/clawd/cos_frog_tongue.gif" alt=""><figcaption>青蛙帽吐舌</figcaption></figure></div><div class="scene"><figure title="cos_angel_flutter · 1.4s"><img loading="lazy" src="../ui/assets/clawd/cos_angel_flutter.gif" alt=""><figcaption>小天使扑翅</figcaption></figure><span class="arrow">→</span><figure title="cos_devil_fork · 1.6s"><img loading="lazy" src="../ui/assets/clawd/cos_devil_fork.gif" alt=""><figcaption>小恶魔戳气球</figcaption></figure></div><div class="scene"><figure title="cos_time_travel · 1.9s"><img loading="lazy" src="../ui/assets/clawd/cos_time_travel.gif" alt=""><figcaption>时间旅行者</figcaption></figure><span class="arrow">→</span><figure title="cos_viking_horn · 1.4s"><img loading="lazy" src="../ui/assets/clawd/cos_viking_horn.gif" alt=""><figcaption>维京号角</figcaption></figure><span class="arrow">→</span><figure title="cos_time_travel · 1.9s"><img loading="lazy" src="../ui/assets/clawd/cos_time_travel.gif" alt=""><figcaption>时间旅行者 <b>×1</b></figcaption></figure></div><div class="scene"><figure title="cos_explorer_map · 2.4s"><img loading="lazy" src="../ui/assets/clawd/cos_explorer_map.gif" alt=""><figcaption>探险家看地图</figcaption></figure><span class="arrow">→</span><figure title="cos_miner_lamp · 2.2s"><img loading="lazy" src="../ui/assets/clawd/cos_miner_lamp.gif" alt=""><figcaption>矿工寻宝石</figcaption></figure></div><div class="scene"><figure title="cos_diver_helmet · 2.4s"><img loading="lazy" src="../ui/assets/clawd/cos_diver_helmet.gif" alt=""><figcaption>深海潜水员</figcaption></figure><span class="arrow">→</span><figure title="cos_mermaid_splash · 2.1s"><img loading="lazy" src="../ui/assets/clawd/cos_mermaid_splash.gif" alt=""><figcaption>美人鱼跃水</figcaption></figure></div><div class="scene"><figure title="astro_wave · 2.2s"><img loading="lazy" src="../ui/assets/clawd/astro_wave.gif" alt=""><figcaption>宇航员挥手</figcaption></figure><span class="arrow">→</span><figure title="astro_float · 2.2s"><img loading="lazy" src="../ui/assets/clawd/astro_float.gif" alt=""><figcaption>太空漂浮</figcaption></figure><span class="arrow">→</span><figure title="astro_spin · 1.8s"><img loading="lazy" src="../ui/assets/clawd/astro_spin.gif" alt=""><figcaption>失重翻转</figcaption></figure><span class="arrow">→</span><figure title="astro_planet · 2.4s"><img loading="lazy" src="../ui/assets/clawd/astro_planet.gif" alt=""><figcaption>星球旁漂浮</figcaption></figure><span class="arrow">→</span><figure title="astro_flag · 2.4s"><img loading="lazy" src="../ui/assets/clawd/astro_flag.gif" alt=""><figcaption>月球插旗</figcaption></figure><span class="arrow">→</span><figure title="space_drop · 1.6s"><img loading="lazy" src="../ui/assets/clawd/space_drop.gif" alt=""><figcaption>从天而降 <b>×1</b></figcaption></figure></div><div class="scene"><figure title="cos_alien_ufo · 1.9s"><img loading="lazy" src="../ui/assets/clawd/cos_alien_ufo.gif" alt=""><figcaption>外星人光束</figcaption></figure></div><div class="scene"><figure title="cos_magician_cards · 1.3s"><img loading="lazy" src="../ui/assets/clawd/cos_magician_cards.gif" alt=""><figcaption>魔术师飞牌</figcaption></figure><span class="arrow">→</span><figure title="cos_magician_hat · 2.5s"><img loading="lazy" src="../ui/assets/clawd/cos_magician_hat.gif" alt=""><figcaption>帽子变出小Clawd</figcaption></figure></div><div class="scene"><figure title="cos_ringmaster_hoop · 1.8s"><img loading="lazy" src="../ui/assets/clawd/cos_ringmaster_hoop.gif" alt=""><figcaption>马戏团钻火圈</figcaption></figure><span class="arrow">→</span><figure title="cos_jester_ball · 1.6s"><img loading="lazy" src="../ui/assets/clawd/cos_jester_ball.gif" alt=""><figcaption>小丑踩球</figcaption></figure></div><div class="scene"><figure title="cos_mime_box · 2.5s"><img loading="lazy" src="../ui/assets/clawd/cos_mime_box.gif" alt=""><figcaption>默剧隐形箱</figcaption></figure><span class="arrow">→</span><figure title="cos_puppeteer · 2.1s"><img loading="lazy" src="../ui/assets/clawd/cos_puppeteer.gif" alt=""><figcaption>提线木偶师</figcaption></figure></div><div class="scene"><figure title="cos_doctor_stethoscope · 2.4s"><img loading="lazy" src="../ui/assets/clawd/cos_doctor_stethoscope.gif" alt=""><figcaption>医生听诊</figcaption></figure></div><div class="scene"><figure title="cos_firefighter_hose · 1.8s"><img loading="lazy" src="../ui/assets/clawd/cos_firefighter_hose.gif" alt=""><figcaption>消防员灭火</figcaption></figure></div><div class="scene"><figure title="cos_lifeguard_ring · 1.9s"><img loading="lazy" src="../ui/assets/clawd/cos_lifeguard_ring.gif" alt=""><figcaption>救生员扔救生圈</figcaption></figure></div><div class="scene"><figure title="cos_crossing_guard · 2.1s"><img loading="lazy" src="../ui/assets/clawd/cos_crossing_guard.gif" alt=""><figcaption>导护员举牌</figcaption></figure></div><div class="scene"><figure title="cos_beekeeper · 2.2s"><img loading="lazy" src="../ui/assets/clawd/cos_beekeeper.gif" alt=""><figcaption>养蜂人</figcaption></figure></div><div class="scene"><figure title="cos_lumberjack_chop · 1.3s"><img loading="lazy" src="../ui/assets/clawd/cos_lumberjack_chop.gif" alt=""><figcaption>伐木工劈柴</figcaption></figure></div><div class="scene"><figure title="cos_pilot_banner · 1.9s"><img loading="lazy" src="../ui/assets/clawd/cos_pilot_banner.gif" alt=""><figcaption>飞行员拉横幅</figcaption></figure></div><div class="scene"><figure title="cos_mail_delivery · 2.6s"><img loading="lazy" src="../ui/assets/clawd/cos_mail_delivery.gif" alt=""><figcaption>邮递员送信</figcaption></figure></div><div class="scene"><figure title="hardhat_wrench · 1.0s"><img loading="lazy" src="../ui/assets/clawd/hardhat_wrench.gif" alt=""><figcaption>工地拧螺丝</figcaption></figure><span class="arrow">→</span><figure title="girder_walk · 2.8s"><img loading="lazy" src="../ui/assets/clawd/girder_walk.gif" alt=""><figcaption>钢梁上散步</figcaption></figure><span class="arrow">→</span><figure title="hardhat_hide · 2.4s"><img loading="lazy" src="../ui/assets/clawd/hardhat_hide.gif" alt=""><figcaption>躲进安全帽</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>家务</h4>
+    <p>扫地、洗衣、洗碗、擦窗。深夜不做。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>LIFE.chores</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="life_sweep_floor · 1.8s"><img loading="lazy" src="../ui/assets/clawd/life_sweep_floor.gif" alt=""><figcaption>扫地</figcaption></figure><span class="arrow">→</span><figure title="life_vacuum · 1.6s"><img loading="lazy" src="../ui/assets/clawd/life_vacuum.gif" alt=""><figcaption>吸尘器</figcaption></figure><span class="arrow">→</span><figure title="life_feather_duster · 1.9s"><img loading="lazy" src="../ui/assets/clawd/life_feather_duster.gif" alt=""><figcaption>掸灰尘</figcaption></figure></div><div class="scene"><figure title="life_washer_watch · 1.9s"><img loading="lazy" src="../ui/assets/clawd/life_washer_watch.gif" alt=""><figcaption>盯着洗衣机</figcaption></figure><span class="arrow">→</span><figure title="life_laundry_line · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_laundry_line.gif" alt=""><figcaption>晾衣服</figcaption></figure><span class="arrow">→</span><figure title="life_iron_shirt · 1.9s"><img loading="lazy" src="../ui/assets/clawd/life_iron_shirt.gif" alt=""><figcaption>熨衣服</figcaption></figure></div><div class="scene"><figure title="life_wash_dishes · 1.9s"><img loading="lazy" src="../ui/assets/clawd/life_wash_dishes.gif" alt=""><figcaption>洗碗</figcaption></figure><span class="arrow">→</span><figure title="life_trash_out · 3.4s"><img loading="lazy" src="../ui/assets/clawd/life_trash_out.gif" alt=""><figcaption>倒垃圾</figcaption></figure></div><div class="scene"><figure title="life_window_wipe · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_window_wipe.gif" alt=""><figcaption>擦窗画爱心</figcaption></figure></div><div class="scene"><figure title="life_water_plant · 3.0s"><img loading="lazy" src="../ui/assets/clawd/life_water_plant.gif" alt=""><figcaption>浇花</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>折腾小项目</h4>
+    <p>摸鱼折腾自己的小项目。上午更常见。用的都不是「Claude 在干活」的那几个动画。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>LIFE.project</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="dev_hello_world · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_hello_world.gif" alt=""><figcaption>你好世界</figcaption></figure><span class="arrow">→</span><figure title="dev_semicolon · 2.7s"><img loading="lazy" src="../ui/assets/clawd/dev_semicolon.gif" alt=""><figcaption>补上分号</figcaption></figure><span class="arrow">→</span><figure title="dev_ctrl_s · 1.6s"><img loading="lazy" src="../ui/assets/clawd/dev_ctrl_s.gif" alt=""><figcaption>疯狂保存</figcaption></figure></div><div class="scene"><figure title="dev_rubber_duck · 3.7s"><img loading="lazy" src="../ui/assets/clawd/dev_rubber_duck.gif" alt=""><figcaption>小黄鸭调试</figcaption></figure><span class="arrow">→</span><figure title="dev_step_debug · 3.1s"><img loading="lazy" src="../ui/assets/clawd/dev_step_debug.gif" alt=""><figcaption>单步调试</figcaption></figure><span class="arrow">→</span><figure title="dev_bug_squash · 2.2s"><img loading="lazy" src="../ui/assets/clawd/dev_bug_squash.gif" alt=""><figcaption>踩扁bug</figcaption></figure></div><div class="scene"><figure title="dev_pixel_editor · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_pixel_editor.gif" alt=""><figcaption>画像素图</figcaption></figure><span class="arrow">→</span><figure title="dev_ctrl_z · 3.3s"><img loading="lazy" src="../ui/assets/clawd/dev_ctrl_z.gif" alt=""><figcaption>撤销撤销</figcaption></figure></div><div class="scene"><figure title="dev_infinite_loop · 1.9s"><img loading="lazy" src="../ui/assets/clawd/dev_infinite_loop.gif" alt=""><figcaption>死循环</figcaption></figure><span class="arrow">→</span><figure title="dev_cpu_overheat · 1.1s"><img loading="lazy" src="../ui/assets/clawd/dev_cpu_overheat.gif" alt=""><figcaption>CPU过热</figcaption></figure><span class="arrow">→</span><figure title="dev_reboot · 3.3s"><img loading="lazy" src="../ui/assets/clawd/dev_reboot.gif" alt=""><figcaption>重启大法</figcaption></figure></div><div class="scene"><figure title="dev_refactor · 3.3s"><img loading="lazy" src="../ui/assets/clawd/dev_refactor.gif" alt=""><figcaption>整理缩进</figcaption></figure><span class="arrow">→</span><figure title="dev_red_pen · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_red_pen.gif" alt=""><figcaption>红笔审代码</figcaption></figure></div><div class="scene"><figure title="dev_log_scroll · 3.0s"><img loading="lazy" src="../ui/assets/clawd/dev_log_scroll.gif" alt=""><figcaption>盯着日志</figcaption></figure><span class="arrow">→</span><figure title="dev_patch_crack · 2.7s"><img loading="lazy" src="../ui/assets/clawd/dev_patch_crack.gif" alt=""><figcaption>贴创可贴</figcaption></figure></div><div class="scene"><figure title="dev_key_hop · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_key_hop.gif" alt=""><figcaption>跳键盘</figcaption></figure><span class="arrow">→</span><figure title="dev_cursor_chase · 3.2s"><img loading="lazy" src="../ui/assets/clawd/dev_cursor_chase.gif" alt=""><figcaption>追鼠标</figcaption></figure></div><div class="scene"><figure title="dev_sudo · 3.0s"><img loading="lazy" src="../ui/assets/clawd/dev_sudo.gif" alt=""><figcaption>sudo解锁</figcaption></figure><span class="arrow">→</span><figure title="dev_cloud_upload · 2.2s"><img loading="lazy" src="../ui/assets/clawd/dev_cloud_upload.gif" alt=""><figcaption>上传到云</figcaption></figure></div><div class="scene"><figure title="dev_ai_chat · 3.1s"><img loading="lazy" src="../ui/assets/clawd/dev_ai_chat.gif" alt=""><figcaption>对话中</figcaption></figure></div><div class="scene"><figure title="dev_wrench_gear · 1.6s"><img loading="lazy" src="../ui/assets/clawd/dev_wrench_gear.gif" alt=""><figcaption>扳手拧齿轮</figcaption></figure></div><div class="scene"><figure title="dev_git_blame · 3.4s"><img loading="lazy" src="../ui/assets/clawd/dev_git_blame.gif" alt=""><figcaption>甩锅</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>小意外</h4>
+    <p>很少出现的出糗时刻。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>OOPS</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="sport_roller_skates · 2.1s"><img loading="lazy" src="../ui/assets/clawd/sport_roller_skates.gif" alt=""><figcaption>溜冰鞋摇晃</figcaption></figure><span class="arrow">→</span><figure title="sport_banana_slip · 3.6s"><img loading="lazy" src="../ui/assets/clawd/sport_banana_slip.gif" alt=""><figcaption>踩香蕉皮滑倒 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="emo_dizzy · 1.3s"><img loading="lazy" src="../ui/assets/clawd/emo_dizzy.gif" alt=""><figcaption>晕头转向 <b>×3</b></figcaption></figure></div><div class="scene"><figure title="sport_parkour · 2.0s"><img loading="lazy" src="../ui/assets/clawd/sport_parkour.gif" alt=""><figcaption>跑酷翻越</figcaption></figure><span class="arrow">→</span><figure title="sport_wall_bonk · 3.7s"><img loading="lazy" src="../ui/assets/clawd/sport_wall_bonk.gif" alt=""><figcaption>撞墙眼冒金星 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="emo_dizzy · 1.3s"><img loading="lazy" src="../ui/assets/clawd/emo_dizzy.gif" alt=""><figcaption>晕头转向 <b>×3</b></figcaption></figure></div><div class="scene"><figure title="dev_task_topple · 3.2s"><img loading="lazy" src="../ui/assets/clawd/dev_task_topple.gif" alt=""><figcaption>任务堆倒塌 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="emo_awkward · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_awkward.gif" alt=""><figcaption>尴尬沉默 <b>×2</b></figcaption></figure></div><div class="scene"><figure title="sea_windy · 1.1s"><img loading="lazy" src="../ui/assets/clawd/sea_windy.gif" alt=""><figcaption>被大风吹</figcaption></figure><span class="arrow">→</span><figure title="sea_tornado · 1.3s"><img loading="lazy" src="../ui/assets/clawd/sea_tornado.gif" alt=""><figcaption>龙卷风 <b>×4</b></figcaption></figure><span class="arrow">→</span><figure title="emo_dizzy · 1.3s"><img loading="lazy" src="../ui/assets/clawd/emo_dizzy.gif" alt=""><figcaption>晕头转向 <b>×3</b></figcaption></figure></div><div class="scene"><figure title="life_lemon_sour · 1.7s"><img loading="lazy" src="../ui/assets/clawd/life_lemon_sour.gif" alt=""><figcaption>酸柠檬 <b>×2</b></figcaption></figure><span class="arrow">→</span><figure title="emo_cringe · 1.7s"><img loading="lazy" src="../ui/assets/clawd/emo_cringe.gif" alt=""><figcaption>嫌弃 <b>×2</b></figcaption></figure></div><div class="scene"><figure title="emo_nervous_sweat · 1.8s"><img loading="lazy" src="../ui/assets/clawd/emo_nervous_sweat.gif" alt=""><figcaption>紧张冒汗</figcaption></figure><span class="arrow">→</span><figure title="emo_panic_circles · 1.1s"><img loading="lazy" src="../ui/assets/clawd/emo_panic_circles.gif" alt=""><figcaption>慌得团团转</figcaption></figure><span class="arrow">→</span><figure title="emo_relieved · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_relieved.gif" alt=""><figcaption>松了口气 <b>×2</b></figcaption></figure></div><div class="scene"><figure title="dev_404 · 3.5s"><img loading="lazy" src="../ui/assets/clawd/dev_404.gif" alt=""><figcaption>找不到页面 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="emo_confused · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_confused.gif" alt=""><figcaption>一脸问号 <b>×2</b></figcaption></figure></div><div class="scene"><figure title="emo_sneeze · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_sneeze.gif" alt=""><figcaption>打喷嚏 <b>×2</b></figcaption></figure><span class="arrow">→</span><figure title="emo_embarrassed · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_embarrassed.gif" alt=""><figcaption>羞到冒烟 <b>×2</b></figcaption></figure></div></div>
+</div>
+<div class="note">随机惊喜：从全部 400 个动画里随便抽一个演 20–30 秒，只排除会被误认成真实状态的 7 个（盖被子睡觉、看书打瞌睡、蓝屏了、可怜巴巴、不耐烦、开门离开、思考中）。双击和菜单里的「随机来一段」用的也是这个范围。</div>
+<h3>当季</h3>
+<div class="row">
+  <div class="info">
+    <h4>春（3–5 月）</h4>
+    <p>按当前月份决定季节。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>SEASONS.spring</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="sea_butterfly_chase · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_butterfly_chase.gif" alt=""><figcaption>扑蝴蝶</figcaption></figure><span class="arrow">→</span><figure title="sea_dandelion · 2.8s"><img loading="lazy" src="../ui/assets/clawd/sea_dandelion.gif" alt=""><figcaption>吹蒲公英</figcaption></figure></div><div class="scene"><figure title="sea_umbrella_rain · 1.3s"><img loading="lazy" src="../ui/assets/clawd/sea_umbrella_rain.gif" alt=""><figcaption>雨中撑伞</figcaption></figure><span class="arrow">→</span><figure title="sea_puddle_jump · 1.2s"><img loading="lazy" src="../ui/assets/clawd/sea_puddle_jump.gif" alt=""><figcaption>踩水坑</figcaption></figure><span class="arrow">→</span><figure title="sea_rainbow · 2.9s"><img loading="lazy" src="../ui/assets/clawd/sea_rainbow.gif" alt=""><figcaption>雨后彩虹</figcaption></figure></div><div class="scene"><figure title="life_kite · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_kite.gif" alt=""><figcaption>放风筝</figcaption></figure></div><div class="scene"><figure title="life_carrot_pull · 2.4s"><img loading="lazy" src="../ui/assets/clawd/life_carrot_pull.gif" alt=""><figcaption>拔萝卜</figcaption></figure><span class="arrow">→</span><figure title="life_water_plant · 3.0s"><img loading="lazy" src="../ui/assets/clawd/life_water_plant.gif" alt=""><figcaption>浇花</figcaption></figure></div><div class="scene"><figure title="picnic_basket · 2.1s"><img loading="lazy" src="../ui/assets/clawd/picnic_basket.gif" alt=""><figcaption>提野餐篮</figcaption></figure></div><div class="scene"><figure title="sea_easter_hunt · 2.8s"><img loading="lazy" src="../ui/assets/clawd/sea_easter_hunt.gif" alt=""><figcaption>找彩蛋</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>夏（6–8 月）</h4>
+    <p>按当前月份决定季节。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>SEASONS.summer</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="shades_drop · 1.8s"><img loading="lazy" src="../ui/assets/clawd/shades_drop.gif" alt=""><figcaption>墨镜从天而降 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="pool_float · 2.4s"><img loading="lazy" src="../ui/assets/clawd/pool_float.gif" alt=""><figcaption>泳池漂漂</figcaption></figure><span class="arrow">→</span><figure title="pool_peek · 2.2s"><img loading="lazy" src="../ui/assets/clawd/pool_peek.gif" alt=""><figcaption>拉下墨镜偷看</figcaption></figure></div><div class="scene"><figure title="sandboard · 1.4s"><img loading="lazy" src="../ui/assets/clawd/sandboard.gif" alt=""><figcaption>沙丘滑板</figcaption></figure><span class="arrow">→</span><figure title="surf_wipeout · 2.7s"><img loading="lazy" src="../ui/assets/clawd/surf_wipeout.gif" alt=""><figcaption>冲浪翻车</figcaption></figure></div><div class="scene"><figure title="sport_swim_laps · 1.8s"><img loading="lazy" src="../ui/assets/clawd/sport_swim_laps.gif" alt=""><figcaption>自由泳</figcaption></figure><span class="arrow">→</span><figure title="sport_diving_board · 4.2s"><img loading="lazy" src="../ui/assets/clawd/sport_diving_board.gif" alt=""><figcaption>跳水</figcaption></figure><span class="arrow">→</span><figure title="sport_kayak · 1.3s"><img loading="lazy" src="../ui/assets/clawd/sport_kayak.gif" alt=""><figcaption>划皮艇</figcaption></figure></div><div class="scene"><figure title="sea_sandcastle · 2.9s"><img loading="lazy" src="../ui/assets/clawd/sea_sandcastle.gif" alt=""><figcaption>海边堆沙堡</figcaption></figure></div><div class="scene"><figure title="sea_heatwave · 2.1s"><img loading="lazy" src="../ui/assets/clawd/sea_heatwave.gif" alt=""><figcaption>热浪扇扇子</figcaption></figure><span class="arrow">→</span><figure title="life_icecream_melt · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_icecream_melt.gif" alt=""><figcaption>冰淇淋化了</figcaption></figure></div><div class="scene"><figure title="life_watermelon_seeds · 1.9s"><img loading="lazy" src="../ui/assets/clawd/life_watermelon_seeds.gif" alt=""><figcaption>吐西瓜籽</figcaption></figure><span class="arrow">→</span><figure title="life_soda_fizz · 1.8s"><img loading="lazy" src="../ui/assets/clawd/life_soda_fizz.gif" alt=""><figcaption>摇汽水</figcaption></figure></div><div class="scene"><figure title="sea_thunderstorm · 1.9s"><img loading="lazy" src="../ui/assets/clawd/sea_thunderstorm.gif" alt=""><figcaption>雷雨惊吓</figcaption></figure><span class="arrow">→</span><figure title="emo_scared · 0.7s"><img loading="lazy" src="../ui/assets/clawd/emo_scared.gif" alt=""><figcaption>吓得发抖</figcaption></figure></div><div class="scene"><figure title="sea_fireflies · 2.2s"><img loading="lazy" src="../ui/assets/clawd/sea_fireflies.gif" alt=""><figcaption>夏夜萤火虫</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>秋（9–11 月）</h4>
+    <p>按当前月份决定季节。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>SEASONS.autumn</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="sea_rake_leaves · 2.3s"><img loading="lazy" src="../ui/assets/clawd/sea_rake_leaves.gif" alt=""><figcaption>扫落叶</figcaption></figure><span class="arrow">→</span><figure title="sea_leaf_pile · 2.9s"><img loading="lazy" src="../ui/assets/clawd/sea_leaf_pile.gif" alt=""><figcaption>跳进落叶堆</figcaption></figure></div><div class="scene"><figure title="sea_windy · 1.1s"><img loading="lazy" src="../ui/assets/clawd/sea_windy.gif" alt=""><figcaption>被大风吹</figcaption></figure><span class="arrow">→</span><figure title="sea_fog · 2.1s"><img loading="lazy" src="../ui/assets/clawd/sea_fog.gif" alt=""><figcaption>大雾迷路</figcaption></figure></div><div class="scene"><figure title="cos_scarecrow · 2.1s"><img loading="lazy" src="../ui/assets/clawd/cos_scarecrow.gif" alt=""><figcaption>稻草人赶乌鸦</figcaption></figure></div><div class="scene"><figure title="life_knit_scarf · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_knit_scarf.gif" alt=""><figcaption>织围巾</figcaption></figure><span class="arrow">→</span><figure title="sea_hot_cocoa · 2.7s"><img loading="lazy" src="../ui/assets/clawd/sea_hot_cocoa.gif" alt=""><figcaption>窗边热可可</figcaption></figure></div><div class="scene"><figure title="sea_telescope · 2.5s"><img loading="lazy" src="../ui/assets/clawd/sea_telescope.gif" alt=""><figcaption>望远镜观星</figcaption></figure></div><div class="scene"><figure title="picnic_basket · 2.1s"><img loading="lazy" src="../ui/assets/clawd/picnic_basket.gif" alt=""><figcaption>提野餐篮</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>冬（12–2 月）</h4>
+    <p>按当前月份决定季节。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>SEASONS.winter</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="sea_snowman_build · 3.2s"><img loading="lazy" src="../ui/assets/clawd/sea_snowman_build.gif" alt=""><figcaption>堆雪人</figcaption></figure><span class="arrow">→</span><figure title="sea_snowball_fight · 3.0s"><img loading="lazy" src="../ui/assets/clawd/sea_snowball_fight.gif" alt=""><figcaption>打雪仗</figcaption></figure><span class="arrow">→</span><figure title="sea_snow_angel · 1.2s"><img loading="lazy" src="../ui/assets/clawd/sea_snow_angel.gif" alt=""><figcaption>雪地天使</figcaption></figure></div><div class="scene"><figure title="sea_ice_skate · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_ice_skate.gif" alt=""><figcaption>溜冰</figcaption></figure><span class="arrow">→</span><figure title="sea_sledding · 1.4s"><img loading="lazy" src="../ui/assets/clawd/sea_sledding.gif" alt=""><figcaption>滑雪橇</figcaption></figure></div><div class="scene"><figure title="sea_hot_cocoa · 2.7s"><img loading="lazy" src="../ui/assets/clawd/sea_hot_cocoa.gif" alt=""><figcaption>窗边热可可</figcaption></figure><span class="arrow">→</span><figure title="sea_fireplace · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_fireplace.gif" alt=""><figcaption>壁炉挂袜子</figcaption></figure></div><div class="scene"><figure title="sea_snow_globe · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_snow_globe.gif" alt=""><figcaption>水晶球摇雪</figcaption></figure></div><div class="scene"><figure title="sea_hail · 1.1s"><img loading="lazy" src="../ui/assets/clawd/sea_hail.gif" alt=""><figcaption>冰雹敲桶</figcaption></figure><span class="arrow">→</span><figure title="emo_sneeze · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_sneeze.gif" alt=""><figcaption>打喷嚏 <b>×2</b></figcaption></figure></div></div>
+</div>
+<h3>情绪</h3>
+<div class="note">情绪不是一个动画，而是一段时间的状态：歇着的姿势换成这种情绪的，抽场景时多一份权重 30 的「情绪场景」。鼠标停在它身上，标签会写出当前心情。发生了事引起的情绪（开心、得意、被宠着、闹脾气、郁闷）优先于处境带来的（无聊、想你、犯困）。</div>
+<div class="row">
+  <div class="info">
+    <h4>心情不错 · 歇着的姿势</h4>
+    <p>什么时候：Claude 干完一轮 1 分钟以上的活之后（3 分钟）；你一阵没操作后又回来时（2 分钟）。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>MOODS.happy.rest</code>
+  </div>
+  <div class="thumbs"><figure title="vibe_nod · 1.2s"><img loading="lazy" src="../ui/assets/clawd/vibe_nod.gif" alt=""><figcaption>戴耳机点头</figcaption></figure><figure title="bubble_wand · 1.8s"><img loading="lazy" src="../ui/assets/clawd/bubble_wand.gif" alt=""><figcaption>吹泡泡</figcaption></figure><figure title="tea_sip · 2.0s"><img loading="lazy" src="../ui/assets/clawd/tea_sip.gif" alt=""><figcaption>抿一口茶</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>心情不错 · 情绪场景</h4>
+    <p>这种心情下会多出来的场景。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>MOODS.happy.scenes</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="emo_happy_skip · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_happy_skip.gif" alt=""><figcaption>蹦蹦跳跳</figcaption></figure><span class="arrow">→</span><figure title="emo_victory_dance · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_victory_dance.gif" alt=""><figcaption>胜利之舞</figcaption></figure></div><div class="scene"><figure title="emo_hyper_bounce · 1.1s"><img loading="lazy" src="../ui/assets/clawd/emo_hyper_bounce.gif" alt=""><figcaption>兴奋弹墙</figcaption></figure></div><div class="scene"><figure title="emo_giggle · 0.9s"><img loading="lazy" src="../ui/assets/clawd/emo_giggle.gif" alt=""><figcaption>捂嘴偷笑</figcaption></figure><span class="arrow">→</span><figure title="emo_laugh_roll · 1.7s"><img loading="lazy" src="../ui/assets/clawd/emo_laugh_roll.gif" alt=""><figcaption>笑到打滚</figcaption></figure></div><div class="scene"><figure title="emo_excited_vibrate · 0.8s"><img loading="lazy" src="../ui/assets/clawd/emo_excited_vibrate.gif" alt=""><figcaption>激动到发抖</figcaption></figure><span class="arrow">→</span><figure title="emo_joy_burst · 2.0s"><img loading="lazy" src="../ui/assets/clawd/emo_joy_burst.gif" alt=""><figcaption>开心炸裂</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>得意洋洋 · 歇着的姿势</h4>
+    <p>什么时候：5 分钟以上的长任务完成之后，持续 5 分钟。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>MOODS.proud.rest</code>
+  </div>
+  <div class="thumbs"><figure title="emo_proud_chest · 1.7s"><img loading="lazy" src="../ui/assets/clawd/emo_proud_chest.gif" alt=""><figcaption>骄傲挺胸</figcaption></figure><figure title="emo_smug_shades · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_smug_shades.gif" alt=""><figcaption>得意墨镜</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>得意洋洋 · 情绪场景</h4>
+    <p>这种心情下会多出来的场景。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>MOODS.proud.scenes</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="emo_smug_shades · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_smug_shades.gif" alt=""><figcaption>得意墨镜</figcaption></figure><span class="arrow">→</span><figure title="emo_proud_chest · 1.7s"><img loading="lazy" src="../ui/assets/clawd/emo_proud_chest.gif" alt=""><figcaption>骄傲挺胸</figcaption></figure></div><div class="scene"><figure title="sport_podium · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sport_podium.gif" alt=""><figcaption>领奖台</figcaption></figure></div><div class="scene"><figure title="emo_victory_dance · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_victory_dance.gif" alt=""><figcaption>胜利之舞</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>被宠着 · 歇着的姿势</h4>
+    <p>什么时候：被你摸摸之后，持续 3 分钟。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>MOODS.loved.rest</code>
+  </div>
+  <div class="thumbs"><figure title="emo_shy · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_shy.gif" alt=""><figcaption>害羞画圈</figcaption></figure><figure title="cos_cat_purr · 2.4s"><img loading="lazy" src="../ui/assets/clawd/cos_cat_purr.gif" alt=""><figcaption>猫耳呼噜</figcaption></figure><figure title="emo_self_hug · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_self_hug.gif" alt=""><figcaption>抱抱自己</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>被宠着 · 情绪场景</h4>
+    <p>这种心情下会多出来的场景。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>MOODS.loved.scenes</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="emo_lovestruck · 1.4s"><img loading="lazy" src="../ui/assets/clawd/emo_lovestruck.gif" alt=""><figcaption>花痴心动</figcaption></figure><span class="arrow">→</span><figure title="emo_heart_pound · 0.9s"><img loading="lazy" src="../ui/assets/clawd/emo_heart_pound.gif" alt=""><figcaption>小鹿乱撞</figcaption></figure></div><div class="scene"><figure title="emo_shy · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_shy.gif" alt=""><figcaption>害羞画圈</figcaption></figure><span class="arrow">→</span><figure title="emo_embarrassed · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_embarrassed.gif" alt=""><figcaption>羞到冒烟</figcaption></figure></div><div class="scene"><figure title="emo_blow_kiss · 1.8s"><img loading="lazy" src="../ui/assets/clawd/emo_blow_kiss.gif" alt=""><figcaption>飞吻</figcaption></figure></div><div class="scene"><figure title="cos_cat_purr · 2.4s"><img loading="lazy" src="../ui/assets/clawd/cos_cat_purr.gif" alt=""><figcaption>猫耳呼噜</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>有点无聊 · 歇着的姿势</h4>
+    <p>什么时候：键盘鼠标超过设定的时间（默认 5 分钟）没动静，一直到你回来，或者变成「想你」。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>MOODS.bored.rest</code>
+  </div>
+  <div class="thumbs"><figure title="emo_bored_sigh · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_bored_sigh.gif" alt=""><figcaption>无聊叹气</figcaption></figure><figure title="emo_daydream · 3.6s"><img loading="lazy" src="../ui/assets/clawd/emo_daydream.gif" alt=""><figcaption>发白日梦</figcaption></figure><figure title="fidget_spinner · 0.7s"><img loading="lazy" src="../ui/assets/clawd/fidget_spinner.gif" alt=""><figcaption>指尖陀螺</figcaption></figure><figure title="turn_around · 2.0s"><img loading="lazy" src="../ui/assets/clawd/turn_around.gif" alt=""><figcaption>转身看看</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>有点无聊 · 情绪场景</h4>
+    <p>这种心情下会多出来的场景。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>MOODS.bored.scenes</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="emo_bored_sigh · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_bored_sigh.gif" alt=""><figcaption>无聊叹气</figcaption></figure><span class="arrow">→</span><figure title="fidget_spinner · 0.7s"><img loading="lazy" src="../ui/assets/clawd/fidget_spinner.gif" alt=""><figcaption>指尖陀螺</figcaption></figure><span class="arrow">→</span><figure title="spinner_head · 0.7s"><img loading="lazy" src="../ui/assets/clawd/spinner_head.gif" alt=""><figcaption>头顶陀螺</figcaption></figure></div><div class="scene"><figure title="turn_around · 2.0s"><img loading="lazy" src="../ui/assets/clawd/turn_around.gif" alt=""><figcaption>转身看看</figcaption></figure><span class="arrow">→</span><figure title="emo_daydream · 3.6s"><img loading="lazy" src="../ui/assets/clawd/emo_daydream.gif" alt=""><figcaption>发白日梦</figcaption></figure></div><div class="scene"><figure title="life_dice_roll · 1.9s"><img loading="lazy" src="../ui/assets/clawd/life_dice_roll.gif" alt=""><figcaption>掷骰子</figcaption></figure></div><div class="scene"><figure title="life_yoyo · 1.6s"><img loading="lazy" src="../ui/assets/clawd/life_yoyo.gif" alt=""><figcaption>玩溜溜球</figcaption></figure></div><div class="scene"><figure title="dev_cursor_chase · 3.2s"><img loading="lazy" src="../ui/assets/clawd/dev_cursor_chase.gif" alt=""><figcaption>追鼠标</figcaption></figure></div><div class="scene"><figure title="bubble_wand · 1.8s"><img loading="lazy" src="../ui/assets/clawd/bubble_wand.gif" alt=""><figcaption>吹泡泡</figcaption></figure><span class="arrow">→</span><figure title="bubble_big · 1.6s"><img loading="lazy" src="../ui/assets/clawd/bubble_big.gif" alt=""><figcaption>吹大泡泡</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>有点想你 · 歇着的姿势</h4>
+    <p>什么时候：没人理它之后再过 15 分钟（默认设置下即总共 20 分钟没操作），一直到你回来。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>MOODS.lonely.rest</code>
+  </div>
+  <div class="thumbs"><figure title="emo_lonely · 3.0s"><img loading="lazy" src="../ui/assets/clawd/emo_lonely.gif" alt=""><figcaption>孤单</figcaption></figure><figure title="life_goldfish · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_goldfish.gif" alt=""><figcaption>看金鱼</figcaption></figure><figure title="emo_self_hug · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_self_hug.gif" alt=""><figcaption>抱抱自己</figcaption></figure><figure title="emo_daydream · 3.6s"><img loading="lazy" src="../ui/assets/clawd/emo_daydream.gif" alt=""><figcaption>发白日梦</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>有点想你 · 情绪场景</h4>
+    <p>这种心情下会多出来的场景。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>MOODS.lonely.scenes</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="emo_lonely · 3.0s"><img loading="lazy" src="../ui/assets/clawd/emo_lonely.gif" alt=""><figcaption>孤单</figcaption></figure><span class="arrow">→</span><figure title="emo_self_hug · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_self_hug.gif" alt=""><figcaption>抱抱自己</figcaption></figure></div><div class="scene"><figure title="turn_around · 2.0s"><img loading="lazy" src="../ui/assets/clawd/turn_around.gif" alt=""><figcaption>转身看看</figcaption></figure><span class="arrow">→</span><figure title="emo_sad_shuffle · 3.8s"><img loading="lazy" src="../ui/assets/clawd/emo_sad_shuffle.gif" alt=""><figcaption>垂头丧气</figcaption></figure></div><div class="scene"><figure title="life_phone_call · 2.5s"><img loading="lazy" src="../ui/assets/clawd/life_phone_call.gif" alt=""><figcaption>打电话</figcaption></figure></div><div class="scene"><figure title="life_post_letter · 3.0s"><img loading="lazy" src="../ui/assets/clawd/life_post_letter.gif" alt=""><figcaption>寄信</figcaption></figure></div><div class="scene"><figure title="emo_wish_star · 2.1s"><img loading="lazy" src="../ui/assets/clawd/emo_wish_star.gif" alt=""><figcaption>对流星许愿</figcaption></figure></div><div class="scene"><figure title="life_goldfish · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_goldfish.gif" alt=""><figcaption>看金鱼</figcaption></figure><span class="arrow">→</span><figure title="life_feed_pet · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_feed_pet.gif" alt=""><figcaption>喂小宠物</figcaption></figure></div><div class="scene"><figure title="emo_sulk_cloud · 2.6s"><img loading="lazy" src="../ui/assets/clawd/emo_sulk_cloud.gif" alt=""><figcaption>头顶乌云</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>闹脾气 · 歇着的姿势</h4>
+    <p>什么时候：被连点 5 下惹毛之后，持续 2 分钟。这时候摸摸它，会直接变成「被宠着」。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>MOODS.grumpy.rest</code>
+  </div>
+  <div class="thumbs"><figure title="emo_grumpy_pout · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_grumpy_pout.gif" alt=""><figcaption>哼!不理你</figcaption></figure><figure title="emo_puffed_cheeks · 1.6s"><img loading="lazy" src="../ui/assets/clawd/emo_puffed_cheeks.gif" alt=""><figcaption>鼓气包</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>闹脾气 · 情绪场景</h4>
+    <p>这种心情下会多出来的场景。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>MOODS.grumpy.scenes</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="emo_boiling · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_boiling.gif" alt=""><figcaption>气到冒烟</figcaption></figure><span class="arrow">→</span><figure title="emo_calm_down · 3.1s"><img loading="lazy" src="../ui/assets/clawd/emo_calm_down.gif" alt=""><figcaption>深呼吸冷静</figcaption></figure></div><div class="scene"><figure title="emo_eye_roll · 1.4s"><img loading="lazy" src="../ui/assets/clawd/emo_eye_roll.gif" alt=""><figcaption>翻白眼</figcaption></figure><span class="arrow">→</span><figure title="emo_grumpy_pout · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_grumpy_pout.gif" alt=""><figcaption>哼!不理你</figcaption></figure></div><div class="scene"><figure title="emo_jealous · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_jealous.gif" alt=""><figcaption>吃醋斜眼</figcaption></figure></div><div class="scene"><figure title="sport_punch_bag · 1.4s"><img loading="lazy" src="../ui/assets/clawd/sport_punch_bag.gif" alt=""><figcaption>打沙袋</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>有点郁闷 · 歇着的姿势</h4>
+    <p>什么时候：一轮里第 3 次工具失败，或 API 出错之后，持续 3 分钟。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>MOODS.down.rest</code>
+  </div>
+  <div class="thumbs"><figure title="emo_gloom · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_gloom.gif" alt=""><figcaption>阴郁</figcaption></figure><figure title="emo_sulk_cloud · 2.6s"><img loading="lazy" src="../ui/assets/clawd/emo_sulk_cloud.gif" alt=""><figcaption>头顶乌云</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>有点郁闷 · 情绪场景</h4>
+    <p>这种心情下会多出来的场景。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>MOODS.down.scenes</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="emo_sulk_cloud · 2.6s"><img loading="lazy" src="../ui/assets/clawd/emo_sulk_cloud.gif" alt=""><figcaption>头顶乌云</figcaption></figure><span class="arrow">→</span><figure title="emo_sad_shuffle · 3.8s"><img loading="lazy" src="../ui/assets/clawd/emo_sad_shuffle.gif" alt=""><figcaption>垂头丧气</figcaption></figure></div><div class="scene"><figure title="emo_calm_down · 3.1s"><img loading="lazy" src="../ui/assets/clawd/emo_calm_down.gif" alt=""><figcaption>深呼吸冷静</figcaption></figure><span class="arrow">→</span><figure title="emo_meditate · 2.6s"><img loading="lazy" src="../ui/assets/clawd/emo_meditate.gif" alt=""><figcaption>冥想平静</figcaption></figure></div><div class="scene"><figure title="emo_comfort · 3.0s"><img loading="lazy" src="../ui/assets/clawd/emo_comfort.gif" alt=""><figcaption>摸头安慰</figcaption></figure></div><div class="scene"><figure title="dev_rubber_duck · 3.7s"><img loading="lazy" src="../ui/assets/clawd/dev_rubber_duck.gif" alt=""><figcaption>小黄鸭调试</figcaption></figure></div></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>犯困 · 歇着的姿势</h4>
+    <p>什么时候：离夜间的睡眠时段不到 30 分钟。这时不运动、不出小意外，变装、音乐、家务也少。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>MOODS.sleepy.rest</code>
+  </div>
+  <div class="thumbs"><figure title="emo_daydream · 3.6s"><img loading="lazy" src="../ui/assets/clawd/emo_daydream.gif" alt=""><figcaption>发白日梦</figcaption></figure><figure title="emo_meditate · 2.6s"><img loading="lazy" src="../ui/assets/clawd/emo_meditate.gif" alt=""><figcaption>冥想平静</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>犯困 · 情绪场景</h4>
+    <p>这种心情下会多出来的场景。</p>
+    <p class="meta"><span class="badge scene" title="一步接一步演完；Claude 一开工、或你逗它，就立刻停下">场景 · 让路</span><span class="dur">每个场景 20–50 秒</span></p>
+    <code>MOODS.sleepy.scenes</code>
+  </div>
+  <div class="scenes"><div class="scene"><figure title="emo_yawn · 4.0s"><img loading="lazy" src="../ui/assets/clawd/emo_yawn.gif" alt=""><figcaption>打哈欠 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="emo_daydream · 3.6s"><img loading="lazy" src="../ui/assets/clawd/emo_daydream.gif" alt=""><figcaption>发白日梦</figcaption></figure></div><div class="scene"><figure title="sea_hot_cocoa · 2.7s"><img loading="lazy" src="../ui/assets/clawd/sea_hot_cocoa.gif" alt=""><figcaption>窗边热可可</figcaption></figure></div><div class="scene"><figure title="life_bubble_bath · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_bubble_bath.gif" alt=""><figcaption>泡泡浴</figcaption></figure></div><div class="scene"><figure title="read_glasses · 2.7s"><img loading="lazy" src="../ui/assets/clawd/read_glasses.gif" alt=""><figcaption>戴眼镜看书</figcaption></figure></div></div>
+</div>
+<h3>睡觉：只在设置的时段</h3>
+<div class="row">
+  <div class="info">
+    <h4>睡前刷牙</h4>
+    <p>进入夜间睡眠时段（超过 3 小时的时段）且手头的场景演完后，先刷牙。每晚只刷一次，半夜被吵醒后再睡不刷。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">5.3 秒</span><span class="say">💬 我先睡啦，你也早点休息哦～ 💤</span></p>
+    <code>ANIMS.bedtime</code>
+  </div>
+  <div class="thumbs"><figure title="life_brush_teeth · 1.3s"><img loading="lazy" src="../ui/assets/clawd/life_brush_teeth.gif" alt=""><figcaption>刷牙</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>打哈欠</h4>
+    <p>刷完牙之后；午休这类短时段则直接从这里开始。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4 秒</span><span class="say">💬 午休时间，我眯一会儿～</span></p>
+    <code>ANIMS.yawn</code>
+  </div>
+  <div class="thumbs"><figure title="emo_yawn · 4.0s"><img loading="lazy" src="../ui/assets/clawd/emo_yawn.gif" alt=""><figcaption>打哈欠</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>打盹</h4>
+    <p>时段不超过 3 小时（如午休）。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.sleepNap</code>
+  </div>
+  <div class="thumbs"><figure title="read_doze · 3.2s"><img loading="lazy" src="../ui/assets/clawd/read_doze.gif" alt=""><figcaption>看书打瞌睡</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>正式睡觉</h4>
+    <p>时段超过 3 小时（如夜里）。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.sleepNight</code>
+  </div>
+  <div class="thumbs"><figure title="life_bed_sleep · 3.2s"><img loading="lazy" src="../ui/assets/clawd/life_bed_sleep.gif" alt=""><figcaption>盖被子睡觉</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>睡着时 Claude 开工</h4>
+    <p>收到提问、工具调用、权限请求、完成等事件。醒来干活，忙完 2 分钟后接着睡。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">1.9 秒</span></p>
+    <code>ANIMS.wakeStartled</code>
+  </div>
+  <div class="thumbs"><figure title="emo_shock_jump · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_shock_jump.gif" alt=""><figcaption>吓一跳</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>睡着时被你戳醒</h4>
+    <p>单击它。清醒 1 分钟后接着睡。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">2.4–2.9 秒</span><span class="say">💬 唔…再让我睡会儿嘛…</span></p>
+    <code>ANIMS.wakeGrumpy</code>
+  </div>
+  <div class="thumbs"><figure title="emo_grumpy_pout · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_grumpy_pout.gif" alt=""><figcaption>哼!不理你</figcaption></figure><figure title="emo_eye_roll · 1.4s"><img loading="lazy" src="../ui/assets/clawd/emo_eye_roll.gif" alt=""><figcaption>翻白眼</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>时段结束，起床</h4>
+    <p>先拍闹钟，紧接着做下一行的伸展，然后接上早晨的作息。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.4 秒</span><span class="say">💬 早上好！新的一天开始啦～ / 睡醒啦，继续开工～</span></p>
+    <code>ANIMS.wakeAlarm</code>
+  </div>
+  <div class="thumbs"><figure title="life_alarm_snooze · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_alarm_snooze.gif" alt=""><figcaption>拍闹钟</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>伸展</h4>
+    <p>起床拍完闹钟之后；以及久坐提醒时（连续在用电脑超过设定的分钟数，默认 60）。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.5–2.6 秒</span><span class="say">💬 已经坐了 N 分钟啦，起来活动一下～</span></p>
+    <code>ANIMS.stretch</code>
+  </div>
+  <div class="thumbs"><figure title="stretch_tall · 1.3s"><img loading="lazy" src="../ui/assets/clawd/stretch_tall.gif" alt=""><figcaption>拉长跳</figcaption></figure><figure title="sport_warmup · 2.5s"><img loading="lazy" src="../ui/assets/clawd/sport_warmup.gif" alt=""><figcaption>热身拉伸</figcaption></figure><figure title="sport_jumping_jacks · 0.9s"><img loading="lazy" src="../ui/assets/clawd/sport_jumping_jacks.gif" alt=""><figcaption>开合跳</figcaption></figure></div>
+</div>
+<h3>问候与提醒</h3>
+<div class="row">
+  <div class="info">
+    <h4>桌宠启动</h4>
+    <p>按钟点说早上好 / 中午好 / 下午好 / 晚上好；当天是节日则改播节日动画。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.2 秒</span><span class="say">💬 下午好～</span></p>
+    <code>ANIMS.hello</code>
+  </div>
+  <div class="thumbs"><figure title="emo_nihao · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_nihao.gif" alt=""><figcaption>你好呀</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>12:00 提醒</h4>
+    <p>到点后 10 分钟内、它手头的场景演完时说一次，每天一次。关掉「爱说话」则不提醒。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.1–4.8 秒</span><span class="say">💬 到饭点啦，先去吃饭吧～</span></p>
+    <code>NUDGES[0]</code>
+  </div>
+  <div class="thumbs"><figure title="life_noodle_slurp · 1.6s"><img loading="lazy" src="../ui/assets/clawd/life_noodle_slurp.gif" alt=""><figcaption>吸溜面条</figcaption></figure><figure title="life_burger_stack · 2.4s"><img loading="lazy" src="../ui/assets/clawd/life_burger_stack.gif" alt=""><figcaption>叠汉堡</figcaption></figure><figure title="life_dumpling_steam · 2.0s"><img loading="lazy" src="../ui/assets/clawd/life_dumpling_steam.gif" alt=""><figcaption>揭笼屉</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>15:30 提醒</h4>
+    <p>到点后 10 分钟内、它手头的场景演完时说一次，每天一次。关掉「爱说话」则不提醒。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5–4.1 秒</span><span class="say">💬 下午茶时间，喝口水歇一歇～</span></p>
+    <code>NUDGES[1]</code>
+  </div>
+  <div class="thumbs"><figure title="life_boba_straw · 1.8s"><img loading="lazy" src="../ui/assets/clawd/life_boba_straw.gif" alt=""><figcaption>珍珠奶茶</figcaption></figure><figure title="tea_sip · 2.0s"><img loading="lazy" src="../ui/assets/clawd/tea_sip.gif" alt=""><figcaption>抿一口茶</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>18:30 提醒</h4>
+    <p>到点后 10 分钟内、它手头的场景演完时说一次，每天一次。关掉「爱说话」则不提醒。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.1–4.8 秒</span><span class="say">💬 该吃晚饭啦～</span></p>
+    <code>NUDGES[2]</code>
+  </div>
+  <div class="thumbs"><figure title="cook_veggies · 1.6s"><img loading="lazy" src="../ui/assets/clawd/cook_veggies.gif" alt=""><figcaption>颠锅炒青菜</figcaption></figure><figure title="life_sushi_belt · 2.4s"><img loading="lazy" src="../ui/assets/clawd/life_sushi_belt.gif" alt=""><figcaption>回转寿司</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>你又碰了电脑</h4>
+    <p>键鼠一阵没动静（默认 5 分钟）之后又有了输入。之后它会开心 2 分钟。超过 30 分钟没理它才说话；期间有任务完成的话，会打断当前动画来提醒你。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.2–4.4 秒</span><span class="say">💬 好久没理我啦，想你了～ / 项目名 已经搞定啦，快去看看～</span></p>
+    <code>ANIMS.welcomeBack</code>
+  </div>
+  <div class="thumbs"><figure title="emo_nihao · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_nihao.gif" alt=""><figcaption>你好呀</figcaption></figure><figure title="emo_happy_skip · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_happy_skip.gif" alt=""><figcaption>蹦蹦跳跳</figcaption></figure><figure title="emo_high_five · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_high_five.gif" alt=""><figcaption>击掌庆祝</figcaption></figure></div>
+</div></section>
+<section id="holidays"><h2>三、节日</h2><p class="intro">当天第一次空闲时（或启动时）庆祝一次并说祝福语，之后一整天抽场景时多一份很重的「节日」权重，每个节日动画单独成一个场景。农历节日按内置的 2026–2030 年日期表，下面列的是 2026 年的日期。可在设置的「系统联动 → 节日」里关闭。</p><div class="row">
+  <div class="info">
+    <h4>你的生日</h4>
+    <p>设置里填的日期。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5–5.3 秒</span><span class="say">💬 生日快乐！🎂</span></p>
+    <code>holidaysOn() · 生日</code>
+  </div>
+  <div class="thumbs"><figure title="sea_birthday_candles · 2.7s"><img loading="lazy" src="../ui/assets/clawd/sea_birthday_candles.gif" alt=""><figcaption>吹生日蜡烛</figcaption></figure><figure title="sea_party_popper · 1.8s"><img loading="lazy" src="../ui/assets/clawd/sea_party_popper.gif" alt=""><figcaption>拉礼花筒</figcaption></figure><figure title="sea_gift_unwrap · 2.1s"><img loading="lazy" src="../ui/assets/clawd/sea_gift_unwrap.gif" alt=""><figcaption>拆圣诞礼物</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>元旦 · 1 月 1 日</h4>
+    <p>公历固定日期。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5–6.3 秒</span><span class="say">💬 新年快乐！</span></p>
+    <code>holidaysOn() · 元旦</code>
+  </div>
+  <div class="thumbs"><figure title="sea_fireworks_watch · 2.9s"><img loading="lazy" src="../ui/assets/clawd/sea_fireworks_watch.gif" alt=""><figcaption>看烟花</figcaption></figure><figure title="sea_party_popper · 1.8s"><img loading="lazy" src="../ui/assets/clawd/sea_party_popper.gif" alt=""><figcaption>拉礼花筒</figcaption></figure><figure title="sea_countdown · 3.1s"><img loading="lazy" src="../ui/assets/clawd/sea_countdown.gif" alt=""><figcaption>新年倒计时</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>情人节 · 2 月 14 日</h4>
+    <p>公历固定日期。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5–4.2 秒</span><span class="say">💬 情人节快乐～</span></p>
+    <code>holidaysOn() · 情人节</code>
+  </div>
+  <div class="thumbs"><figure title="sea_valentine_balloon · 1.9s"><img loading="lazy" src="../ui/assets/clawd/sea_valentine_balloon.gif" alt=""><figcaption>爱心气球</figcaption></figure><figure title="emo_blow_kiss · 1.8s"><img loading="lazy" src="../ui/assets/clawd/emo_blow_kiss.gif" alt=""><figcaption>飞吻</figcaption></figure><figure title="life_window_wipe · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_window_wipe.gif" alt=""><figcaption>擦窗画爱心</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>除夕 · 2 月 16 日</h4>
+    <p>农历节日。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.9–4.8 秒</span><span class="say">💬 除夕快乐，年夜饭吃起来！</span></p>
+    <code>holidaysOn() · 除夕</code>
+  </div>
+  <div class="thumbs"><figure title="life_dumpling_steam · 2.0s"><img loading="lazy" src="../ui/assets/clawd/life_dumpling_steam.gif" alt=""><figcaption>揭笼屉</figcaption></figure><figure title="sea_fu_upside · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_fu_upside.gif" alt=""><figcaption>福倒了</figcaption></figure><figure title="sea_firecracker · 1.4s"><img loading="lazy" src="../ui/assets/clawd/sea_firecracker.gif" alt=""><figcaption>放鞭炮</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>春节 · 2 月 17 日 起 7 天</h4>
+    <p>农历节日。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.3–5.8 秒</span><span class="say">💬 新春快乐，恭喜发财！🧧</span></p>
+    <code>holidaysOn() · 春节</code>
+  </div>
+  <div class="thumbs"><figure title="sea_red_envelope · 2.7s"><img loading="lazy" src="../ui/assets/clawd/sea_red_envelope.gif" alt=""><figcaption>收红包</figcaption></figure><figure title="sea_lion_dance · 1.4s"><img loading="lazy" src="../ui/assets/clawd/sea_lion_dance.gif" alt=""><figcaption>舞狮</figcaption></figure><figure title="sea_firecracker · 1.4s"><img loading="lazy" src="../ui/assets/clawd/sea_firecracker.gif" alt=""><figcaption>放鞭炮</figcaption></figure><figure title="sea_fu_upside · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_fu_upside.gif" alt=""><figcaption>福倒了</figcaption></figure><figure title="sea_fireworks_watch · 2.9s"><img loading="lazy" src="../ui/assets/clawd/sea_fireworks_watch.gif" alt=""><figcaption>看烟花</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>元宵节 · 3 月 3 日</h4>
+    <p>农历节日。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">5.8–6.3 秒</span><span class="say">💬 元宵节快乐，吃汤圆了吗？</span></p>
+    <code>holidaysOn() · 元宵节</code>
+  </div>
+  <div class="thumbs"><figure title="sea_sky_lantern · 3.1s"><img loading="lazy" src="../ui/assets/clawd/sea_sky_lantern.gif" alt=""><figcaption>放孔明灯</figcaption></figure><figure title="sea_fireworks_watch · 2.9s"><img loading="lazy" src="../ui/assets/clawd/sea_fireworks_watch.gif" alt=""><figcaption>看烟花</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>愚人节 · 4 月 1 日</h4>
+    <p>公历固定日期。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.3–5.1 秒</span><span class="say">💬 今天说的话可不能全信哦～</span></p>
+    <code>holidaysOn() · 愚人节</code>
+  </div>
+  <div class="thumbs"><figure title="emo_mischief · 1.4s"><img loading="lazy" src="../ui/assets/clawd/emo_mischief.gif" alt=""><figcaption>坏笑搓手</figcaption></figure><figure title="cos_jester_ball · 1.6s"><img loading="lazy" src="../ui/assets/clawd/cos_jester_ball.gif" alt=""><figcaption>小丑踩球</figcaption></figure><figure title="cos_magician_hat · 2.5s"><img loading="lazy" src="../ui/assets/clawd/cos_magician_hat.gif" alt=""><figcaption>帽子变出小Clawd</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>儿童节 · 6 月 1 日</h4>
+    <p>公历固定日期。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.3–4.8 秒</span><span class="say">💬 儿童节快乐，大朋友！</span></p>
+    <code>holidaysOn() · 儿童节</code>
+  </div>
+  <div class="thumbs"><figure title="bubble_big · 1.6s"><img loading="lazy" src="../ui/assets/clawd/bubble_big.gif" alt=""><figcaption>吹大泡泡</figcaption></figure><figure title="life_yoyo · 1.6s"><img loading="lazy" src="../ui/assets/clawd/life_yoyo.gif" alt=""><figcaption>玩溜溜球</figcaption></figure><figure title="cos_bunny_hop · 1.4s"><img loading="lazy" src="../ui/assets/clawd/cos_bunny_hop.gif" alt=""><figcaption>兔耳蹦跳</figcaption></figure><figure title="life_kite · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_kite.gif" alt=""><figcaption>放风筝</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>端午节 · 6 月 19 日</h4>
+    <p>农历节日。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.8 秒</span><span class="say">💬 端午安康！</span></p>
+    <code>holidaysOn() · 端午节</code>
+  </div>
+  <div class="thumbs"><figure title="sea_dragon_boat · 1.0s"><img loading="lazy" src="../ui/assets/clawd/sea_dragon_boat.gif" alt=""><figcaption>划龙舟</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>七夕 · 8 月 19 日</h4>
+    <p>农历节日。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5–4.3 秒</span><span class="say">💬 七夕快乐～</span></p>
+    <code>holidaysOn() · 七夕</code>
+  </div>
+  <div class="thumbs"><figure title="sea_sparkler_heart · 1.8s"><img loading="lazy" src="../ui/assets/clawd/sea_sparkler_heart.gif" alt=""><figcaption>仙女棒画心</figcaption></figure><figure title="sea_valentine_balloon · 1.9s"><img loading="lazy" src="../ui/assets/clawd/sea_valentine_balloon.gif" alt=""><figcaption>爱心气球</figcaption></figure><figure title="emo_lovestruck · 1.4s"><img loading="lazy" src="../ui/assets/clawd/emo_lovestruck.gif" alt=""><figcaption>花痴心动</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>中秋节 · 9 月 25 日</h4>
+    <p>农历节日。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">5.4–6.3 秒</span><span class="say">💬 中秋快乐，记得吃月饼～</span></p>
+    <code>holidaysOn() · 中秋节</code>
+  </div>
+  <div class="thumbs"><figure title="sea_mooncake_moon · 2.7s"><img loading="lazy" src="../ui/assets/clawd/sea_mooncake_moon.gif" alt=""><figcaption>中秋赏月</figcaption></figure><figure title="sea_sky_lantern · 3.1s"><img loading="lazy" src="../ui/assets/clawd/sea_sky_lantern.gif" alt=""><figcaption>放孔明灯</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>程序员节 · 10 月 24 日</h4>
+    <p>公历固定日期。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.3–5.8 秒</span><span class="say">💬 1024 程序员节快乐！</span></p>
+    <code>holidaysOn() · 程序员节</code>
+  </div>
+  <div class="thumbs"><figure title="dev_hello_world · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_hello_world.gif" alt=""><figcaption>你好世界</figcaption></figure><figure title="dev_matrix · 1.4s"><img loading="lazy" src="../ui/assets/clawd/dev_matrix.gif" alt=""><figcaption>黑客帝国</figcaption></figure><figure title="dev_contrib_graph · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_contrib_graph.gif" alt=""><figcaption>提交格子变绿</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>万圣节 · 10 月 31 日</h4>
+    <p>公历固定日期。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.8–4.8 秒</span><span class="say">💬 不给糖就捣蛋！</span></p>
+    <code>holidaysOn() · 万圣节</code>
+  </div>
+  <div class="thumbs"><figure title="sea_pumpkin_carve · 2.3s"><img loading="lazy" src="../ui/assets/clawd/sea_pumpkin_carve.gif" alt=""><figcaption>雕南瓜灯</figcaption></figure><figure title="sea_ghost_sheet · 2.3s"><img loading="lazy" src="../ui/assets/clawd/sea_ghost_sheet.gif" alt=""><figcaption>床单幽灵</figcaption></figure><figure title="sea_trick_treat · 1.9s"><img loading="lazy" src="../ui/assets/clawd/sea_trick_treat.gif" alt=""><figcaption>不给糖就捣蛋</figcaption></figure><figure title="sea_witch_broom · 2.2s"><img loading="lazy" src="../ui/assets/clawd/sea_witch_broom.gif" alt=""><figcaption>骑扫帚飞</figcaption></figure><figure title="sea_mummy_wrap · 1.9s"><img loading="lazy" src="../ui/assets/clawd/sea_mummy_wrap.gif" alt=""><figcaption>木乃伊缠绷带</figcaption></figure><figure title="sea_vampire_cape · 1.9s"><img loading="lazy" src="../ui/assets/clawd/sea_vampire_cape.gif" alt=""><figcaption>吸血鬼披风</figcaption></figure><figure title="sea_skeleton_dance · 1.6s"><img loading="lazy" src="../ui/assets/clawd/sea_skeleton_dance.gif" alt=""><figcaption>和骷髅跳舞</figcaption></figure><figure title="sea_bats_circle · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_bats_circle.gif" alt=""><figcaption>蝙蝠绕飞</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>平安夜 · 12 月 24 日</h4>
+    <p>公历固定日期。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.1–5.4 秒</span><span class="say">💬 平安夜快乐～</span></p>
+    <code>holidaysOn() · 平安夜</code>
+  </div>
+  <div class="thumbs"><figure title="sea_tree_star · 2.6s"><img loading="lazy" src="../ui/assets/clawd/sea_tree_star.gif" alt=""><figcaption>圣诞树放星星</figcaption></figure><figure title="sea_santa_sack · 2.7s"><img loading="lazy" src="../ui/assets/clawd/sea_santa_sack.gif" alt=""><figcaption>圣诞老人背礼物</figcaption></figure><figure title="sea_reindeer_bells · 1.0s"><img loading="lazy" src="../ui/assets/clawd/sea_reindeer_bells.gif" alt=""><figcaption>驯鹿摇铃铛</figcaption></figure><figure title="sea_fireplace · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_fireplace.gif" alt=""><figcaption>壁炉挂袜子</figcaption></figure><figure title="sea_gingerbread_chase · 1.6s"><img loading="lazy" src="../ui/assets/clawd/sea_gingerbread_chase.gif" alt=""><figcaption>追姜饼人</figcaption></figure><figure title="sea_gift_unwrap · 2.1s"><img loading="lazy" src="../ui/assets/clawd/sea_gift_unwrap.gif" alt=""><figcaption>拆圣诞礼物</figcaption></figure><figure title="sea_snow_globe · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_snow_globe.gif" alt=""><figcaption>水晶球摇雪</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>圣诞节 · 12 月 25 日</h4>
+    <p>公历固定日期。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.1–5.4 秒</span><span class="say">💬 圣诞快乐！</span></p>
+    <code>holidaysOn() · 圣诞节</code>
+  </div>
+  <div class="thumbs"><figure title="sea_tree_star · 2.6s"><img loading="lazy" src="../ui/assets/clawd/sea_tree_star.gif" alt=""><figcaption>圣诞树放星星</figcaption></figure><figure title="sea_santa_sack · 2.7s"><img loading="lazy" src="../ui/assets/clawd/sea_santa_sack.gif" alt=""><figcaption>圣诞老人背礼物</figcaption></figure><figure title="sea_reindeer_bells · 1.0s"><img loading="lazy" src="../ui/assets/clawd/sea_reindeer_bells.gif" alt=""><figcaption>驯鹿摇铃铛</figcaption></figure><figure title="sea_fireplace · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_fireplace.gif" alt=""><figcaption>壁炉挂袜子</figcaption></figure><figure title="sea_gingerbread_chase · 1.6s"><img loading="lazy" src="../ui/assets/clawd/sea_gingerbread_chase.gif" alt=""><figcaption>追姜饼人</figcaption></figure><figure title="sea_gift_unwrap · 2.1s"><img loading="lazy" src="../ui/assets/clawd/sea_gift_unwrap.gif" alt=""><figcaption>拆圣诞礼物</figcaption></figure><figure title="sea_snow_globe · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_snow_globe.gif" alt=""><figcaption>水晶球摇雪</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>跨年夜 · 12 月 31 日</h4>
+    <p>公历固定日期。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5–6.3 秒</span><span class="say">💬 今年最后一天啦，辛苦了！</span></p>
+    <code>holidaysOn() · 跨年夜</code>
+  </div>
+  <div class="thumbs"><figure title="sea_countdown · 3.1s"><img loading="lazy" src="../ui/assets/clawd/sea_countdown.gif" alt=""><figcaption>新年倒计时</figcaption></figure><figure title="sea_fireworks_watch · 2.9s"><img loading="lazy" src="../ui/assets/clawd/sea_fireworks_watch.gif" alt=""><figcaption>看烟花</figcaption></figure><figure title="sea_party_popper · 1.8s"><img loading="lazy" src="../ui/assets/clawd/sea_party_popper.gif" alt=""><figcaption>拉礼花筒</figcaption></figure></div>
+</div></section>
+<section id="touch"><h2>四、你和它的互动</h2><p class="intro">直接对小螃蟹做的动作。这些都会打断 Claude 的状态动画，播完再回去。</p><div class="row">
+  <div class="info">
+    <h4>单击</h4>
+    <p>点一下，等 0.3 秒确认不是双击后播放。三连击、四连击也算这个。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">1.4–2.2 秒</span></p>
+    <code>ANIMS.click</code>
+  </div>
+  <div class="thumbs"><figure title="emo_ticklish · 1.1s"><img loading="lazy" src="../ui/assets/clawd/emo_ticklish.gif" alt=""><figcaption>怕痒</figcaption></figure><figure title="emo_giggle · 0.9s"><img loading="lazy" src="../ui/assets/clawd/emo_giggle.gif" alt=""><figcaption>捂嘴偷笑</figcaption></figure><figure title="emo_wink · 1.4s"><img loading="lazy" src="../ui/assets/clawd/emo_wink.gif" alt=""><figcaption>眨眼放电</figcaption></figure><figure title="emo_shy · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_shy.gif" alt=""><figcaption>害羞画圈</figcaption></figure><figure title="emo_blow_kiss · 1.8s"><img loading="lazy" src="../ui/assets/clawd/emo_blow_kiss.gif" alt=""><figcaption>飞吻</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>2.5 秒内点满 5 下</h4>
+    <p>第 5 下立刻生气，播完之前不理会更多点击。之后闹 2 分钟脾气。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">1.9–2.6 秒</span></p>
+    <code>ANIMS.clickSpam</code>
+  </div>
+  <div class="thumbs"><figure title="emo_dizzy · 1.3s"><img loading="lazy" src="../ui/assets/clawd/emo_dizzy.gif" alt=""><figcaption>晕头转向</figcaption></figure><figure title="emo_tantrum · 0.6s"><img loading="lazy" src="../ui/assets/clawd/emo_tantrum.gif" alt=""><figcaption>撒泼打滚</figcaption></figure><figure title="emo_furious_stomp · 0.7s"><img loading="lazy" src="../ui/assets/clawd/emo_furious_stomp.gif" alt=""><figcaption>气到跺脚</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>摸摸</h4>
+    <p>不按键，鼠标在它身上左右来回蹭（1.2 秒内连续变向 4 次）。4 秒内不重复触发，睡着时无效。之后 3 分钟它是「被宠着」的心情。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">2.2–2.9 秒</span></p>
+    <code>ANIMS.petted</code>
+  </div>
+  <div class="thumbs"><figure title="emo_lovestruck · 1.4s"><img loading="lazy" src="../ui/assets/clawd/emo_lovestruck.gif" alt=""><figcaption>花痴心动</figcaption></figure><figure title="emo_heart_pound · 0.9s"><img loading="lazy" src="../ui/assets/clawd/emo_heart_pound.gif" alt=""><figcaption>小鹿乱撞</figcaption></figure><figure title="cos_cat_purr · 2.4s"><img loading="lazy" src="../ui/assets/clawd/cos_cat_purr.gif" alt=""><figcaption>猫耳呼噜</figcaption></figure><figure title="emo_self_hug · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_self_hug.gif" alt=""><figcaption>抱抱自己</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>鼠标停在它身上</h4>
+    <p>悬停 2.5 秒且 Claude 没在忙（它自己的场景会被打断）。30 秒内不重复。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2–3.2 秒</span></p>
+    <code>ANIMS.noticed</code>
+  </div>
+  <div class="thumbs"><figure title="turn_around · 2.0s"><img loading="lazy" src="../ui/assets/clawd/turn_around.gif" alt=""><figcaption>转身看看</figcaption></figure><figure title="emo_wink · 1.4s"><img loading="lazy" src="../ui/assets/clawd/emo_wink.gif" alt=""><figcaption>眨眼放电</figcaption></figure><figure title="dev_cursor_chase · 3.2s"><img loading="lazy" src="../ui/assets/clawd/dev_cursor_chase.gif" alt=""><figcaption>追鼠标</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>被拎起来</h4>
+    <p>按住左键拖动超过 4 像素，直到松手。优先级最高。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.dragged</code>
+  </div>
+  <div class="thumbs"><figure title="emo_scared · 0.7s"><img loading="lazy" src="../ui/assets/clawd/emo_scared.gif" alt=""><figcaption>吓得发抖</figcaption></figure><figure title="emo_panic_circles · 1.1s"><img loading="lazy" src="../ui/assets/clawd/emo_panic_circles.gif" alt=""><figcaption>慌得团团转</figcaption></figure><figure title="astro_spin · 1.8s"><img loading="lazy" src="../ui/assets/clawd/astro_spin.gif" alt=""><figcaption>失重翻转</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>被放下</h4>
+    <p>拖动后松开鼠标。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">1.9–2.6 秒</span></p>
+    <code>ANIMS.dropped</code>
+  </div>
+  <div class="thumbs"><figure title="emo_dizzy · 1.3s"><img loading="lazy" src="../ui/assets/clawd/emo_dizzy.gif" alt=""><figcaption>晕头转向</figcaption></figure><figure title="emo_relieved · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_relieved.gif" alt=""><figcaption>松了口气</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>文件拖到它上方</h4>
+    <p>从资源管理器拖着文件进入桌宠窗口。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">2.1 秒</span></p>
+    <code>ANIMS.fileHover</code>
+  </div>
+  <div class="thumbs"><figure title="emo_awe · 2.1s"><img loading="lazy" src="../ui/assets/clawd/emo_awe.gif" alt=""><figcaption>惊叹</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>文件丢给它</h4>
+    <p>在它身上松手。文件本身不会被动。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">3.8 秒</span><span class="say">💬 接住啦～（只是抱一下，文件原封不动）</span></p>
+    <code>ANIMS.fileDrop</code>
+  </div>
+  <div class="thumbs"><figure title="dev_drag_drop · 3.8s"><img loading="lazy" src="../ui/assets/clawd/dev_drag_drop.gif" alt=""><figcaption>拖进文件夹</figcaption></figure></div>
+</div>
+<div class="note">不走固定动画的操作：<b>双击</b>和右键菜单的<b>「随机来一段」</b>从随机惊喜的范围里抽一个播 2.5 秒以上；设置里的<b>动画图鉴</b>点哪个播哪个；<b>右键</b>弹菜单；<b>托盘图标</b>单击显示/隐藏、双击打开设置。</div></section>
+<section id="system"><h2>五、系统联动</h2><p class="intro">对你在 Claude Code 之外的操作做反应。全部是「一次性 · 让路」：Claude 正忙时不显示，它睡着时不理会。同一种事件默认 20 秒内只反应一次。每项都能在设置的「系统联动」里单独关掉。status、fetch、log 这类编辑器在后台反复执行的 git 命令，以及别的 git 命令派生出来的子命令，都不触发。</p><div class="row">
+  <div class="info">
+    <h4>文件进了文件夹</h4>
+    <p>监听的文件夹里出现新文件或新文件夹：拖入、移入、新建、另存都算。开关：文件动静。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.8 秒</span></p>
+    <code>SYS_EVENTS[&quot;file-in&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="dev_drag_drop · 3.8s"><img loading="lazy" src="../ui/assets/clawd/dev_drag_drop.gif" alt=""><figcaption>拖进文件夹</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>压缩打包</h4>
+    <p>监听的文件夹里出现 .zip / .7z / .rar / .tar / .gz 等压缩包（下载文件夹里的算下载）。开关：文件动静。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.6 秒</span><span class="say">💬 压缩打包，搞定～</span></p>
+    <code>SYS_EVENTS[&quot;zip&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="dev_zip · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_zip.gif" alt=""><figcaption>压缩打包</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>下载完成</h4>
+    <p>下载文件夹里出现新文件，或浏览器的临时文件被改名为正式文件。开关：文件动静。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.6–4.1 秒</span><span class="say">💬 有新文件到货啦～</span></p>
+    <code>SYS_EVENTS[&quot;download&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="cos_mail_delivery · 2.6s"><img loading="lazy" src="../ui/assets/clawd/cos_mail_delivery.gif" alt=""><figcaption>邮递员送信</figcaption></figure><figure title="sea_gift_unwrap · 2.1s"><img loading="lazy" src="../ui/assets/clawd/sea_gift_unwrap.gif" alt=""><figcaption>拆圣诞礼物</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>截图</h4>
+    <p>名字含 Screenshots 或「截图」的文件夹里出现新图片。开关：文件动静。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.6–4.2 秒</span><span class="say">💬 咔嚓！</span></p>
+    <code>SYS_EVENTS[&quot;screenshot&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="life_photo_polaroid · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_photo_polaroid.gif" alt=""><figcaption>拍立得</figcaption></figure><figure title="life_selfie · 1.8s"><img loading="lazy" src="../ui/assets/clawd/life_selfie.gif" alt=""><figcaption>自拍</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>删除文件</h4>
+    <p>回收站文件夹里多了一条记录（文件系统通知，不轮询）。开关：回收站。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.4 秒</span></p>
+    <code>SYS_EVENTS[&quot;trash&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="life_trash_out · 3.4s"><img loading="lazy" src="../ui/assets/clawd/life_trash_out.gif" alt=""><figcaption>倒垃圾</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>清空回收站</h4>
+    <p>回收站里最后一条记录被移除。开关：回收站。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.2–3.5 秒</span><span class="say">💬 回收站清空，一身轻松～</span></p>
+    <code>SYS_EVENTS[&quot;trash-empty&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="life_sweep_floor · 1.8s"><img loading="lazy" src="../ui/assets/clawd/life_sweep_floor.gif" alt=""><figcaption>扫地</figcaption></figure><figure title="life_vacuum · 1.6s"><img loading="lazy" src="../ui/assets/clawd/life_vacuum.gif" alt=""><figcaption>吸尘器</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>复制或剪切</h4>
+    <p>剪贴板的序号变了（每秒查一次，不读内容）。开关：复制粘贴；1 分钟内只反应一次。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.9 秒</span></p>
+    <code>SYS_EVENTS[&quot;clipboard&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="dev_copy_paste · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_copy_paste.gif" alt=""><figcaption>复制粘贴</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>电量低</h4>
+    <p>用电池供电且电量降到 20% 以下（每 20 秒查一次）。开关：电量；10 分钟内只反应一次。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.2 秒</span><span class="say">💬 快没电啦，插上电源吧！</span></p>
+    <code>SYS_EVENTS[&quot;battery-low&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="dev_battery · 3.2s"><img loading="lazy" src="../ui/assets/clawd/dev_battery.gif" alt=""><figcaption>没电充电</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>插上电源</h4>
+    <p>从电池供电变成接通电源。开关：电量。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.2 秒</span><span class="say">💬 充上电啦～</span></p>
+    <code>SYS_EVENTS[&quot;power-plug&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="dev_cable_plug · 3.2s"><img loading="lazy" src="../ui/assets/clawd/dev_cable_plug.gif" alt=""><figcaption>插网线</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>断网</h4>
+    <p>系统报告的联网状态变为断开（每 5 秒查一次）。开关：网络。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.9–3.5 秒</span><span class="say">💬 网断了…我找找信号</span></p>
+    <code>SYS_EVENTS[&quot;offline&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="dev_wifi_search · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_wifi_search.gif" alt=""><figcaption>找信号</figcaption></figure><figure title="dev_404 · 3.5s"><img loading="lazy" src="../ui/assets/clawd/dev_404.gif" alt=""><figcaption>找不到页面</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>网络恢复</h4>
+    <p>联网状态从断开变回连接。开关：网络。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.8–4.8 秒</span><span class="say">💬 网回来啦～</span></p>
+    <code>SYS_EVENTS[&quot;online&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="dev_packet_ping · 2.4s"><img loading="lazy" src="../ui/assets/clawd/dev_packet_ping.gif" alt=""><figcaption>ping一下</figcaption></figure><figure title="emo_relieved · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_relieved.gif" alt=""><figcaption>松了口气</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>切到深色模式</h4>
+    <p>系统主题变为深色。开关：深色 / 浅色模式。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.9 秒</span></p>
+    <code>SYS_EVENTS[&quot;dark&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="dev_dark_mode · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_dark_mode.gif" alt=""><figcaption>深色模式</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>切到浅色模式</h4>
+    <p>系统主题变为浅色。开关：深色 / 浅色模式。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.9 秒</span></p>
+    <code>SYS_EVENTS[&quot;light&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="sea_day_night · 3.9s"><img loading="lazy" src="../ui/assets/clawd/sea_day_night.gif" alt=""><figcaption>日出日落</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git：提交</h4>
+    <p>任何仓库里成功执行 commit / cherry-pick / revert / tag。git 自己把命令名告诉桌宠，不用添加仓库。开关：Git 操作（默认关闭）。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.6 秒</span></p>
+    <code>SYS_EVENTS[&quot;git-commit&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="dev_git_graph · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_git_graph.gif" alt=""><figcaption>提交图</figcaption></figure><figure title="dev_contrib_graph · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_contrib_graph.gif" alt=""><figcaption>提交格子变绿</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git：合并</h4>
+    <p>成功执行 merge / pull / rebase。开关：Git 操作（默认关闭）。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.9–3.1 秒</span></p>
+    <code>SYS_EVENTS[&quot;git-merge&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="dev_git_merge · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_git_merge.gif" alt=""><figcaption>分支合并</figcaption></figure><figure title="dev_pr_merged · 3.1s"><img loading="lazy" src="../ui/assets/clawd/dev_pr_merged.gif" alt=""><figcaption>顶开合并</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git：推送</h4>
+    <p>成功执行 push。开关：Git 操作（默认关闭）。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.4 秒</span><span class="say">💬 推上去啦～</span></p>
+    <code>SYS_EVENTS[&quot;git-push&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="dev_cloud_upload · 2.2s"><img loading="lazy" src="../ui/assets/clawd/dev_cloud_upload.gif" alt=""><figcaption>上传到云</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git：新仓库</h4>
+    <p>成功执行 clone / init。开关：Git 操作（默认关闭）。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.6–2.9 秒</span></p>
+    <code>SYS_EVENTS[&quot;git-clone&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="dev_hello_world · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_hello_world.gif" alt=""><figcaption>你好世界</figcaption></figure><figure title="cos_mail_delivery · 2.6s"><img loading="lazy" src="../ui/assets/clawd/cos_mail_delivery.gif" alt=""><figcaption>邮递员送信</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git：切分支</h4>
+    <p>成功执行 checkout / switch。开关：Git 操作（默认关闭）。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.8 秒</span></p>
+    <code>SYS_EVENTS[&quot;git-switch&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="cos_time_travel · 1.9s"><img loading="lazy" src="../ui/assets/clawd/cos_time_travel.gif" alt=""><figcaption>时间旅行者</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git：撤销</h4>
+    <p>成功执行 reset / restore / stash。开关：Git 操作（默认关闭）。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.3 秒</span></p>
+    <code>SYS_EVENTS[&quot;git-undo&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="dev_ctrl_z · 3.3s"><img loading="lazy" src="../ui/assets/clawd/dev_ctrl_z.gif" alt=""><figcaption>撤销撤销</figcaption></figure></div>
+</div>
+<h3>前台应用（默认关闭）</h3>
+<div class="row">
+  <div class="info">
+    <h4>切到音乐软件</h4>
+    <p>系统通知前台窗口换了，且它的进程名是：<code>cloudmusic.exe</code> <code>qqmusic.exe</code> <code>spotify.exe</code> <code>kugou.exe</code> <code>kwmusic.exe</code> <code>foobar2000.exe</code> <code>applemusic.exe</code>。同一类 2 分钟内只反应一次。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.9–3.4 秒</span></p>
+    <code>APP_ANIMS.music</code>
+  </div>
+  <div class="thumbs"><figure title="phones_on · 2.9s"><img loading="lazy" src="../ui/assets/clawd/phones_on.gif" alt=""><figcaption>戴上耳机</figcaption></figure><figure title="vibe_headphones · 1.7s"><img loading="lazy" src="../ui/assets/clawd/vibe_headphones.gif" alt=""><figcaption>戴耳机摇摆</figcaption></figure><figure title="dj_deck · 1.0s"><img loading="lazy" src="../ui/assets/clawd/dj_deck.gif" alt=""><figcaption>打碟</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>切到视频软件</h4>
+    <p>系统通知前台窗口换了，且它的进程名是：<code>potplayermini64.exe</code> <code>potplayer.exe</code> <code>vlc.exe</code> <code>mpv.exe</code> <code>哔哩哔哩.exe</code> <code>bilibili.exe</code> <code>qqlive.exe</code> <code>qyclient.exe</code>。同一类 2 分钟内只反应一次。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.6–5.1 秒</span></p>
+    <code>APP_ANIMS.video</code>
+  </div>
+  <div class="thumbs"><figure title="life_popcorn_catch · 1.3s"><img loading="lazy" src="../ui/assets/clawd/life_popcorn_catch.gif" alt=""><figcaption>接爆米花</figcaption></figure><figure title="life_tv_remote · 2.6s"><img loading="lazy" src="../ui/assets/clawd/life_tv_remote.gif" alt=""><figcaption>换台</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>切到游戏软件</h4>
+    <p>系统通知前台窗口换了，且它的进程名是：<code>steam.exe</code> <code>steamwebhelper.exe</code> <code>wegame.exe</code> <code>yuanshen.exe</code> <code>genshinimpact.exe</code> <code>starrail.exe</code> <code>leagueclientux.exe</code> <code>minecraft.exe</code>。同一类 2 分钟内只反应一次。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.6 秒</span></p>
+    <code>APP_ANIMS.game</code>
+  </div>
+  <div class="thumbs"><figure title="life_video_game · 1.3s"><img loading="lazy" src="../ui/assets/clawd/life_video_game.gif" alt=""><figcaption>打游戏</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>切到编辑器 / IDE软件</h4>
+    <p>系统通知前台窗口换了，且它的进程名是：<code>code.exe</code> <code>cursor.exe</code> <code>idea64.exe</code> <code>pycharm64.exe</code> <code>webstorm64.exe</code> <code>devenv.exe</code> <code>studio64.exe</code> <code>zed.exe</code>。同一类 2 分钟内只反应一次。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.9–3.2 秒</span></p>
+    <code>APP_ANIMS.code</code>
+  </div>
+  <div class="thumbs"><figure title="dev_laptop_front · 0.8s"><img loading="lazy" src="../ui/assets/clawd/dev_laptop_front.gif" alt=""><figcaption>笔记本打字</figcaption></figure><figure title="dev_hello_world · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_hello_world.gif" alt=""><figcaption>你好世界</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>切到终端软件</h4>
+    <p>系统通知前台窗口换了，且它的进程名是：<code>windowsterminal.exe</code> <code>wezterm-gui.exe</code> <code>alacritty.exe</code>。同一类 2 分钟内只反应一次。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.6–2.9 秒</span></p>
+    <code>APP_ANIMS.terminal</code>
+  </div>
+  <div class="thumbs"><figure title="dev_terminal · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_terminal.gif" alt=""><figcaption>终端敲命令</figcaption></figure><figure title="dev_matrix · 1.4s"><img loading="lazy" src="../ui/assets/clawd/dev_matrix.gif" alt=""><figcaption>黑客帝国</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>切到聊天软件</h4>
+    <p>系统通知前台窗口换了，且它的进程名是：<code>wechat.exe</code> <code>weixin.exe</code> <code>qq.exe</code> <code>telegram.exe</code> <code>discord.exe</code> <code>dingtalk.exe</code> <code>feishu.exe</code> <code>lark.exe</code> <code>slack.exe</code>。同一类 2 分钟内只反应一次。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.9–5.1 秒</span></p>
+    <code>APP_ANIMS.chat</code>
+  </div>
+  <div class="thumbs"><figure title="life_phone_call · 2.5s"><img loading="lazy" src="../ui/assets/clawd/life_phone_call.gif" alt=""><figcaption>打电话</figcaption></figure><figure title="dev_ai_chat · 3.1s"><img loading="lazy" src="../ui/assets/clawd/dev_ai_chat.gif" alt=""><figcaption>对话中</figcaption></figure><figure title="tea_talk · 2.9s"><img loading="lazy" src="../ui/assets/clawd/tea_talk.gif" alt=""><figcaption>喝茶聊天</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>切到设计软件</h4>
+    <p>系统通知前台窗口换了，且它的进程名是：<code>figma.exe</code> <code>photoshop.exe</code> <code>illustrator.exe</code> <code>blender.exe</code> <code>aseprite.exe</code> <code>mspaint.exe</code>。同一类 2 分钟内只反应一次。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.9–3.1 秒</span></p>
+    <code>APP_ANIMS.design</code>
+  </div>
+  <div class="thumbs"><figure title="dev_pixel_editor · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_pixel_editor.gif" alt=""><figcaption>画像素图</figcaption></figure><figure title="life_paint_easel · 3.1s"><img loading="lazy" src="../ui/assets/clawd/life_paint_easel.gif" alt=""><figcaption>画画</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>切到办公与笔记软件</h4>
+    <p>系统通知前台窗口换了，且它的进程名是：<code>winword.exe</code> <code>excel.exe</code> <code>powerpnt.exe</code> <code>wps.exe</code> <code>et.exe</code> <code>wpp.exe</code> <code>obsidian.exe</code> <code>notion.exe</code> <code>typora.exe</code>。同一类 2 分钟内只反应一次。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.8–3.1 秒</span></p>
+    <code>APP_ANIMS.office</code>
+  </div>
+  <div class="thumbs"><figure title="dev_slide_chart · 3.1s"><img loading="lazy" src="../ui/assets/clawd/dev_slide_chart.gif" alt=""><figcaption>汇报图表</figcaption></figure><figure title="cos_teacher_chalk · 2.8s"><img loading="lazy" src="../ui/assets/clawd/cos_teacher_chalk.gif" alt=""><figcaption>老师写黑板</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>切到邮件软件</h4>
+    <p>系统通知前台窗口换了，且它的进程名是：<code>outlook.exe</code> <code>olk.exe</code> <code>thunderbird.exe</code> <code>foxmail.exe</code>。同一类 2 分钟内只反应一次。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3–3.3 秒</span></p>
+    <code>APP_ANIMS.mail</code>
+  </div>
+  <div class="thumbs"><figure title="dev_inbox_zero · 3.3s"><img loading="lazy" src="../ui/assets/clawd/dev_inbox_zero.gif" alt=""><figcaption>清空收件箱</figcaption></figure><figure title="life_post_letter · 3.0s"><img loading="lazy" src="../ui/assets/clawd/life_post_letter.gif" alt=""><figcaption>寄信</figcaption></figure></div>
+</div></section>
+<section id="unused"><h2>六、还没安排戏份的动画</h2><p class="intro">这 2 个动画没有固定的触发时机，只会在「随机惊喜」和双击时出现（嚎啕大哭、心碎这类太伤心的是特意留着的）。想给哪个安排角色，告诉我它的名字和想要的触发时机就行。</p><h3>情绪 · 2 个</h3><div class="thumbs loose"><figure title="emo_sob_fountain · 0.7s"><img loading="lazy" src="../ui/assets/clawd/emo_sob_fountain.gif" alt=""><figcaption>嚎啕大哭</figcaption></figure><figure title="emo_heartbreak · 2.1s"><img loading="lazy" src="../ui/assets/clawd/emo_heartbreak.gif" alt=""><figcaption>心碎了</figcaption></figure></div></section>
+</main>
+</body>
+</html>

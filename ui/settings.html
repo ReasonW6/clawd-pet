@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Clawd Pet 设置</title>
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <header id="titlebar" data-tauri-drag-region>
+      <span class="logo" data-tauri-drag-region></span>
+      <span class="title" data-tauri-drag-region>Clawd Pet 设置</span>
+      <button id="win-min" title="最小化"><i class="glyph-min"></i></button>
+      <button id="win-close" title="关闭"><i class="glyph-close"></i></button>
+    </header>
+    <div id="frame">
+    <aside>
+      <img class="mascot" src="assets/clawd/dev_wrench_gear.gif" alt="" />
+      <nav>
+        <button data-tab="character" class="active">性格</button>
+        <button data-tab="routine">作息</button>
+        <button data-tab="claude">Claude 联动</button>
+        <button data-tab="system">系统联动</button>
+        <button data-tab="gallery">动画图鉴</button>
+      </nav>
+      <div id="saved">已自动保存</div>
+    </aside>
+
+    <main>
+      <!-- ------------------------------------------------ 性格 -->
+      <section id="tab-character" class="active">
+        <h2>性格</h2>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>大小</b><small><output id="size-out"></output> 像素</small></span>
+            <input type="range" data-key="size" min="120" max="360" step="10" />
+          </label>
+          <div class="row">
+            <span class="text"><b>活跃度</b><small>两件事之间歇多久：悠闲约 1 分钟，活泼十几秒，闹腾几乎不停；安静就只待着</small></span>
+            <span class="segmented" id="liveliness">
+              <label><input type="radio" name="liveliness" value="0" /><span>安静</span></label>
+              <label><input type="radio" name="liveliness" value="1" /><span>悠闲</span></label>
+              <label><input type="radio" name="liveliness" value="2" /><span>活泼</span></label>
+              <label><input type="radio" name="liveliness" value="3" /><span>闹腾</span></label>
+            </span>
+          </div>
+        </div>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>开机自启</b><small id="autostart-note">登录 Windows 后自动出现在桌面上</small></span>
+            <input type="checkbox" class="switch" id="autostart" />
+          </label>
+          <label class="row">
+            <span class="text"><b>全屏时让开</b><small>游戏或视频全屏（包括无边框窗口）占满它所在的屏幕时自动藏起来，退出全屏就回来</small></span>
+            <input type="checkbox" class="switch" data-key="hideInFullscreen" />
+          </label>
+          <div class="row stack">
+            <span class="text"><b>例外的程序</b><small>这些程序全屏时不隐藏，比如想让它陪你看视频，就把浏览器加进来</small></span>
+            <span class="add">
+              <input type="text" id="fs-exclude-name" placeholder="进程名，如 chrome.exe" />
+              <button id="fs-exclude-add">添加</button>
+              <button id="fs-exclude-pick" class="ghost">选择程序…</button>
+            </span>
+          </div>
+          <div id="fs-exclude" class="list"></div>
+        </div>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>爱说话</b><small>打招呼、饭点提醒、晚安这类小气泡</small></span>
+            <input type="checkbox" class="switch" data-key="chatty" />
+          </label>
+          <label class="row">
+            <span class="text"><b>怎么称呼你</b><small>留空就不带称呼</small></span>
+            <input type="text" data-key="nickname" maxlength="12" placeholder="比如：老板" />
+          </label>
+          <div class="row">
+            <span class="text"><b>你的生日</b><small>当天它会给你吹蜡烛</small></span>
+            <span>
+              <select id="birth-month"></select>
+              <select id="birth-day"></select>
+            </span>
+          </div>
+        </div>
+        <p class="hint">互动小贴士：单击逗它、连点 5 下会生气、双击随机表演、鼠标在它身上来回蹭是摸摸、按住可以拎着走、把文件拖到它身上它会接住。</p>
+      </section>
+
+      <!-- ------------------------------------------------ 作息 -->
+      <section id="tab-routine">
+        <h2>作息</h2>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>按时睡觉</b><small>只在下面的时段睡觉；其他空闲时间它按一天的作息过日子：做饭、运动、变装、弹琴、过节…</small></span>
+            <input type="checkbox" class="switch" data-key="sleepEnabled" />
+          </label>
+          <div id="sleep-windows" class="list"></div>
+          <div class="row"><button id="add-sleep" class="ghost">＋ 添加睡眠时段</button></div>
+        </div>
+        <p class="hint">不超过 3 小时的时段算打盹（看书睡着），更长的算正式睡觉（盖被子）。睡着时 Claude 一开工它会惊醒干活，忙完再接着睡；戳它也会醒，但会有点起床气。</p>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>多久没操作它就自己玩</b><small>键盘鼠标这么久没动（你可能走开了，也可能在看视频），它会多做运动、玩变装，也会无聊、想你</small></span>
+            <span><input type="number" data-key="aloneMinutes" min="1" max="120" /> 分钟</span>
+          </label>
+          <label class="row">
+            <span class="text"><b>久坐提醒</b><small>连续坐这么久就提醒你起来活动；填 0 关闭</small></span>
+            <span><input type="number" data-key="sedentaryMinutes" min="0" max="480" /> 分钟</span>
+          </label>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------ Claude -->
+      <section id="tab-claude">
+        <h2>Claude 联动</h2>
+        <div class="card">
+          <div class="row">
+            <span class="text">
+              <b>Claude Code 联动 <span id="hook-status" class="pill"></span></b>
+              <small>向 <code>~/.claude/settings.json</code> 写入一组 HTTP hook（会先备份）。终端、Desktop、VS Code 里的 Claude Code 都会生效。</small>
+            </span>
+            <button id="hook-toggle"></button>
+          </div>
+          <div id="hook-error" class="error" hidden></div>
+        </div>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>权限审批气泡</b><small>Claude 请求权限时，直接在桌宠头顶点「允许 / 拒绝」</small></span>
+            <input type="checkbox" class="switch" data-key="bubbles" />
+          </label>
+        </div>
+        <p class="hint">桌宠没运行时 hook 会立即失败，Claude Code 照常工作，不受影响。</p>
+      </section>
+
+      <!-- ------------------------------------------------ 系统 -->
+      <section id="tab-system">
+        <h2>系统联动</h2>
+        <p class="hint">让它对你在电脑上的操作有反应。只感知「发生了什么」，不读取文件内容、剪贴板内容和按键，全部在本机处理。Claude 干活时这些反应会自动让路。</p>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>文件动静</b><small>文件进文件夹、压缩打包、下载完成、截图</small></span>
+            <input type="checkbox" class="switch" data-key="sys.files" />
+          </label>
+          <div id="folders" class="list"></div>
+          <div class="row"><button id="add-folder" class="ghost">＋ 添加文件夹</button></div>
+        </div>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>回收站</b><small>删文件时倒垃圾，清空时大扫除</small></span>
+            <input type="checkbox" class="switch" data-key="sys.trash" />
+          </label>
+          <label class="row">
+            <span class="text"><b>复制粘贴</b><small>剪贴板有变化时（最多每分钟一次）</small></span>
+            <input type="checkbox" class="switch" data-key="sys.clipboard" />
+          </label>
+          <label class="row">
+            <span class="text"><b>电量</b><small>电量低、插上电源</small></span>
+            <input type="checkbox" class="switch" data-key="sys.power" />
+          </label>
+          <label class="row">
+            <span class="text"><b>网络</b><small>断网时找信号，恢复时松口气</small></span>
+            <input type="checkbox" class="switch" data-key="sys.network" />
+          </label>
+          <label class="row">
+            <span class="text"><b>深色 / 浅色模式</b><small>系统主题切换时</small></span>
+            <input type="checkbox" class="switch" data-key="sys.theme" />
+          </label>
+          <label class="row">
+            <span class="text"><b>节日</b><small>春节、中秋、万圣节、圣诞、你的生日…当天有专属动画</small></span>
+            <input type="checkbox" class="switch" data-key="sys.holidays" />
+          </label>
+        </div>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>前台应用</b><small>切到音乐、视频、游戏、聊天等软件时跟着换花样。只看进程名，默认关闭</small></span>
+            <input type="checkbox" class="switch" data-key="sys.apps" />
+          </label>
+        </div>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>Git 操作</b><small id="git-note">任何仓库、任何工具里的提交、合并、拉取、推送、克隆、切分支、撤销，它都有反应，不用逐个添加仓库</small></span>
+            <input type="checkbox" class="switch" id="git-watch" />
+          </label>
+        </div>
+        <p class="hint">Git 操作的原理：打开后会在你的<b>全局 git 配置</b>里加 4 行 <code>trace2.*</code> 设置，让 git 把每条命令的名字和结果记到桌宠自己的文件夹里；桌宠读完就删，只看命令名，不碰仓库内容。关掉开关即从配置里移除。桌宠没运行时 git 最多攒 200 个小文件就自动停记。</p>
+      </section>
+
+      <!-- ------------------------------------------------ 图鉴 -->
+      <section id="tab-gallery">
+        <h2>动画图鉴 <small id="gallery-count"></small></h2>
+        <div class="gallery-head">
+          <img id="preview" alt="" />
+          <div>
+            <div id="preview-name">点一个名字，让它演给你看</div>
+            <input type="search" id="search" placeholder="搜索动画…" />
+            <div id="themes" class="chips"></div>
+          </div>
+        </div>
+        <div id="grid"></div>
+      </section>
+    </main>
+    </div>
+
+    <script src="settings.js"></script>
+  </body>
+</html>

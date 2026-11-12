@@ -1,0 +1,520 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod autostart;
+mod config;
+mod git;
+mod hooks;
+mod server;
+mod sysmon;
+
+use config::Config;
+use notify::RecommendedWatcher;
+use server::Shared;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, Wry,
+};
+
+const SIZE_RANGE: (u32, u32) = (120, 360);
+/// Space above the pet reserved for speech / permission bubbles.
+const BUBBLE_SPACE: f64 = 210.0;
+/// Space below the pet for the session status line.
+const LABEL_SPACE: f64 = 44.0;
+const MIN_WIDTH: f64 = 340.0;
+
+struct AppState {
+    config: Arc<Mutex<Config>>,
+    config_path: PathBuf,
+    shared: Arc<Shared>,
+    events: sysmon::Events,
+    watcher: Mutex<Option<RecommendedWatcher>>,
+    downloads: Option<PathBuf>,
+    /// Where git reports the commands it runs, once the user has turned that on.
+    git_trace: PathBuf,
+    /// Interactive regions (x, y, w, h) in logical px; everything else is click-through.
+    hit_rects: Mutex<Vec<[f64; 4]>>,
+    /// The user is dragging the pet around.
+    dragging: AtomicBool,
+    dirty: AtomicBool,
+    /// The pet hid itself because something full-screen took over its monitor.
+    stepped_aside: AtomicBool,
+}
+
+impl AppState {
+    fn save(&self) {
+        self.config.lock().unwrap().save(&self.config_path);
+    }
+
+    fn rewatch(&self) {
+        let cfg = self.config.lock().unwrap().clone();
+        *self.watcher.lock().unwrap() = sysmon::watch(&self.events, &cfg, self.downloads.clone(), &self.git_trace);
+    }
+}
+
+fn window_size(size: u32) -> LogicalSize<f64> {
+    let s = size as f64;
+    LogicalSize::new(MIN_WIDTH.max(s + 40.0), BUBBLE_SPACE + s + LABEL_SPACE)
+}
+
+fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
+    app.get_webview_window("main")
+}
+
+// ---------- commands ----------
+
+#[tauri::command]
+fn get_config(state: State<AppState>) -> Config {
+    state.config.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn set_config(mut config: Config, app: AppHandle, state: State<AppState>) {
+    config.size = config.size.clamp(SIZE_RANGE.0, SIZE_RANGE.1);
+    let old = {
+        let mut current = state.config.lock().unwrap();
+        // The window position is owned by the pet window, not the settings form.
+        config.x = current.x;
+        config.y = current.y;
+        std::mem::replace(&mut *current, config.clone())
+    };
+    state.shared.bubbles.store(config.bubbles, Ordering::SeqCst);
+    if old.size != config.size {
+        if let Some(w) = main_window(&app) {
+            resize_anchored(&w, old.size, config.size);
+        }
+    }
+    if old.sys != config.sys {
+        state.rewatch();
+    }
+    state.save();
+    let _ = app.emit("config", config);
+    if let Some(w) = main_window(&app) {
+        step_aside(&app, &state, &w);
+    }
+}
+
+#[tauri::command]
+fn set_hit_rects(rects: Vec<[f64; 4]>, state: State<AppState>) {
+    *state.hit_rects.lock().unwrap() = rects;
+}
+
+#[tauri::command]
+fn drag_started(state: State<AppState>) {
+    state.dragging.store(true, Ordering::SeqCst);
+}
+
+#[tauri::command]
+fn resolve_permission(id: u64, body: String, state: State<AppState>) -> bool {
+    state.shared.resolve(id, body)
+}
+
+#[tauri::command]
+fn show_menu(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
+    let menu = build_menu(&app).map_err(|e| e.to_string())?;
+    window.popup_menu(&menu).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn hooks_installed() -> bool {
+    hooks::is_installed()
+}
+
+#[tauri::command]
+fn hooks_set(install: bool) -> Result<bool, String> {
+    if install {
+        hooks::install()?;
+    } else {
+        hooks::uninstall()?;
+    }
+    Ok(hooks::is_installed())
+}
+
+/// (can be turned on in this build, is on)
+#[tauri::command]
+fn autostart_get() -> (bool, bool) {
+    (autostart::available(), autostart::enabled())
+}
+
+#[tauri::command]
+fn autostart_set(enable: bool) -> Result<bool, String> {
+    autostart::set(enable)?;
+    Ok(autostart::enabled())
+}
+
+#[tauri::command]
+fn open_settings(app: AppHandle) {
+    show_settings(&app);
+}
+
+#[tauri::command(async)]
+fn pick_folder() -> Option<String> {
+    rfd::FileDialog::new().pick_folder().map(|p| p.to_string_lossy().into_owned())
+}
+
+/// Lets the user point at a program; returns its file name, e.g. "chrome.exe".
+#[tauri::command(async)]
+fn pick_program() -> Option<String> {
+    let path = rfd::FileDialog::new().add_filter("程序", &["exe"]).pick_file()?;
+    Some(path.file_name()?.to_string_lossy().to_lowercase())
+}
+
+#[tauri::command(async)]
+fn git_watch_get(state: State<AppState>) -> bool {
+    git::is_installed(&state.git_trace)
+}
+
+#[tauri::command(async)]
+fn git_watch_set(on: bool, state: State<AppState>) -> Result<bool, String> {
+    if on {
+        git::install(&state.git_trace)?;
+    } else {
+        git::uninstall(&state.git_trace)?;
+    }
+    Ok(git::is_installed(&state.git_trace))
+}
+
+// ---------- menu & windows ----------
+
+fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
+    let visible = main_window(app).and_then(|w| w.is_visible().ok()).unwrap_or(true);
+    Menu::with_items(
+        app,
+        &[
+            &MenuItem::with_id(app, "toggle_visible", if visible { "隐藏桌宠" } else { "显示桌宠" }, true, None::<&str>)?,
+            &MenuItem::with_id(app, "random", "随机来一段", true, None::<&str>)?,
+            &MenuItem::with_id(app, "settings", "设置…", true, None::<&str>)?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?,
+        ],
+    )
+}
+
+fn refresh_tray(app: &AppHandle) {
+    if let (Some(tray), Ok(menu)) = (app.tray_by_id("main"), build_menu(app)) {
+        let _ = tray.set_menu(Some(menu));
+    }
+}
+
+fn toggle_visible(app: &AppHandle) {
+    if let Some(w) = main_window(app) {
+        if w.is_visible().unwrap_or(false) {
+            let _ = w.hide();
+        } else {
+            let _ = w.show();
+        }
+    }
+}
+
+fn show_settings(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+        return;
+    }
+    // Creating a window from an event handler on the main thread deadlocks on Windows.
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let _ = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
+            .title("Clawd Pet 设置")
+            // The page draws its own title bar.
+            .decorations(false)
+            .inner_size(680.0, 760.0)
+            .min_inner_size(560.0, 480.0)
+            .center()
+            .build();
+    });
+}
+
+fn on_menu(app: &AppHandle, id: &str) {
+    match id {
+        "quit" => {
+            app.state::<AppState>().save();
+            app.exit(0);
+        }
+        "toggle_visible" => {
+            toggle_visible(app);
+            refresh_tray(app);
+        }
+        "random" => {
+            let _ = app.emit("play-random", ());
+        }
+        "settings" => show_settings(app),
+        _ => {}
+    }
+}
+
+/// Left click toggles the pet, double click opens the settings.
+///
+/// Windows reports a double click as up, double-click, up. So a click only takes
+/// effect once the double-click interval has passed without another tray event,
+/// and the "up" that ends a double click is dropped.
+fn on_tray_event(app: &AppHandle, event: TrayIconEvent) {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    static LAST_DOUBLE: Mutex<Option<Instant>> = Mutex::new(None);
+    let interval = sysmon::double_click_time();
+
+    match event {
+        TrayIconEvent::DoubleClick { button: MouseButton::Left, .. } => {
+            SEQ.fetch_add(1, Ordering::SeqCst);
+            *LAST_DOUBLE.lock().unwrap() = Some(Instant::now());
+            show_settings(app);
+        }
+        TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } => {
+            if LAST_DOUBLE.lock().unwrap().is_some_and(|t| t.elapsed() < interval) {
+                return;
+            }
+            let seq = SEQ.fetch_add(1, Ordering::SeqCst) + 1;
+            let app = app.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(interval);
+                if SEQ.load(Ordering::SeqCst) == seq {
+                    toggle_visible(&app);
+                    refresh_tray(&app);
+                }
+            });
+        }
+        _ => {}
+    }
+}
+
+/// Resize while keeping the pet's bottom-center where it was.
+fn resize_anchored(w: &WebviewWindow, old: u32, new: u32) {
+    let scale = w.scale_factor().unwrap_or(1.0);
+    let (a, b) = (window_size(old).to_physical::<f64>(scale), window_size(new).to_physical::<f64>(scale));
+    if let Ok(pos) = w.outer_position() {
+        let x = pos.x as f64 + (a.width - b.width) / 2.0;
+        let y = pos.y as f64 + (a.height - b.height);
+        let _ = w.set_size(window_size(new));
+        let _ = w.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
+    }
+}
+
+fn place_initially(w: &WebviewWindow, cfg: &Config) {
+    let _ = w.set_size(window_size(cfg.size));
+    if let (Some(x), Some(y)) = (cfg.x, cfg.y) {
+        let size = window_size(cfg.size).to_physical::<i32>(w.scale_factor().unwrap_or(1.0));
+        // The pet itself sits at the bottom center of the window.
+        let (px, py) = (x + size.width / 2, y + size.height - 80);
+        let on_screen = w.available_monitors().unwrap_or_default().iter().any(|m| {
+            let (p, s) = (m.position(), m.size());
+            px >= p.x && py >= p.y && px < p.x + s.width as i32 && py < p.y + s.height as i32
+        });
+        if on_screen {
+            let _ = w.set_position(PhysicalPosition::new(x, y));
+            return;
+        }
+    }
+    if let Ok(Some(m)) = w.primary_monitor() {
+        let area = m.work_area();
+        let size = window_size(cfg.size).to_physical::<i32>(m.scale_factor());
+        let x = area.position.x + area.size.width as i32 - size.width - 24;
+        let y = area.position.y + area.size.height as i32 - size.height;
+        let _ = w.set_position(PhysicalPosition::new(x, y));
+    }
+}
+
+/// Folders watched out of the box: Desktop, Downloads, Documents and Pictures\Screenshots.
+fn default_folders(app: &AppHandle) -> Vec<String> {
+    let p = app.path();
+    [p.desktop_dir(), p.download_dir(), p.document_dir(), p.picture_dir().map(|d| d.join("Screenshots"))]
+        .into_iter()
+        .flatten()
+        .filter(|d| d.is_dir())
+        .map(|d| d.to_string_lossy().into_owned())
+        .collect()
+}
+
+/// Hides the pet while a full-screen game or video has its monitor, and brings it
+/// back afterwards. A pet the user hid themselves stays hidden.
+fn step_aside(app: &AppHandle, st: &AppState, w: &WebviewWindow) {
+    let (enabled, exclude) = {
+        let cfg = st.config.lock().unwrap();
+        (cfg.hide_in_fullscreen, cfg.fullscreen_exclude.clone())
+    };
+    let covered = enabled
+        && w.outer_position().ok().zip(w.outer_size().ok()).is_some_and(|(p, s)| {
+            // The pet itself sits at the bottom center of the window.
+            sysmon::fullscreen_at(p.x + s.width as i32 / 2, p.y + s.height as i32 - 80, &exclude)
+        });
+    // Going by what is actually on screen, so that a pet that something else showed
+    // again while its monitor is still taken hides again.
+    let show = if covered && w.is_visible().unwrap_or(false) {
+        false
+    } else if !covered && st.stepped_aside.load(Ordering::SeqCst) {
+        true
+    } else {
+        return;
+    };
+    // Both ways go straight to the system rather than through hide() / show(): those
+    // record the user's own choice, and show() would take the keyboard focus from
+    // whatever the user has just switched to.
+    #[cfg(windows)]
+    if let Ok(hwnd) = w.hwnd() {
+        sysmon::set_shown(hwnd.0 as _, show);
+    }
+    st.stepped_aside.store(!show, Ordering::SeqCst);
+    refresh_tray(app);
+}
+
+/// How often the cursor is looked at: often while it is near the pet, rarely otherwise.
+const POLL_NEAR: Duration = Duration::from_millis(40);
+const POLL_FAR: Duration = Duration::from_millis(200);
+/// "Near" is within this many logical pixels of the pet's window.
+const NEAR_MARGIN: f64 = 200.0;
+
+/// Watches the cursor and toggles click-through so only the pet and its bubbles
+/// catch the mouse. Also notices the end of a drag and flushes the config to disk.
+fn spawn_background_loop(app: AppHandle) {
+    std::thread::spawn(move || {
+        let Some(w) = main_window(&app) else { return };
+        // Where the cursor is relative to the window, and the window's size, in
+        // logical pixels; None while the window is hidden.
+        #[cfg(windows)]
+        let pointer = {
+            let hwnd = w.hwnd().map_or(std::ptr::null_mut(), |h| h.0 as *mut std::ffi::c_void);
+            move || sysmon::cursor_in(hwnd)
+        };
+        #[cfg(not(windows))]
+        let pointer = || {
+            if !w.is_visible().unwrap_or(false) {
+                return None;
+            }
+            let (cur, pos, size) = (w.cursor_position().ok()?, w.outer_position().ok()?, w.outer_size().ok()?);
+            let scale = w.scale_factor().ok()?;
+            let px = |n: f64| n / scale;
+            Some((px(cur.x - pos.x as f64), px(cur.y - pos.y as f64), px(size.width as f64), px(size.height as f64)))
+        };
+
+        let st = app.state::<AppState>();
+        let mut through: Option<bool> = None;
+        let mut nap = POLL_NEAR;
+        let mut saved = Instant::now();
+        loop {
+            std::thread::sleep(nap);
+            if saved.elapsed() >= Duration::from_secs(2) {
+                saved = Instant::now();
+                if st.dirty.swap(false, Ordering::SeqCst) {
+                    st.save();
+                }
+            }
+            let dragging = st.dragging.load(Ordering::SeqCst);
+            if dragging && !sysmon::left_button_down() {
+                st.dragging.store(false, Ordering::SeqCst);
+                let _ = app.emit("drag-end", ());
+                // It may have been dropped on a monitor that something full-screen has.
+                step_aside(&app, &st, &w);
+            }
+            let Some((x, y, width, height)) = pointer() else {
+                nap = POLL_FAR;
+                continue;
+            };
+            let inside = st.hit_rects.lock().unwrap().iter().any(|r| x >= r[0] && y >= r[1] && x <= r[0] + r[2] && y <= r[1] + r[3]);
+            if through != Some(!inside) {
+                let _ = w.set_ignore_cursor_events(!inside);
+                through = Some(!inside);
+            }
+            let near = x > -NEAR_MARGIN && y > -NEAR_MARGIN && x < width + NEAR_MARGIN && y < height + NEAR_MARGIN;
+            nap = if near || dragging { POLL_NEAR } else { POLL_FAR };
+        }
+    });
+}
+
+fn main() {
+    tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![
+            get_config,
+            set_config,
+            set_hit_rects,
+            drag_started,
+            resolve_permission,
+            show_menu,
+            hooks_installed,
+            hooks_set,
+            autostart_get,
+            autostart_set,
+            open_settings,
+            pick_folder,
+            pick_program,
+            git_watch_get,
+            git_watch_set
+        ])
+        .setup(|app| {
+            // The port doubles as a single-instance lock.
+            let Ok(listener) = server::bind() else {
+                eprintln!("clawd-pet: port {} busy, another instance is probably running", server::PORT);
+                std::process::exit(0);
+            };
+            let handle = app.handle().clone();
+            let config_path = app.path().app_config_dir()?.join("config.json");
+            let mut cfg = Config::load(&config_path);
+            if cfg.sys.folders.is_none() {
+                cfg.sys.folders = Some(default_folders(&handle));
+                cfg.save(&config_path);
+            }
+            let config = Arc::new(Mutex::new(cfg.clone()));
+            let shared = Arc::new(Shared::default());
+            shared.bubbles.store(cfg.bubbles, Ordering::SeqCst);
+            let events = sysmon::Events::new(handle.clone());
+            let git_trace = app.path().app_config_dir()?.join("git-trace");
+            let _ = std::fs::create_dir_all(&git_trace);
+            git::clear(&git_trace);
+            app.manage(AppState {
+                config: config.clone(),
+                config_path,
+                shared: shared.clone(),
+                events: events.clone(),
+                watcher: Mutex::new(None),
+                downloads: app.path().download_dir().ok(),
+                git_trace,
+                hit_rects: Mutex::new(Vec::new()),
+                dragging: AtomicBool::new(false),
+                dirty: AtomicBool::new(false),
+                stepped_aside: AtomicBool::new(false),
+            });
+            app.state::<AppState>().rewatch();
+            autostart::refresh();
+            sysmon::spawn_poller(events.clone(), config.clone());
+            server::serve(listener, handle.clone(), shared);
+
+            let w = main_window(&handle).expect("main window");
+            place_initially(&w, &cfg);
+            w.show()?;
+
+            TrayIconBuilder::with_id("main")
+                .icon(app.default_window_icon().cloned().expect("icon"))
+                .tooltip("Clawd Pet")
+                .menu(&build_menu(&handle)?)
+                .show_menu_on_left_click(false)
+                .on_tray_icon_event(|tray, e| on_tray_event(tray.app_handle(), e))
+                .build(app)?;
+
+            spawn_background_loop(handle.clone());
+            sysmon::watch_foreground(events, config, move || {
+                if let Some(w) = main_window(&handle) {
+                    step_aside(&handle, &handle.state::<AppState>(), &w);
+                }
+            });
+            Ok(())
+        })
+        .on_menu_event(|app, e| on_menu(app, e.id().as_ref()))
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            if let tauri::WindowEvent::Moved(p) = event {
+                let st = window.state::<AppState>();
+                let mut cfg = st.config.lock().unwrap();
+                cfg.x = Some(p.x);
+                cfg.y = Some(p.y);
+                st.dirty.store(true, Ordering::SeqCst);
+            }
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running clawd-pet");
+}
