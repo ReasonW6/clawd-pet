@@ -8,7 +8,7 @@
 
 ```bash
 npm install
-npm run import-assets   # 从 ../clawd-400 导入素材到 ui/assets/clawd（缩回 40×40 的原始像素尺寸），并量出每个动画的画面顶部（气泡定位用）
+npm run import-assets   # 从 ../clawd-400-src（没有就用 ../clawd-400）导入素材到 ui/assets/clawd（缩回 40×40 的原始像素尺寸），并量出每个动画的画面顶部（气泡定位用）
 npm run dev             # 开发模式
 npm run build           # 打包：target/release/clawd-pet.exe 和 NSIS 安装包
 npm run triggers        # 重新生成 docs/triggers.html（动画触发一览）
@@ -91,6 +91,36 @@ Claude 没活给它的时候，它演完一个「场景」歇一会儿，再演�
 - 右键小螃蟹或托盘图标：显示隐藏、随机来一段、设置、退出
 - 托盘图标：单击显示/隐藏，双击打开设置
 
+## 修改动画
+
+400 个动画都是 Clawd 400 用代码画出来的：每个动画是 `scenes/<主题>.py` 里的一个函数，下面一行 `add(slug, 中文名, 英文名, 函数, n=帧数, dur=每帧毫秒)` 注册它。改函数或参数、再重新渲染，就能修改现有动画或做新的。
+
+准备一次（需要 Python 3 和 Pillow）：
+
+```bash
+git clone https://github.com/khiqwq/clawd-400.git ../clawd-400-src
+```
+
+`import-assets` 默认先用 `../clawd-400-src`，没有的话再用 `../clawd-400`（从预览网站下载的打包版，只能导入，不能修改）。
+
+每次修改：
+
+1. 改 `../clawd-400-src/scenes/` 里的场景。slug 不变的话，桌宠这边什么都不用改。
+2. 在 `../clawd-400-src` 里检查画风、重新渲染全部动画（几秒钟）：
+   ```bash
+   python lint.py dev        # 检查一个主题；现有动画本来就有一些标记（道具挡住脸之类），对比改动前后的数量即可
+   python generate.py        # 重写 gifs/ 和 manifest.json
+   ```
+3. 回到本项目 `npm run import-assets`，然后重新运行 `npm run dev`，或者 `npm run build` 重新构建正式版（素材是打包进 exe 的）。
+4. 新做的动画还要在 `ui/anims.js` 里放到合适的位置，再 `npm run triggers`。
+
+画风规则（脸上只有两只眼睛、身体只用标准橙色等）见 `../clawd-400-src/skills/clawd-pixel/references/style.md`。也可以让 Claude 来改：在 Claude Code 里装上 Clawd 400 自带的 skill，然后直接描述想要的动作。
+
+```text
+/plugin marketplace add khiqwq/clawd-400
+/plugin install clawd@clawd-400
+```
+
 ## 代码结构
 
 | 文件 | 内容 |
@@ -112,6 +142,6 @@ Claude 没活给它的时候，它演完一个「场景」歇一会儿，再演�
 
 > Clawd 400 by 风花叶 — CC BY 4.0 — https://github.com/khiqwq/clawd-400
 
-本项目对素材的改动：`npm run import-assets` 导入时把 480×480 的 GIF 缩回它们原本绘制的 40×40 网格并重新编码，画面和帧时长不变；另外按动画名重命名了文件。素材不包含在本仓库里，需要自己下载 Clawd 400 再导入。
+本项目对素材的改动：`npm run import-assets` 导入时把 480×480 的 GIF 缩回它们原本绘制的 40×40 网格并重新编码，画面和帧时长不变；另外按动画名重命名了文件。素材不包含在本仓库里，需要自己克隆或下载 Clawd 400 再导入（见[修改动画](#修改动画)）。
 
 Clawd 形象和 Claude、Claude Code 名称属于 Anthropic。本项目是非官方的同人作品，与 Anthropic 无关。

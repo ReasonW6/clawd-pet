@@ -8,7 +8,7 @@ Clawd Pet：Tauri 2 桌宠（Rust 后端 + 无构建步骤的原生 HTML/JS 前�
 
 ```bash
 npm install
-npm run import-assets   # 从 ../clawd-400（或传入的路径）导入 GIF 到 ui/assets/clawd/（重编码为 40×40），生成 manifest.json
+npm run import-assets   # 从 ../clawd-400-src（没有就用 ../clawd-400，或传入的路径）导入 GIF 到 ui/assets/clawd/（重编码为 40×40），生成 manifest.json
 npm run dev             # 开发模式
 npm run build           # 正式版：src-tauri/target/release/clawd-pet.exe + NSIS 安装包
 npm run triggers        # 由 ui/anims.js 重新生成 docs/triggers.html
@@ -16,7 +16,11 @@ cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得�
 ```
 
 - 没有测试和 lint。验证方式是 `cargo check`，加上实际运行。
-- `ui/assets/clawd/` 被 gitignore，是生成物；新克隆的仓库要先有 `../clawd-400` 并跑 `import-assets`，否则前端和 `npm run triggers` 都会缺 `manifest.json`。
+- `ui/assets/clawd/` 被 gitignore，是生成物；新克隆的仓库要先有素材来源并跑 `import-assets`，否则前端和 `npm run triggers` 都会缺 `manifest.json`。
+- 素材来源有两种，manifest 格式不同，`import-assets` 都能读：
+  - `../clawd-400-src`：clawd-400 仓库的克隆。动画是 `scenes/*.py` 里的场景代码，在那里改完跑 `python generate.py` 重写 `gifs/` 和 `manifest.json`（几秒钟，结果是确定的），再回来 `import-assets`。修改动画走这条路，步骤见 README「修改动画」。
+  - `../clawd-400`：预览网站下载的打包版，只能导入。
+  - 动画时长 `ms` 从 GIF 实际播放的帧算，不用源 manifest 里的数字。
 - 端口 23490 兼作单实例锁：已有一只桌宠在跑时，新启动的实例（包括 `npm run dev`）会静默退出。`npm run build` 前也要先退出桌宠，否则 exe 被占用。开发版和正式版共用同一份配置 `%APPDATA%\dev.clawd.pet\config.json`。
 - 开机自启只在正式版可用，注册表值 `HKCU\...\Run\ClawdPet` 指向构建出来的 exe。
 - 调试 WebView：启动前设置环境变量 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`，然后用 `http://127.0.0.1:9223/json` 列出页面，通过 CDP 执行 JS、截图（主窗口和设置窗口各是一个 page）。这个变量会整个替换 `tauri.conf.json` 里的 `additionalBrowserArgs`，所以值要写成那里的全部参数再加上 `--remote-debugging-port=9223`，否则调试时跑的是 GPU 渲染，和正式运行不一样。

@@ -1,20 +1,29 @@
-// Imports the clawd-400 GIF pack into ui/assets/clawd/<slug>.gif and writes a
-// compact manifest the frontend can load.
+// Imports the clawd-400 GIFs into ui/assets/clawd/<slug>.gif and writes a compact
+// manifest the frontend can load.
 // Usage: node scripts/import-assets.mjs [path-to-clawd-400]
 //
-// The pack's GIFs are 40x40 pixel art blown up to 480x480. They are stored at the
-// size they were drawn in and the page scales them back up (`image-rendering:
-// pixelated`), which leaves 144 times fewer pixels to decode and draw per frame.
+// The source is either a clone of the clawd-400 repository (../clawd-400-src, whose
+// generate.py renders gifs/ and manifest.json from the scene code) or the pack
+// downloaded from its site (../clawd-400). The two write their manifests differently.
+//
+// The GIFs are 40x40 pixel art blown up to 480x480. They are stored at the size they
+// were drawn in and the page scales them back up (`image-rendering: pixelated`),
+// which leaves 144 times fewer pixels to decode and draw per frame.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const src = path.resolve(process.argv[2] || path.join(root, "..", "clawd-400"));
+const src = path.resolve(
+  process.argv[2] || [path.join(root, "..", "clawd-400-src"), path.join(root, "..", "clawd-400")].find((d) => fs.existsSync(path.join(d, "manifest.json"))) || "",
+);
 const out = path.join(root, "ui", "assets", "clawd");
 
 const manifest = JSON.parse(fs.readFileSync(path.join(src, "manifest.json"), "utf8"));
 fs.mkdirSync(out, { recursive: true });
+
+/** Theme names, as in clawd-400's site/build.py; the repository's manifest has only the id. */
+const THEME_ZH = { video: "视频重现", summer: "夏日篇", emotions: "情绪", life: "日常", dev: "编程", sports: "运动", costumes: "角色扮演", seasons: "节日季节" };
 
 /** The grid the pixel art is drawn on. */
 const ART = 40;
@@ -225,17 +234,19 @@ const compact = manifest.map((m) => {
   if (gif === original) console.warn(`${m.slug}: kept at ${art.width}x${art.height}`);
   fs.writeFileSync(path.join(out, `${m.slug}.gif`), gif);
   bytes += gif.length;
+  const theme = m.theme.id ?? m.theme;
   return {
     slug: m.slug,
-    zh: m.name.zh,
-    en: m.name.en,
-    theme: m.theme.id,
-    themeZh: m.theme.zh,
-    ms: m.durations_ms.reduce((a, b) => a + b, 0),
+    zh: m.name?.zh ?? m.zh,
+    en: m.name?.en ?? m.en,
+    theme,
+    themeZh: m.theme.zh ?? THEME_ZH[theme] ?? theme,
+    // From the frames that actually play, which is what the pet waits for.
+    ms: art.frames.reduce((sum, f) => sum + f.delay * 10, 0),
     // Where the drawing starts, so speech bubbles can sit just above it.
     top: Math.round(contentTop(art) * 1000) / 1000,
   };
 });
 
 fs.writeFileSync(path.join(out, "manifest.json"), JSON.stringify(compact));
-console.log(`Imported ${compact.length} animations into ${path.relative(root, out)} (${(bytes / 1024 / 1024).toFixed(1)} MB)`);
+console.log(`Imported ${compact.length} animations from ${src} into ${path.relative(root, out)} (${(bytes / 1024 / 1024).toFixed(1)} MB)`);
