@@ -63,7 +63,7 @@
   <h1>Clawd Pet 动画触发一览</h1>
   <p>每个动画什么时候播、怎么触发、播多久。动画列表直接取自 <code>ui/anims.js</code>，改完后运行 <code>npm run triggers</code> 重新生成本页。</p>
   <div class="stats">
-    <div class="stat"><b>134</b>个触发时机</div>
+    <div class="stat"><b>140</b>个触发时机</div>
     <div class="stat"><b>398</b>个动画有固定戏份</div>
     <div class="stat"><b>2</b>个只随机出现</div>
     <div class="stat"><b>400</b>个动画总数</div>
@@ -298,11 +298,56 @@
 <div class="row">
   <div class="info">
     <h4>要你去原界面作答</h4>
-    <p>气泡关着时的权限请求；AskUserQuestion、退出计划模式（<code>PreToolUse</code> 时就进入）；MCP 服务器要你填表（<code>Elicitation</code> 到 <code>ElicitationResult</code>）；或 <code>Notification</code> 的 permission_prompt / elicitation_dialog。</p>
+    <p>气泡关着时的权限请求，或 <code>Notification</code> 的 permission_prompt / elicitation_dialog，直接是这个。提问、计划、填表先用下面各自的动画等着，约 45 秒还没回应、播完手头这一轮后才换成这个。</p>
     <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
     <code>ANIMS.waiting</code>
   </div>
   <div class="thumbs"><figure title="emo_impatient · 1.2s"><img loading="lazy" src="../ui/assets/clawd/emo_impatient.gif" alt=""><figcaption>不耐烦</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Claude 向你提问</h4>
+    <p>AskUserQuestion 的 <code>PreToolUse</code>。一脸问号地等你作答，约 45 秒没回应才变得不耐烦。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.asking</code>
+  </div>
+  <div class="thumbs"><figure title="emo_confused · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_confused.gif" alt=""><figcaption>一脸问号</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>计划写好了</h4>
+    <p>ExitPlanMode 的 <code>PreToolUse</code>，计划交给你审。约 45 秒没回应才变得不耐烦。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.planReady</code>
+  </div>
+  <div class="thumbs"><figure title="dev_slide_chart · 3.1s"><img loading="lazy" src="../ui/assets/clawd/dev_slide_chart.gif" alt=""><figcaption>汇报图表</figcaption></figure><figure title="cos_teacher_chalk · 2.8s"><img loading="lazy" src="../ui/assets/clawd/cos_teacher_chalk.gif" alt=""><figcaption>老师写黑板</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>MCP 服务器要你填表</h4>
+    <p><code>Elicitation</code> 到 <code>ElicitationResult</code> 之间。约 45 秒没回应才变得不耐烦。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.elicitation</code>
+  </div>
+  <div class="thumbs"><figure title="cos_mail_delivery · 2.6s"><img loading="lazy" src="../ui/assets/clawd/cos_mail_delivery.gif" alt=""><figcaption>邮递员送信</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>你答完了</h4>
+    <p>AskUserQuestion 的 <code>PostToolUse</code>，或 <code>ElicitationResult</code> 里你选了提交。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">1.6 秒</span></p>
+    <code>ANIMS.answered</code>
+  </div>
+  <div class="thumbs"><figure title="idea_ding · 1.6s"><img loading="lazy" src="../ui/assets/clawd/idea_ding.gif" alt=""><figcaption>灯泡点亮</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>计划获批</h4>
+    <p>ExitPlanMode 的 <code>PostToolUse</code>，接着开工。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">2.4 秒</span></p>
+    <code>ANIMS.planApproved</code>
+  </div>
+  <div class="thumbs"><figure title="emo_determined · 1.2s"><img loading="lazy" src="../ui/assets/clawd/emo_determined.gif" alt=""><figcaption>斗志燃烧</figcaption></figure></div>
 </div>
 <h3>出错</h3>
 <div class="row">
@@ -360,8 +405,17 @@
   </div>
   <div class="thumbs"><figure title="emo_yawn · 4.0s"><img loading="lazy" src="../ui/assets/clawd/emo_yawn.gif" alt=""><figcaption>打哈欠</figcaption></figure></div>
 </div>
+<div class="row">
+  <div class="info">
+    <h4>你中途叫停</h4>
+    <p>按 Esc 或 Desktop 的停止按钮。中断不触发 <code>Stop</code>，桌宠从会话记录（transcript）里读到中断标记后回到待命；动画只在没有别的会话在忙时播。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.1–2.9 秒</span></p>
+    <code>ANIMS.interrupted</code>
+  </div>
+  <div class="thumbs"><figure title="cos_crossing_guard · 2.1s"><img loading="lazy" src="../ui/assets/clawd/cos_crossing_guard.gif" alt=""><figcaption>导护员举牌</figcaption></figure><figure title="desk_flail · 1.4s"><img loading="lazy" src="../ui/assets/clawd/desk_flail.gif" alt=""><figcaption>从椅子上蹦起</figcaption></figure></div>
+</div>
 <div class="note">完成之后的余韵：任务跑了 1 分钟以上，它会开心 3 分钟；长任务完成会得意 5 分钟（见「它自己的生活 → 情绪」）。如果完成时键鼠已经一阵没动静，「搞定啦」的气泡会一直留着，等你碰了电脑它再提醒一次「已经搞定啦，快去看看～」。</div>
-<div class="note">没有动画的情况：按 Esc 或 Desktop 的停止按钮中断不会触发 <code>Stop</code>，桌宠从会话记录（transcript）里读到中断标记后直接回到待命；会话超过 30 分钟没有任何事件，也会当作已结束。</div></section>
+<div class="note">没有动画的情况：会话超过 30 分钟没有任何事件，会当作已结束，直接回到待命。</div></section>
 <section id="life"><h2>二、它自己的生活</h2><p class="intro">Claude 没活给它的时候，它过自己的日子：演完一个<b>场景</b>，歇一会儿，再演下一个。一个场景由一到几个动画按顺序接成（图里的箭头就是顺序），循环的那几步平分 20–50 秒，标了 ×N 的只播 N 遍；只有一个动画的场景播 20–30 秒。歇多久由「活跃度」决定：悠闲 30–70 秒（约三分之一时间在活动），活泼 10–25 秒（约六成），闹腾 3–8 秒（约八成），安静则只待着不演场景。任何别的事（Claude 开工、你逗它、系统事件）都会打断当前场景，之后至少安静 6 秒再接着过日子。</p><h3>下一个场景怎么抽</h3>
 <div class="note">按下表的权重抽一个种类，再从这个种类里挑一个最近没演过的场景。两行权重分别对应<b>你在用电脑</b>和<b>键鼠一阵没动静</b>（你可能走开了，也可能在看视频）：后一种情况下它更爱运动和变装，同时会无聊、想你。小字是平常时段里的占比。<table class="weights">
 <tr><th>场景种类</th><td>作息</td><td>爱好</td><td>音乐</td><td>运动</td><td>角色扮演</td><td>家务</td><td>折腾小项目</td><td>当季</td><td>小意外</td><td>随机惊喜</td><td>情绪（有情绪时）</td><td>节日（当天）</td></tr>

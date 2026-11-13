@@ -31,6 +31,14 @@ window.ANIMS = {
   allowed: ["emo_thumbs_up"],
   denied: ["emo_sad_shuffle", "emo_puffed_cheeks"],
   waiting: ["emo_impatient"],
+  // Looped while waiting for an answer, until it turns impatient (`waiting`).
+  asking: ["emo_confused"], // AskUserQuestion
+  planReady: ["dev_slide_chart", "cos_teacher_chalk"], // ExitPlanMode presents the plan
+  elicitation: ["cos_mail_delivery"], // an MCP server hands over a form
+  // One-shots once the answer is in.
+  answered: ["idea_ding"], // question answered / form submitted
+  planApproved: ["emo_determined"],
+  interrupted: ["cos_crossing_guard", "desk_flail"], // you stopped it mid-turn
   toolError: ["emo_facepalm", "emo_awkward"],
   manyErrors: ["dev_this_is_fine"],
   apiError: ["dev_bsod"],

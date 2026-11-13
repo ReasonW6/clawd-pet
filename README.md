@@ -30,6 +30,7 @@ Claude Code HTTP hooks ──POST──▶ 127.0.0.1:23490 (Rust) ──event─
 
 - 联动会往 `~/.claude/settings.json` 写入一组 `type: "http"` 的 hook（写之前备份为 `settings.json.clawd-pet.bak`），只识别并删改 URL 以 `http://127.0.0.1:23490/clawd-pet/` 开头的条目，不碰其他 hook。
 - 请求头 `X-Clawd-Entry` 带上 `$CLAUDE_CODE_ENTRYPOINT`，用来区分终端（`cli`）、Desktop（`claude-desktop`）和 VS Code 会话。
+- 审批气泡和小螃蟹下方的标签显示会话标题（Desktop 侧边栏里的名字，或 `/rename` 起的名字，读自 transcript 里的 `custom-title`）；没有标题时显示「来源 · 项目名」。
 - `PermissionRequest` 会挂起连接，等你在气泡里点「允许 / 总是允许 / 拒绝」；如果你在终端或 Desktop 里先作答，Claude Code 会断开连接，气泡自动消失。`AskUserQuestion` / `ExitPlanMode` 始终交给原界面。
 - 桌宠没运行时，hook 连接会立刻失败，Claude Code 按原流程继续，不受影响。
 

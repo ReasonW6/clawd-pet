@@ -141,9 +141,13 @@ fn handle(stream: TcpStream, app: &AppHandle, shared: &Shared) -> io::Result<()>
     let entry = req.headers.get("x-clawd-entry").cloned().unwrap_or_default();
     let payload = || -> Option<Value> {
         let mut v: Value = serde_json::from_slice(&req.body).ok()?;
+        let title = crate::transcript::title(&v);
         let o = v.as_object_mut()?;
         o.remove("tool_response"); // can be huge and the pet doesn't need it
         o.insert("_entry".into(), Value::String(entry.clone()));
+        if let Some(t) = title {
+            o.insert("_title".into(), Value::String(t));
+        }
         Some(v)
     };
 

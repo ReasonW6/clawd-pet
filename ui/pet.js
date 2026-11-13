@@ -17,6 +17,8 @@ const LONG_TASK_MS = 5 * MIN;
 const LONG_TASK_BREAK_MS = 4 * MIN;
 const AWAKE_AFTER_WORK_MS = 2 * MIN;
 const AWAKE_AFTER_POKE_MS = 1 * MIN;
+/** Waiting about this long on an unanswered question / plan / form, it turns impatient. */
+const PATIENT_MS = 45 * 1000;
 /** A sleep window up to this long is a nap rather than a night's sleep. */
 const NAP_MAX_MINUTES = 180;
 /** Seconds it rests between scenes of its idle life, by liveliness (at 0 it only rests). */
@@ -59,6 +61,8 @@ let manifest = {}; // slug -> { ms, zh }
 let allSlugs = [];
 let funSlugs = [];
 let currentSlug = null;
+/** When currentSlug started from its first frame. */
+let slugSince = 0;
 let playSeq = 0;
 
 function durationOf(slug) {
@@ -72,6 +76,7 @@ function play(slug, restart = false) {
   }
   if (slug === currentSlug && !restart) return;
   currentSlug = slug;
+  slugSince = now();
   // A unique URL restarts the GIF from frame 0; swap only once it's loaded to avoid flicker.
   const url = `assets/clawd/${slug}.gif?${++playSeq}`;
   const seq = playSeq;
@@ -108,7 +113,7 @@ function playOnce(slug, { force = false, minMs = 1800, then, life = false } = {}
 
 const BUSY_RANK = { waiting: 5, compacting: 4, working: 3, thinking: 2, idle: 0 };
 
-/** session_id -> { id, entry, cwd, state, cat, anim, subagents, fails, turnStart, nextBreak, t } */
+/** session_id -> { id, entry, cwd, title, state, cat, anim, waitAnim, waitSince, waitUntil, subagents, fails, turnStart, nextBreak, t } */
 const sessions = new Map();
 /** Pending permission requests: { id, payload }. */
 const perms = [];
@@ -136,13 +141,36 @@ function session(p) {
   const id = p.session_id || "default";
   let s = sessions.get(id);
   if (!s) {
-    s = { id, entry: "", cwd: "", state: "idle", cat: null, anim: null, subagents: 0, fails: 0, turnStart: 0, nextBreak: 0, t: now() };
+    s = { id, entry: "", cwd: "", title: "", state: "idle", cat: null, anim: null, waitAnim: null, waitSince: 0, waitUntil: 0, subagents: 0, fails: 0, turnStart: 0, nextBreak: 0, t: now() };
     sessions.set(id, s);
   }
   if (p._entry) s.entry = p._entry;
   if (p.cwd) s.cwd = p.cwd;
+  if (p._title) s.title = p._title;
   s.t = now();
   return s;
+}
+
+/** Starts waiting for the user: loops one of `anims` for PATIENT_MS first, if given. */
+function wait(s, anims) {
+  s.state = "waiting";
+  s.waitAnim = anims ? pick(anims) : null;
+  s.waitSince = now();
+  s.waitUntil = 0;
+}
+
+/** Still looping its own waiting animation? Once PATIENT_MS is up it finishes the
+ *  loop on screen before turning impatient, rather than cutting it off. */
+function patient(s) {
+  if (!s.waitAnim) return false;
+  if (!s.waitUntil) {
+    if (now() - s.waitSince < PATIENT_MS) return true;
+    const loop = durationOf(s.waitAnim);
+    const left = currentSlug === s.waitAnim ? loop - ((now() - slugSince) % loop) : 0;
+    s.waitUntil = now() + left;
+    if (left) setTimeout(render, left);
+  }
+  return now() < s.waitUntil;
 }
 
 function leader() {
@@ -202,7 +230,8 @@ function onHook(p) {
     case "PreToolUse": {
       // These wait for the user's answer in the native UI.
       if (p.tool_name === "AskUserQuestion" || p.tool_name === "ExitPlanMode") {
-        s.state = "waiting";
+        // Always a fresh wait: any earlier "waiting" belongs to a previous request.
+        wait(s, p.tool_name === "ExitPlanMode" ? ANIMS.planReady : ANIMS.asking);
         break;
       }
       const cat = toolCategory(p.tool_name, p.tool_input || {});
@@ -212,7 +241,11 @@ function onHook(p) {
       break;
     }
     case "PostToolUse":
-      if (s.state === "waiting") s.state = "working";
+      if (s.state === "waiting") {
+        s.state = "working";
+        if (p.tool_name === "AskUserQuestion") playOnce(pick(ANIMS.answered), { force: true, minMs: 1500 });
+        else if (p.tool_name === "ExitPlanMode") playOnce(pick(ANIMS.planApproved), { force: true, minMs: 1500 });
+      }
       break;
     case "PostToolUseFailure":
       if (s.state === "waiting") s.state = "working";
@@ -239,15 +272,18 @@ function onHook(p) {
       s.state = p.trigger === "manual" ? "idle" : "thinking";
       break;
     case "Elicitation": // an MCP server asks the user for input
-      s.state = "waiting";
+      if (s.state !== "waiting") wait(s, ANIMS.elicitation);
       break;
     case "ElicitationResult": // may also come outside a turn, which no Stop would end
       if (s.state === "waiting") s.state = s.turnStart ? "working" : "idle";
+      if (p.action === "accept") playOnce(pick(ANIMS.answered), { force: true, minMs: 1500 });
       break;
     case "Interrupt":
       // Synthetic, from transcript.rs: an interrupt fires no Stop. A marker from
       // before the current prompt belongs to the previous turn.
       if (s.turnStart && Date.parse(p.timestamp) < s.turnStart) break;
+      // Polite: only shows when no other session is busy.
+      if (s.state !== "idle") playOnce(pick(ANIMS.interrupted), { minMs: 2000 });
       s.state = "idle";
       s.subagents = 0;
       s.turnStart = 0;
@@ -260,11 +296,12 @@ function onHook(p) {
         s.subagents = 0;
         s.turnStart = 0;
       } else if (p.notification_type === "permission_prompt" || p.notification_type === "elicitation_dialog") {
-        if (!perms.some((x) => x.payload.session_id === s.id)) s.state = "waiting";
+        if (s.state !== "waiting" && !perms.some((x) => x.payload.session_id === s.id)) wait(s);
       }
       break;
     case "PermissionRequest": // only reaches here when the bubble isn't used
-      s.state = "waiting";
+      // AskUserQuestion / ExitPlanMode come here too, right after their PreToolUse.
+      if (s.state !== "waiting") wait(s);
       break;
     case "Stop":
       onTurnDone(s);
@@ -605,6 +642,11 @@ function projectName(s) {
   return parts[parts.length - 1] || "会话";
 }
 
+/** The session's title (as in the Desktop app's sidebar, or set by /rename), else where it runs. */
+function sessionName(s) {
+  return s.title || `${entryLabel(s.entry)} · ${projectName(s)}`;
+}
+
 function stateText(s) {
   if (s.state === "waiting") return "等你确认";
   if (s.state === "compacting") return "整理记忆";
@@ -624,7 +666,9 @@ function desiredSlug() {
   const lead = leader();
   if (oneShot && (oneShot.force || !lead)) return oneShot.slug;
   if (lead) {
-    if (lead.state === "waiting") return ANIMS.waiting[0];
+    if (lead.state === "waiting") {
+      return patient(lead) ? lead.waitAnim : ANIMS.waiting[0];
+    }
     if (lead.state === "compacting") return ANIMS.compacting[0];
     if (lead.subagents > 0) return ANIMS.subagents[0];
     return lead.anim || ANIMS.thinking[0];
@@ -652,7 +696,7 @@ function renderLabel() {
   let text = "";
   if (lead) {
     const others = [...sessions.values()].filter((x) => x !== lead && x.state !== "idle").length;
-    text = `${entryLabel(lead.entry)} · ${projectName(lead)} · ${stateText(lead)}` + (others ? `  +${others}` : "");
+    text = `${sessionName(lead)} · ${stateText(lead)}` + (others ? `  +${others}` : "");
   } else if (petHit.matches(":hover")) {
     // What the pet is up to on its own, and how it feels.
     text = asleep ? "睡觉中 💤" : [manifest[currentSlug]?.zh, MOODS[mood()]?.label].filter(Boolean).join(" · ");
@@ -690,8 +734,17 @@ function summarize(input = {}) {
   if (input.url) return String(input.url);
   if (input.query) return String(input.query);
   if (input.pattern) return String(input.pattern);
-  const text = JSON.stringify(input, null, 1) || "";
+  // Anything else (MCP tools mostly): one "key: value" line per argument.
+  const text = Object.entries(input)
+    .map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`)
+    .join("\n");
   return text.length > 400 ? text.slice(0, 400) + "…" : text;
+}
+
+/** "mcp__server__tool" reads as "tool"; the full name stays in the tooltip. */
+function toolName(name = "") {
+  const m = /^mcp__.+?__(.+)$/.exec(name);
+  return m ? m[1] : name;
 }
 
 function suggestionText(sug) {
@@ -710,15 +763,17 @@ function renderBubble() {
     if (bubbleKey === `perm-${req.id}-${perms.length}`) return;
     bubbleKey = `perm-${req.id}-${perms.length}`;
     const p = req.payload;
-    const s = sessions.get(p.session_id) || { entry: p._entry, cwd: p.cwd };
+    const s = sessions.get(p.session_id) || { entry: p._entry, cwd: p.cwd, title: p._title };
     const sug = (p.permission_suggestions || [])[0];
     bubble.innerHTML = "";
     const card = el("div", "perm");
-    card.append(
-      el("div", "who", `${entryLabel(s.entry)} · ${projectName(s)}`),
-      el("div", "what", `想用 ${p.tool_name}，可以吗？`),
-      el("pre", "", summarize(p.tool_input)),
-    );
+    const who = el("div", "who", sessionName(s));
+    who.title = sessionName(s);
+    const what = el("div", "what", `想用 ${toolName(p.tool_name)}，可以吗？`);
+    what.title = p.tool_name;
+    card.append(who, what);
+    const args = summarize(p.tool_input);
+    if (args) card.append(el("pre", "", args));
     const actions = el("div", "actions");
     actions.append(button("拒绝", "deny", () => decide(req, "deny")));
     if (sug) {
@@ -959,7 +1014,8 @@ async function boot() {
   await listen("permission-request", (e) => {
     stir(AWAKE_AFTER_WORK_MS);
     perms.push({ id: e.payload.id, payload: e.payload.payload });
-    session(e.payload.payload).state = "waiting";
+    const s = session(e.payload.payload);
+    if (s.state !== "waiting") wait(s);
     render();
   });
   await listen("permission-closed", (e) => {

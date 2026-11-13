@@ -12,6 +12,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{AppHandle, Emitter};
 
 const MARKER: &str = "[Request interrupted by user";
+/// How much of a transcript's end, then of its start, is searched for the title.
+const TITLE_TAIL: u64 = 512 * 1024;
+const TITLE_HEAD: u64 = 64 * 1024;
 
 /// normalised transcript path -> (session id, bytes already read)
 type Files = Arc<Mutex<HashMap<String, (String, u64)>>>;
@@ -22,6 +25,58 @@ struct State {
 }
 
 static STATE: OnceLock<State> = OnceLock::new();
+/// normalised transcript path -> session title (None: it has none)
+static TITLES: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+
+/// The session's title: the last "custom-title" record in its transcript. The Desktop
+/// app writes one at the start and re-appends it now and then; /rename adds one too.
+/// Re-read only on events that come at most once per turn.
+pub fn title(p: &Value) -> Option<String> {
+    let path = Path::new(p["transcript_path"].as_str()?);
+    let k = key(path);
+    let titles = TITLES.get_or_init(Default::default);
+    let event = p["hook_event_name"].as_str().unwrap_or_default();
+    if event == "SessionEnd" {
+        return titles.lock().unwrap().remove(&k).flatten();
+    }
+    let refresh = matches!(event, "SessionStart" | "UserPromptSubmit" | "Stop" | "PermissionRequest");
+    if !refresh {
+        if let Some(t) = titles.lock().unwrap().get(&k) {
+            return t.clone();
+        }
+    }
+    let t = read_title(path);
+    titles.lock().unwrap().insert(k, t.clone());
+    t
+}
+
+fn read_title(path: &Path) -> Option<String> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let start = len.saturating_sub(TITLE_TAIL);
+    let mut read = |from: u64, n: u64| -> Option<Vec<u8>> {
+        file.seek(SeekFrom::Start(from)).ok()?;
+        let mut buf = Vec::new();
+        (&mut file).take(n).read_to_end(&mut buf).ok()?;
+        Some(buf)
+    };
+    let tail = read(start, len - start)?;
+    last_title(&tail).or_else(|| if start > 0 { last_title(&read(0, TITLE_HEAD)?) } else { None })
+}
+
+/// Lines cut off at either end of `buf` fail to parse and are skipped.
+fn last_title(buf: &[u8]) -> Option<String> {
+    String::from_utf8_lossy(buf)
+        .lines()
+        .rev()
+        .filter(|l| l.contains("\"custom-title\""))
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .find(|v| v["type"] == "custom-title")?["customTitle"]
+        .as_str()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+}
 
 pub fn init(app: AppHandle) {
     let files: Files = Default::default();
