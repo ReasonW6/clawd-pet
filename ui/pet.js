@@ -64,6 +64,9 @@ let currentSlug = null;
 /** When currentSlug started from its first frame. */
 let slugSince = 0;
 let playSeq = 0;
+/** False while the window is hidden, by the user or to make way for something full-screen. */
+let shown = true;
+let ticker = null;
 
 function durationOf(slug) {
   return manifest[slug]?.ms || 2000;
@@ -77,12 +80,29 @@ function play(slug, restart = false) {
   if (slug === currentSlug && !restart) return;
   currentSlug = slug;
   slugSince = now();
+  if (!shown) return;
   // A unique URL restarts the GIF from frame 0; swap only once it's loaded to avoid flicker.
   const url = `assets/clawd/${slug}.gif?${++playSeq}`;
   const seq = playSeq;
   const pre = new Image();
   pre.onload = () => seq === playSeq && (sprite.src = url);
   pre.src = url;
+}
+
+/** WebView2 goes on drawing a hidden window, so a hidden pet shows nothing and its
+ *  own life stands still. What Claude is doing is still kept track of. */
+function setShown(on) {
+  if (on === shown) return;
+  shown = on;
+  clearInterval(ticker);
+  if (on) {
+    ticker = setInterval(tick, 1000);
+    currentSlug = null;
+    render();
+  } else {
+    playSeq++; // drops an animation that is still loading
+    sprite.removeAttribute("src");
+  }
 }
 
 // A one-shot plays for at least `minMs` (whole loops), then hands back to the state
@@ -850,6 +870,7 @@ async function decide(req, kind, suggestion) {
 // ---------------------------------------------------------------- hit testing
 
 let hitQueued = false;
+let hitSent = "";
 function queueHitRects() {
   if (hitQueued) return;
   hitQueued = true;
@@ -860,6 +881,10 @@ function queueHitRects() {
       .map((e) => e.getBoundingClientRect())
       .filter((r) => r.width > 0)
       .map((r) => [r.x, r.y, r.width, r.height]);
+    // Asked for on every render; told to the backend only when something moved.
+    const key = rects.join();
+    if (key === hitSent) return;
+    hitSent = key;
     invoke("set_hit_rects", { rects });
   });
 }
@@ -1026,6 +1051,7 @@ async function boot() {
   await listen("drag-end", onDragEnd);
   await listen("config", (e) => applyConfig(e.payload));
   await listen("play-random", () => playRandom());
+  await listen("shown", (e) => setShown(e.payload));
   await listen("play", (e) => {
     stir(AWAKE_AFTER_POKE_MS);
     playOnce(e.payload, { force: true, minMs: 3000 });
@@ -1049,7 +1075,9 @@ async function boot() {
   $("bubble-area").addEventListener("transitionend", queueHitRects);
 
   greet();
-  setInterval(tick, 1000);
+  ticker = setInterval(tick, 1000);
+  // It may have stepped aside before the listener above was there.
+  setShown(await getCurrentWindow().isVisible());
   if (!(await invoke("hooks_installed"))) {
     setTimeout(() => {
       toast("还没连上 Claude Code，点这里去设置里安装联动～", { ms: 15000, onClick: () => invoke("open_settings") });

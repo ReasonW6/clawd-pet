@@ -38,7 +38,7 @@ body {
   pointer-events: none;
 }
 
-/* The crab lives in the lower part of the 480x480 canvas; only that part is clickable. */
+/* The crab lives in the lower part of the canvas; only that part is clickable. */
 #pet-hit {
   position: absolute;
   left: 8%;
@@ -60,6 +60,10 @@ body {
   justify-content: center;
   align-items: flex-end;
   pointer-events: none;
+}
+
+/* Slides along when the animation under a bubble changes height. */
+#bubble-area:has(#bubble:not([hidden])) {
   transition: bottom 0.2s ease-out;
 }
 

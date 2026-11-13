@@ -1,6 +1,10 @@
-// Copies the clawd-400 GIF pack into ui/assets/clawd/<slug>.gif and writes a
+// Imports the clawd-400 GIF pack into ui/assets/clawd/<slug>.gif and writes a
 // compact manifest the frontend can load.
 // Usage: node scripts/import-assets.mjs [path-to-clawd-400]
+//
+// The pack's GIFs are 40x40 pixel art blown up to 480x480. They are stored at the
+// size they were drawn in and the page scales them back up (`image-rendering:
+// pixelated`), which leaves 144 times fewer pixels to decode and draw per frame.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,27 +16,28 @@ const out = path.join(root, "ui", "assets", "clawd");
 const manifest = JSON.parse(fs.readFileSync(path.join(src, "manifest.json"), "utf8"));
 fs.mkdirSync(out, { recursive: true });
 
-/**
- * Index of the first non-transparent pixel in a frame's LZW data, or -1.
- * Tracks where each dictionary string first hits such a pixel, so nothing is expanded.
- */
-function firstDrawn(data, minCode, transparent) {
+/** The grid the pixel art is drawn on. */
+const ART = 40;
+
+/** Expands a frame's LZW data into `count` palette indices. */
+function unpack(data, minCode, count) {
+  const indices = new Uint8Array(count);
   const clear = 1 << minCode;
-  const len = new Uint32Array(4096);
-  const head = new Uint16Array(4096);
-  const hit = new Int32Array(4096);
+  const len = new Uint16Array(4096);
+  const head = new Uint8Array(4096);
+  const last = new Uint8Array(4096);
+  const before = new Uint16Array(4096);
   for (let i = 0; i < clear; i++) {
     len[i] = 1;
-    head[i] = i;
-    hit[i] = i === transparent ? -1 : 0;
+    head[i] = last[i] = i;
   }
   let [size, next, prev, pos, acc, bits, p] = [minCode + 1, clear + 2, -1, 0, 0, 0, 0];
-  for (;;) {
+  while (pos < count) {
     while (bits < size && p < data.length) {
       acc |= data[p++] << bits;
       bits += 8;
     }
-    if (bits < size) return -1;
+    if (bits < size) break;
     const code = acc & ((1 << size) - 1);
     acc >>= size;
     bits -= size;
@@ -40,59 +45,186 @@ function firstDrawn(data, minCode, transparent) {
       [size, next, prev] = [minCode + 1, clear + 2, -1];
       continue;
     }
-    if (code === clear + 1) return -1;
+    if (code === clear + 1) break;
     if (prev >= 0 && next < 4096) {
       // New string = previous string + first pixel of this one (or of itself, if not defined yet).
-      const first = head[code < next ? code : prev];
-      len[next] = len[prev] + 1;
+      before[next] = prev;
+      last[next] = head[code < next ? code : prev];
       head[next] = head[prev];
-      hit[next] = hit[prev] >= 0 ? hit[prev] : first !== transparent ? len[prev] : -1;
+      len[next] = len[prev] + 1;
       next++;
       if (next === 1 << size && size < 12) size++;
     }
-    if (hit[code] >= 0) return pos + hit[code];
+    for (let c = code, i = pos + len[code] - 1; i >= pos; i--, c = before[c]) {
+      if (i < count) indices[i] = last[c];
+    }
     pos += len[code];
     prev = code;
   }
+  return indices;
 }
 
-/** How far down the canvas (0..1) the highest pixel drawn by any frame of a GIF is. */
-function contentTop(gif) {
-  const height = gif.readUInt16LE(8);
-  let p = 13 + (gif[10] & 0x80 ? 3 << ((gif[10] & 7) + 1) : 0);
-  let transparent = -1;
-  let top = height;
+/**
+ * Plays a GIF through: its size, how often it repeats (0 = forever, null = not at
+ * all), and every frame as it ends up on screen, { delay, pixels }. The delay is
+ * in 1/100 s; a pixel is 0 where nothing is drawn and 0x1RRGGBB elsewhere.
+ */
+function decode(gif) {
+  const [width, height] = [gif.readUInt16LE(6), gif.readUInt16LE(8)];
+  const tableSize = (flags) => (flags & 0x80 ? 3 << ((flags & 7) + 1) : 0);
+  const globalColors = gif.subarray(13, 13 + tableSize(gif[10]));
+  let p = 13 + globalColors.length;
   const subBlocks = () => {
     const chunks = [];
     for (; gif[p]; p += gif[p] + 1) chunks.push(gif.subarray(p + 1, p + 1 + gif[p]));
     p++;
     return Buffer.concat(chunks);
   };
+
+  const canvas = new Uint32Array(width * height);
+  const frames = [];
+  let loop = null;
+  let control = { delay: 0, dispose: 0, transparent: -1 };
   for (;;) {
     const block = gif[p++];
     if (block === 0x21) {
-      if (gif[p++] === 0xf9) transparent = gif[p + 1] & 1 ? gif[p + 4] : -1;
-      subBlocks();
+      const label = gif[p++];
+      if (label === 0xf9) {
+        control = { delay: gif.readUInt16LE(p + 2), dispose: (gif[p + 1] >> 2) & 7, transparent: gif[p + 1] & 1 ? gif[p + 4] : -1 };
+      }
+      const body = subBlocks();
+      if (label === 0xff && body.length >= 14 && body.toString("latin1", 0, 11) === "NETSCAPE2.0") loop = body.readUInt16LE(12);
       continue;
     }
     // The trailer. Some files carry junk after the last frame instead; players stop there too.
-    if (block !== 0x2c) return top / height;
-    const [y, width, flags] = [gif.readUInt16LE(p + 2), gif.readUInt16LE(p + 4), gif[p + 8]];
+    if (block !== 0x2c) return { width, height, loop, frames };
+    const [x, y, w, h, flags] = [gif.readUInt16LE(p), gif.readUInt16LE(p + 2), gif.readUInt16LE(p + 4), gif.readUInt16LE(p + 6), gif[p + 8]];
     if (flags & 0x40) throw new Error("interlaced GIFs are not supported");
-    p += 9 + (flags & 0x80 ? 3 << ((flags & 7) + 1) : 0);
+    const colors = flags & 0x80 ? gif.subarray(p + 9, p + 9 + tableSize(flags)) : globalColors;
+    p += 9 + tableSize(flags);
     const minCode = gif[p++];
-    const data = subBlocks();
-    if (y < top) {
-      const i = firstDrawn(data, minCode, transparent);
-      if (i >= 0) top = Math.min(top, y + Math.floor(i / width));
+    const indices = unpack(subBlocks(), minCode, w * h);
+
+    const kept = control.dispose === 3 ? canvas.slice() : null;
+    for (let j = 0; j < h; j++) {
+      for (let i = 0; i < w; i++) {
+        const c = indices[j * w + i];
+        if (c !== control.transparent) {
+          canvas[(y + j) * width + x + i] = 0x1000000 | (colors[c * 3] << 16) | (colors[c * 3 + 1] << 8) | colors[c * 3 + 2];
+        }
+      }
     }
-    transparent = -1;
+    frames.push({ delay: control.delay, pixels: canvas.slice() });
+    if (control.dispose === 2) {
+      for (let j = 0; j < h; j++) canvas.fill(0, (y + j) * width + x, (y + j) * width + x + w);
+    } else if (kept) {
+      canvas.set(kept);
+    }
+    control = { delay: 0, dispose: 0, transparent: -1 };
   }
 }
 
+/** A frame at ART x ART, or null if it isn't exactly that, blown up. */
+function shrink(pixels, width, height) {
+  const k = width / ART;
+  if (width !== height || !Number.isInteger(k)) return null;
+  const small = new Uint32Array(ART * ART);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const at = Math.floor(y / k) * ART + Math.floor(x / k);
+      const c = pixels[y * width + x];
+      if (x % k === 0 && y % k === 0) small[at] = c;
+      else if (small[at] !== c) return null;
+    }
+  }
+  return small;
+}
+
+/** Packs palette indices into a frame's LZW data, sub-blocks and all. */
+function pack(indices, minCode) {
+  const clear = 1 << minCode;
+  const bytes = [];
+  let [acc, bits, size, next] = [0, 0, minCode + 1, clear + 2];
+  let codes = new Map(); // (string's code << 8 | next pixel) -> the longer string's code
+  const emit = (code) => {
+    acc |= code << bits;
+    bits += size;
+    for (; bits >= 8; bits -= 8, acc >>>= 8) bytes.push(acc & 255);
+  };
+  emit(clear);
+  let prev = indices[0];
+  for (let i = 1; i < indices.length; i++) {
+    const key = (prev << 8) | indices[i];
+    const known = codes.get(key);
+    if (known !== undefined) {
+      prev = known;
+      continue;
+    }
+    emit(prev);
+    if (next === 4096) {
+      emit(clear);
+      [size, next, codes] = [minCode + 1, clear + 2, new Map()];
+    } else {
+      if (next >= 1 << size) size++;
+      codes.set(key, next++);
+    }
+    prev = indices[i];
+  }
+  emit(prev);
+  emit(clear + 1);
+  if (bits) bytes.push(acc & 255);
+
+  const data = [minCode];
+  for (let i = 0; i < bytes.length; i += 255) data.push(Math.min(255, bytes.length - i), ...bytes.slice(i, i + 255));
+  data.push(0);
+  return data;
+}
+
+/** Writes ART x ART frames as a GIF, or returns null if they need more than one palette. */
+function encode(frames, loop) {
+  const palette = new Map([[0, 0]]); // pixel -> index; index 0 is the transparent one
+  for (const f of frames) {
+    for (const c of f.pixels) if (!palette.has(c)) palette.set(c, palette.size);
+  }
+  if (palette.size > 256) return null;
+  const depth = Math.max(1, Math.ceil(Math.log2(palette.size)));
+  const u16 = (n) => [n & 255, n >> 8];
+
+  const gif = [...Buffer.from("GIF89a"), ...u16(ART), ...u16(ART), 0xf0 | (depth - 1), 0, 0];
+  const colors = new Uint8Array(3 << depth);
+  for (const [c, i] of palette) colors.set([(c >> 16) & 255, (c >> 8) & 255, c & 255], i * 3);
+  gif.push(...colors);
+  if (loop !== null) gif.push(0x21, 0xff, 11, ...Buffer.from("NETSCAPE2.0"), 3, 1, ...u16(loop), 0);
+  for (const f of frames) {
+    // Each frame is the whole picture, cleared away again before the next one.
+    gif.push(0x21, 0xf9, 4, 0x09, ...u16(f.delay), 0, 0);
+    gif.push(0x2c, ...u16(0), ...u16(0), ...u16(ART), ...u16(ART), 0);
+    gif.push(...pack(f.pixels.map((c) => palette.get(c)), Math.max(2, depth)));
+  }
+  gif.push(0x3b);
+  return Buffer.from(gif);
+}
+
+/** How far down the canvas (0..1) the highest pixel drawn in any frame is. */
+function contentTop({ width, height, frames }) {
+  let top = height;
+  for (const f of frames) {
+    const first = f.pixels.findIndex((c) => c !== 0);
+    if (first >= 0) top = Math.min(top, Math.floor(first / width));
+  }
+  return top / height;
+}
+
+let bytes = 0;
 const compact = manifest.map((m) => {
-  const gif = fs.readFileSync(path.join(src, m.file));
+  const original = fs.readFileSync(path.join(src, m.file));
+  const art = decode(original);
+  const frames = art.frames.map((f) => ({ delay: f.delay, pixels: shrink(f.pixels, art.width, art.height) }));
+  // Anything that isn't plain blown-up pixel art is kept the way it came.
+  const gif = (frames.every((f) => f.pixels) && encode(frames, art.loop)) || original;
+  if (gif === original) console.warn(`${m.slug}: kept at ${art.width}x${art.height}`);
   fs.writeFileSync(path.join(out, `${m.slug}.gif`), gif);
+  bytes += gif.length;
   return {
     slug: m.slug,
     zh: m.name.zh,
@@ -101,9 +233,9 @@ const compact = manifest.map((m) => {
     themeZh: m.theme.zh,
     ms: m.durations_ms.reduce((a, b) => a + b, 0),
     // Where the drawing starts, so speech bubbles can sit just above it.
-    top: Math.round(contentTop(gif) * 1000) / 1000,
+    top: Math.round(contentTop(art) * 1000) / 1000,
   };
 });
 
 fs.writeFileSync(path.join(out, "manifest.json"), JSON.stringify(compact));
-console.log(`Imported ${compact.length} animations into ${path.relative(root, out)}`);
+console.log(`Imported ${compact.length} animations into ${path.relative(root, out)} (${(bytes / 1024 / 1024).toFixed(1)} MB)`);

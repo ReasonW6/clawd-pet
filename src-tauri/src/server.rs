@@ -157,7 +157,7 @@ fn handle(stream: TcpStream, app: &AppHandle, shared: &Shared) -> io::Result<()>
             respond(&stream, 200, "")?;
             if let Some(v) = payload() {
                 crate::transcript::on_hook(&v);
-                let _ = app.emit("hook-event", v);
+                emit_hook(app, v);
             }
             Ok(())
         }
@@ -169,13 +169,43 @@ fn handle(stream: TcpStream, app: &AppHandle, shared: &Shared) -> io::Result<()>
     }
 }
 
+/// What pet.js reads from a hook event, besides the `_` fields added here and the
+/// command in `tool_input`.
+const EVENT_FIELDS: &[&str] = &[
+    "hook_event_name",
+    "session_id",
+    "cwd",
+    "tool_name",
+    "source",
+    "reason",
+    "trigger",
+    "notification_type",
+    "error_type",
+    "error",
+    "is_interrupt",
+    "action",
+];
+
+/// Passes a state event on to the pet, without the prompts, file contents and replies
+/// that come with it: those can be large, and the page would have to parse them.
+fn emit_hook(app: &AppHandle, mut payload: Value) {
+    if let Some(o) = payload.as_object_mut() {
+        let command = o.get_mut("tool_input").and_then(|input| input.get_mut("command")).map(Value::take);
+        o.retain(|key, _| key.starts_with('_') || EVENT_FIELDS.contains(&key.as_str()));
+        if let Some(command) = command {
+            o.insert("tool_input".into(), json!({ "command": command }));
+        }
+    }
+    let _ = app.emit("hook-event", payload);
+}
+
 fn permission(stream: TcpStream, app: &AppHandle, shared: &Shared, payload: Value) -> io::Result<()> {
     let tool = payload["tool_name"].as_str().unwrap_or_default();
     // These need structured answers only the native UI can collect.
     let native_only = matches!(tool, "AskUserQuestion" | "ExitPlanMode");
     if native_only || !shared.bubbles.load(Ordering::SeqCst) {
         respond(&stream, 200, "")?;
-        let _ = app.emit("hook-event", payload);
+        emit_hook(app, payload);
         return Ok(());
     }
 

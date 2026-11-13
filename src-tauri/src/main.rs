@@ -204,12 +204,15 @@ fn refresh_tray(app: &AppHandle) {
 
 fn toggle_visible(app: &AppHandle) {
     if let Some(w) = main_window(app) {
-        if w.is_visible().unwrap_or(false) {
-            let _ = w.hide();
-        } else {
-            let _ = w.show();
-        }
+        let show = !w.is_visible().unwrap_or(false);
+        let _ = if show { w.show() } else { w.hide() };
+        tell_shown(app, show);
     }
+}
+
+/// The page stops drawing while the pet is hidden; the webview wouldn't by itself.
+fn tell_shown(app: &AppHandle, shown: bool) {
+    let _ = app.emit("shown", shown);
 }
 
 fn show_settings(app: &AppHandle) {
@@ -360,6 +363,7 @@ fn step_aside(app: &AppHandle, st: &AppState, w: &WebviewWindow) {
         sysmon::set_shown(hwnd.0 as _, show);
     }
     st.stepped_aside.store(!show, Ordering::SeqCst);
+    tell_shown(app, show);
     refresh_tray(app);
 }
 

@@ -8,7 +8,7 @@
 
 ```bash
 npm install
-npm run import-assets   # 从 ../clawd-400 复制素材到 ui/assets/clawd，并量出每个动画的画面顶部（气泡定位用）
+npm run import-assets   # 从 ../clawd-400 导入素材到 ui/assets/clawd（缩回 40×40 的原始像素尺寸），并量出每个动画的画面顶部（气泡定位用）
 npm run dev             # 开发模式
 npm run build           # 打包：target/release/clawd-pet.exe 和 NSIS 安装包
 npm run triggers        # 重新生成 docs/triggers.html（动画触发一览）

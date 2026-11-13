@@ -242,12 +242,15 @@ pub fn spawn_poller(events: Events, config: Arc<Mutex<Config>>) {
         loop {
             std::thread::sleep(Duration::from_secs(1));
             tick += 1;
-            let cfg = config.lock().unwrap().clone();
+            let (alone_minutes, on_clipboard, on_network, on_power) = {
+                let cfg = config.lock().unwrap();
+                (cfg.alone_minutes, cfg.sys.clipboard, cfg.sys.network, cfg.sys.power)
+            };
 
             // No input for a while: the pet is left to itself. The user may be gone
             // or just watching something, so this is not treated as absence.
             let idle = win::idle_secs();
-            if !alone && idle >= u64::from(cfg.alone_minutes.max(1)) * 60 {
+            if !alone && idle >= u64::from(alone_minutes.max(1)) * 60 {
                 alone = true;
                 events.emit_now("alone", Value::Null);
             }
@@ -264,12 +267,12 @@ pub fn spawn_poller(events: Events, config: Arc<Mutex<Config>>) {
             let seq = win::clipboard_seq();
             if seq != clipboard {
                 clipboard = seq;
-                if cfg.sys.clipboard {
+                if on_clipboard {
                     events.emit("clipboard", Value::Null);
                 }
             }
 
-            if cfg.sys.network && tick % 5 == 0 {
+            if on_network && tick % 5 == 0 {
                 let now = win::is_online();
                 if online.is_some_and(|prev| prev != now) {
                     events.emit(if now { "online" } else { "offline" }, Value::Null);
@@ -277,7 +280,7 @@ pub fn spawn_poller(events: Events, config: Arc<Mutex<Config>>) {
                 online = Some(now);
             }
 
-            if cfg.sys.power && tick % 20 == 0 {
+            if on_power && tick % 20 == 0 {
                 if let Some((plugged, percent)) = win::battery() {
                     let low = !plugged && percent <= 20;
                     if let Some((was_plugged, was_low)) = power {

@@ -121,14 +121,22 @@ pub fn read(path: &Path) -> Option<&'static str> {
     })
 }
 
-/// Git may still hold the file for a moment after its last write.
+/// Git may still hold the file for a moment after its last write. Trying again is
+/// left to a thread of its own: the caller is the file watcher, which has other
+/// folders to report on meanwhile.
 fn remove(path: &Path) {
-    for _ in 0..4 {
-        if std::fs::remove_file(path).is_ok() {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(40));
+    if std::fs::remove_file(path).is_ok() {
+        return;
     }
+    let path = path.to_path_buf();
+    std::thread::spawn(move || {
+        for _ in 0..3 {
+            std::thread::sleep(Duration::from_millis(40));
+            if std::fs::remove_file(&path).is_ok() {
+                return;
+            }
+        }
+    });
 }
 
 fn sweep(dir: &Path) {
