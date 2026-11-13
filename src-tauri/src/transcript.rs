@@ -9,12 +9,15 @@ use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 const MARKER: &str = "[Request interrupted by user";
 /// How much of a transcript's end, then of its start, is searched for the title.
 const TITLE_TAIL: u64 = 512 * 1024;
 const TITLE_HEAD: u64 = 64 * 1024;
+/// A session without a title yet is looked at again this often, on any event.
+const UNTITLED_RECHECK: Duration = Duration::from_secs(10);
 
 /// normalised transcript path -> (session id, bytes already read)
 type Files = Arc<Mutex<HashMap<String, (String, u64)>>>;
@@ -25,28 +28,32 @@ struct State {
 }
 
 static STATE: OnceLock<State> = OnceLock::new();
-/// normalised transcript path -> session title (None: it has none)
-static TITLES: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+/// normalised transcript path -> (session title or None, when it was read)
+static TITLES: OnceLock<Mutex<HashMap<String, (Option<String>, Instant)>>> = OnceLock::new();
 
 /// The session's title: the last "custom-title" record in its transcript. The Desktop
 /// app writes one at the start and re-appends it now and then; /rename adds one too.
-/// Re-read only on events that come at most once per turn.
+/// Re-read on events that come at most once per turn; while there is none yet (a
+/// session started from another gets its title a little after its first prompt),
+/// every UNTITLED_RECHECK on any event.
 pub fn title(p: &Value) -> Option<String> {
     let path = Path::new(p["transcript_path"].as_str()?);
     let k = key(path);
     let titles = TITLES.get_or_init(Default::default);
     let event = p["hook_event_name"].as_str().unwrap_or_default();
     if event == "SessionEnd" {
-        return titles.lock().unwrap().remove(&k).flatten();
+        return titles.lock().unwrap().remove(&k).and_then(|(t, _)| t);
     }
     let refresh = matches!(event, "SessionStart" | "UserPromptSubmit" | "Stop" | "PermissionRequest");
     if !refresh {
-        if let Some(t) = titles.lock().unwrap().get(&k) {
-            return t.clone();
+        if let Some((t, at)) = titles.lock().unwrap().get(&k) {
+            if t.is_some() || at.elapsed() < UNTITLED_RECHECK {
+                return t.clone();
+            }
         }
     }
     let t = read_title(path);
-    titles.lock().unwrap().insert(k, t.clone());
+    titles.lock().unwrap().insert(k, (t.clone(), Instant::now()));
     t
 }
 
