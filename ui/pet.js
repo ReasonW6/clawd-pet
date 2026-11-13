@@ -12,6 +12,9 @@ const petHit = $("pet-hit");
 const MIN = 60 * 1000;
 const TOAST_MS = 4500;
 const STALE_BUSY_MS = 30 * MIN;
+/** A compaction whose PostCompact never came (e.g. one Claude Code started on its own
+ *  in an idle session) is given up on after this long. */
+const COMPACT_MAX_MS = 2 * MIN;
 const FORGET_IDLE_MS = 120 * MIN;
 const LONG_TASK_MS = 5 * MIN;
 const LONG_TASK_BREAK_MS = 4 * MIN;
@@ -133,7 +136,7 @@ function playOnce(slug, { force = false, minMs = 1800, then, life = false } = {}
 
 const BUSY_RANK = { waiting: 5, compacting: 4, working: 3, thinking: 2, idle: 0 };
 
-/** session_id -> { id, entry, cwd, title, state, cat, anim, waitAnim, waitSince, waitUntil, subagents, fails, turnStart, nextBreak, t } */
+/** session_id -> { id, entry, cwd, title, state, cat, anim, waitAnim, waitSince, waitUntil, compactSince, subagents, fails, turnStart, nextBreak, t } */
 const sessions = new Map();
 /** Pending permission requests: { id, payload }. */
 const perms = [];
@@ -161,7 +164,7 @@ function session(p) {
   const id = p.session_id || "default";
   let s = sessions.get(id);
   if (!s) {
-    s = { id, entry: "", cwd: "", title: "", state: "idle", cat: null, anim: null, waitAnim: null, waitSince: 0, waitUntil: 0, subagents: 0, fails: 0, turnStart: 0, nextBreak: 0, t: now() };
+    s = { id, entry: "", cwd: "", title: "", state: "idle", cat: null, anim: null, waitAnim: null, waitSince: 0, waitUntil: 0, compactSince: 0, subagents: 0, fails: 0, turnStart: 0, nextBreak: 0, t: now() };
     sessions.set(id, s);
   }
   if (p._entry) s.entry = p._entry;
@@ -170,6 +173,10 @@ function session(p) {
   s.t = now();
   return s;
 }
+
+/** Where an automatic compaction leaves a session: back to the turn it interrupted,
+ *  or, when it ran between turns, back to idle. */
+const afterCompact = (s) => (s.turnStart ? "thinking" : "idle");
 
 /** Starts waiting for the user: loops one of `anims` for PATIENT_MS first, if given. */
 function wait(s, anims) {
@@ -286,10 +293,13 @@ function onHook(p) {
       s.subagents = Math.max(0, s.subagents - 1);
       break;
     case "PreCompact":
+      if (s.state !== "compacting") s.compactSince = now();
       s.state = "compacting";
       break;
     case "PostCompact":
-      s.state = p.trigger === "manual" ? "idle" : "thinking";
+      // Late, after COMPACT_MAX_MS gave up on it: the session has moved on since.
+      if (s.state !== "compacting") break;
+      s.state = p.trigger === "manual" ? "idle" : afterCompact(s);
       break;
     case "Elicitation": // an MCP server asks the user for input
       if (s.state !== "waiting") wait(s, ANIMS.elicitation);
@@ -536,6 +546,7 @@ function tick() {
   const d = new Date();
 
   for (const s of [...sessions.values()]) {
+    if (s.state === "compacting" && t - s.compactSince > COMPACT_MAX_MS) s.state = afterCompact(s);
     if (s.state !== "idle" && t - s.t > STALE_BUSY_MS) s.state = "idle";
     if (s.state === "idle" && t - s.t > FORGET_IDLE_MS) sessions.delete(s.id);
   }

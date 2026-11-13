@@ -252,7 +252,7 @@
 <div class="row">
   <div class="info">
     <h4>压缩上下文</h4>
-    <p><code>PreCompact</code> 到 <code>PostCompact</code> 之间。手动 /compact 结束后回到待命，自动压缩结束后回到思考。</p>
+    <p><code>PreCompact</code> 到 <code>PostCompact</code> 之间。手动 /compact 结束后回到待命；自动压缩结束后，对话还在进行就回到思考，否则回到待命。超过 2 分钟没等到结束，也按这个规则退出。</p>
     <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
     <code>ANIMS.compacting</code>
   </div>

@@ -111,7 +111,7 @@ const claude = section(
       row({ when: `用工具：${TOOL_LABELS[cat]}`, how: `<code>PreToolUse</code>，${TOOL_RULES[cat]}。连续用同一类工具不换动画${Array.isArray(ANIMS.tools[cat]) ? "" : "；每次开始时按图上的比例抽"}。`, play: ["loop"], code: `ANIMS.tools.${cat}`, slugs: ANIMS.tools[cat] }),
     ),
     row({ when: "有子代理在跑", how: "<code>SubagentStart</code> 到 <code>SubagentStop</code> 之间，盖过上面的工具动画。标签显示「小分队 ×N」。", play: ["loop"], code: "ANIMS.subagents", slugs: ANIMS.subagents }),
-    row({ when: "压缩上下文", how: "<code>PreCompact</code> 到 <code>PostCompact</code> 之间。手动 /compact 结束后回到待命，自动压缩结束后回到思考。", play: ["loop"], code: "ANIMS.compacting", slugs: ANIMS.compacting }),
+    row({ when: "压缩上下文", how: "<code>PreCompact</code> 到 <code>PostCompact</code> 之间。手动 /compact 结束后回到待命；自动压缩结束后，对话还在进行就回到思考，否则回到待命。超过 2 分钟没等到结束，也按这个规则退出。", play: ["loop"], code: "ANIMS.compacting", slugs: ANIMS.compacting }),
     row({ when: "任务跑了 5 分钟以上", how: "从你发消息算起超过 5 分钟还在忙，之后每 4 分钟来一次。", play: ["force", 3000], code: "ANIMS.longTask", slugs: ANIMS.longTask }),
 
     sub("需要你确认"),
