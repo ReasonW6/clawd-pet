@@ -118,7 +118,7 @@ const claude = section(
     row({ when: "Claude 请求权限（开着审批气泡）", how: "<code>PermissionRequest</code>。头顶弹出「拒绝 / 总是允许 / 允许」，直到你作答，或你在原界面答了。优先级仅次于被拎起来。", play: ["loop"], code: "ANIMS.permission", slugs: ANIMS.permission }),
     row({ when: "你在气泡里点了允许", how: "点「允许」或「总是允许」。", play: ["force", 1200], code: "ANIMS.allowed", slugs: ANIMS.allowed }),
     row({ when: "你在气泡里点了拒绝", how: "点「拒绝」。", play: ["force", 1800], code: "ANIMS.denied", slugs: ANIMS.denied }),
-    row({ when: "要你去原界面作答", how: "气泡关着时的权限请求；AskUserQuestion、退出计划模式；或 <code>Notification</code> 的 permission_prompt / elicitation_dialog。", play: ["loop"], code: "ANIMS.waiting", slugs: ANIMS.waiting }),
+    row({ when: "要你去原界面作答", how: "气泡关着时的权限请求；AskUserQuestion、退出计划模式（<code>PreToolUse</code> 时就进入）；MCP 服务器要你填表（<code>Elicitation</code> 到 <code>ElicitationResult</code>）；或 <code>Notification</code> 的 permission_prompt / elicitation_dialog。", play: ["loop"], code: "ANIMS.waiting", slugs: ANIMS.waiting }),
 
     sub("出错"),
     row({ when: "一次工具调用失败", how: "<code>PostToolUseFailure</code>（你主动中断的不算）。", play: ["force", 1500], code: "ANIMS.toolError", slugs: ANIMS.toolError }),
@@ -130,7 +130,7 @@ const claude = section(
     row({ when: "长任务完成", how: "<code>Stop</code>，耗时 5 分钟以上。", play: ["polite", 3500], say: "项目名 跑了 N 分钟，终于搞定啦！", code: "ANIMS.bigDone", slugs: ANIMS.bigDone }),
     row({ when: "睡眠时段里完成", how: "<code>Stop</code> 时正处在睡眠时段。", play: ["polite", 2500], say: "项目名 搞定…困了 💤", code: "ANIMS.sleepyDone", slugs: ANIMS.sleepyDone }),
     `<div class="note">完成之后的余韵：任务跑了 1 分钟以上，它会开心 3 分钟；长任务完成会得意 5 分钟（见「它自己的生活 → 情绪」）。如果完成时键鼠已经一阵没动静，「搞定啦」的气泡会一直留着，等你碰了电脑它再提醒一次「已经搞定啦，快去看看～」。</div>`,
-    `<div class="note">没有动画的情况：按 Esc 中断不会触发 <code>Stop</code>，桌宠要等约 1 分钟后的 idle_prompt 通知才回到待命；会话超过 30 分钟没有任何事件，也会当作已结束。</div>`,
+    `<div class="note">没有动画的情况：按 Esc 或 Desktop 的停止按钮中断不会触发 <code>Stop</code>，桌宠从会话记录（transcript）里读到中断标记后直接回到待命；会话超过 30 分钟没有任何事件，也会当作已结束。</div>`,
   ],
 );
 

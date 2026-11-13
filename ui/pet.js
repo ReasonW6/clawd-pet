@@ -200,6 +200,11 @@ function onHook(p) {
       s.nextBreak = s.turnStart + LONG_TASK_MS;
       break;
     case "PreToolUse": {
+      // These wait for the user's answer in the native UI.
+      if (p.tool_name === "AskUserQuestion" || p.tool_name === "ExitPlanMode") {
+        s.state = "waiting";
+        break;
+      }
       const cat = toolCategory(p.tool_name, p.tool_input || {});
       if (cat !== s.cat || s.state !== "working") s.anim = pick(ANIMS.tools[cat]);
       s.state = "working";
@@ -233,10 +238,24 @@ function onHook(p) {
     case "PostCompact":
       s.state = p.trigger === "manual" ? "idle" : "thinking";
       break;
+    case "Elicitation": // an MCP server asks the user for input
+      s.state = "waiting";
+      break;
+    case "ElicitationResult": // may also come outside a turn, which no Stop would end
+      if (s.state === "waiting") s.state = s.turnStart ? "working" : "idle";
+      break;
+    case "Interrupt":
+      // Synthetic, from transcript.rs: an interrupt fires no Stop. A marker from
+      // before the current prompt belongs to the previous turn.
+      if (s.turnStart && Date.parse(p.timestamp) < s.turnStart) break;
+      s.state = "idle";
+      s.subagents = 0;
+      s.turnStart = 0;
+      break;
     case "Notification":
       if (p.notification_type === "idle_prompt") {
-        // Claude is waiting for the next prompt. This is the only signal after an
-        // Esc interrupt, which fires no Stop.
+        // Claude is waiting for the next prompt. Fallback for an interrupt that
+        // transcript.rs missed (the Desktop app doesn't seem to send it).
         s.state = "idle";
         s.subagents = 0;
         s.turnStart = 0;
@@ -580,6 +599,9 @@ function entryLabel(entry) {
 
 function projectName(s) {
   const parts = (s.cwd || "").split(/[\\/]/).filter(Boolean);
+  // Worktree sessions run in <project>/.claude/worktrees/<name>.
+  const wt = parts.findIndex((x, i) => x === ".claude" && parts[i + 1] === "worktrees");
+  if (wt > 0) return parts[wt - 1];
   return parts[parts.length - 1] || "会话";
 }
 

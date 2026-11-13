@@ -20,6 +20,8 @@ const STATE_EVENTS: &[&str] = &[
     "PreCompact",
     "PostCompact",
     "Notification",
+    "Elicitation",
+    "ElicitationResult",
 ];
 
 fn base_url() -> String {

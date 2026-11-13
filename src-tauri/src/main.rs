@@ -6,6 +6,7 @@ mod git;
 mod hooks;
 mod server;
 mod sysmon;
+mod transcript;
 
 use config::Config;
 use notify::RecommendedWatcher;
@@ -480,6 +481,7 @@ fn main() {
             app.state::<AppState>().rewatch();
             autostart::refresh();
             sysmon::spawn_poller(events.clone(), config.clone());
+            transcript::init(handle.clone());
             server::serve(listener, handle.clone(), shared);
 
             let w = main_window(&handle).expect("main window");

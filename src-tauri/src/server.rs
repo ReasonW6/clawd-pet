@@ -152,6 +152,7 @@ fn handle(stream: TcpStream, app: &AppHandle, shared: &Shared) -> io::Result<()>
         ("POST", "/clawd-pet/event") => {
             respond(&stream, 200, "")?;
             if let Some(v) = payload() {
+                crate::transcript::on_hook(&v);
                 let _ = app.emit("hook-event", v);
             }
             Ok(())
