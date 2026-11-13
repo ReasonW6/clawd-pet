@@ -149,10 +149,10 @@ const LIFE_INFO = {
 const MOOD_INFO = {
   happy: "Claude 干完一轮 1 分钟以上的活之后（3 分钟）；你一阵没操作后又回来时（2 分钟）。",
   proud: "5 分钟以上的长任务完成之后，持续 5 分钟。",
-  loved: "被你摸摸之后，持续 3 分钟。",
+  loved: "被你摸摸之后，持续 30 秒。",
   bored: "键盘鼠标超过设定的时间（默认 5 分钟）没动静，一直到你回来，或者变成「想你」。",
   lonely: "没人理它之后再过 15 分钟（默认设置下即总共 20 分钟没操作），一直到你回来。",
-  grumpy: "被连点 5 下惹毛之后，持续 2 分钟。这时候摸摸它，会直接变成「被宠着」。",
+  grumpy: "被连点 5 下惹毛之后，持续 30 秒。这时候摸摸它，会直接变成「被宠着」。",
   down: "一轮里第 3 次工具失败，或 API 出错之后，持续 3 分钟。",
   sleepy: "离夜间的睡眠时段不到 30 分钟。这时不运动、不出小意外，变装、音乐、家务也少。",
 };
@@ -264,8 +264,8 @@ const touch = section(
   "直接对小螃蟹做的动作。这些都会打断 Claude 的状态动画，播完再回去。",
   [
     row({ when: "单击", how: "点一下，等 0.3 秒确认不是双击后播放。三连击、四连击也算这个。", play: ["force", 1200], code: "ANIMS.click", slugs: ANIMS.click }),
-    row({ when: "2.5 秒内点满 5 下", how: "第 5 下立刻生气，播完之前不理会更多点击。之后闹 2 分钟脾气。", play: ["force", 1500], code: "ANIMS.clickSpam", slugs: ANIMS.clickSpam }),
-    row({ when: "摸摸", how: "不按键，鼠标在它身上左右来回蹭（1.2 秒内连续变向 4 次）。4 秒内不重复触发，睡着时无效。之后 3 分钟它是「被宠着」的心情。", play: ["force", 1800], code: "ANIMS.petted", slugs: ANIMS.petted }),
+    row({ when: "2.5 秒内点满 5 下", how: "第 5 下立刻生气，播完之前不理会更多点击。之后闹 30 秒脾气。", play: ["force", 1500], code: "ANIMS.clickSpam", slugs: ANIMS.clickSpam }),
+    row({ when: "摸摸", how: "不按键，鼠标在它身上左右来回蹭（1.2 秒内连续变向 4 次）。4 秒内不重复触发，睡着时无效。之后 30 秒钟它是「被宠着」的心情。", play: ["force", 1800], code: "ANIMS.petted", slugs: ANIMS.petted }),
     row({ when: "鼠标停在它身上", how: "悬停 2.5 秒且 Claude 没在忙（它自己的场景会被打断）。30 秒内不重复。", play: ["polite", 1500], code: "ANIMS.noticed", slugs: ANIMS.noticed }),
     row({ when: "被拎起来", how: "按住左键拖动超过 4 像素，直到松手。优先级最高。", play: ["loop"], code: "ANIMS.dragged", slugs: ANIMS.dragged }),
     row({ when: "被放下", how: "拖动后松开鼠标。", play: ["force", 1500], code: "ANIMS.dropped", slugs: ANIMS.dropped }),

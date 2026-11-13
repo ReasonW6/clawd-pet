@@ -224,6 +224,8 @@ main {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
+  /* Same content width whether or not the tab scrolls. */
+  scrollbar-gutter: stable;
   padding: 18px 22px 28px;
 }
 
@@ -366,6 +368,15 @@ input[type="number"]::-webkit-inner-spin-button {
   min-width: 0;
 }
 
+/* A control followed by its unit ("5 分钟"), or a pair of controls; never wraps. */
+.unit {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
 button {
   font: inherit;
   color: var(--ink);
@@ -395,16 +406,45 @@ button.ghost {
 }
 
 button.icon {
-  padding: 2px 8px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
   border: none;
+  border-radius: 6px;
   box-shadow: none;
   background: none;
   color: var(--muted);
-  font-size: 15px;
 }
 
 button.icon:hover {
-  color: #c0392b;
+  background: #e5533d;
+  color: #fff;
+}
+
+/* An X out of two bars, in the text color. */
+.glyph-x {
+  position: relative;
+  width: 10px;
+  height: 10px;
+}
+
+.glyph-x::before,
+.glyph-x::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: -1px;
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+.glyph-x::after {
+  transform: rotate(-45deg);
 }
 
 .switch {
@@ -507,7 +547,8 @@ button.icon:hover {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 8px 7px 14px;
+  /* The remove button's X lines up with the switches above it. */
+  padding: 7px 6px 7px 14px;
   background: var(--paper);
 }
 
@@ -528,6 +569,86 @@ button.icon:hover {
 
 .item .grow {
   flex: 1;
+}
+
+.capsules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.fold {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.fold .capsules {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Folded: one line of capsules (26px) plus room for their shadow. */
+.fold:not(.open) .capsules {
+  max-height: 29px;
+  overflow: hidden;
+}
+
+.fold-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.fold-toggle:hover {
+  background: var(--clawd-soft);
+}
+
+/* A chevron pointing down, or up while open. */
+.chevron {
+  width: 7px;
+  height: 7px;
+  margin-top: -4px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.fold.open .chevron {
+  margin-top: 3px;
+  transform: rotate(-135deg);
+}
+
+.capsules:empty {
+  display: none;
+}
+
+.capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 3px 2px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--clawd-soft);
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.14);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.capsule button.icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+}
+
+.capsule .glyph-x {
+  transform: scale(0.75);
 }
 
 /* ---------------------------------------------------------------- gallery */

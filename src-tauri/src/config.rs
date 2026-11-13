@@ -1,6 +1,55 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+/// Browsers and video players, excluded from hiding out of the box: full-screen in
+/// one of these is usually a video, and the pet may keep the user company through it.
+const BROWSERS: &[&str] = &[
+    "chrome.exe",
+    "msedge.exe",
+    "firefox.exe",
+    "brave.exe",
+    "opera.exe",
+    "vivaldi.exe",
+    "zen.exe",
+    "arc.exe",
+    "chromium.exe",
+    "floorp.exe",
+    "librewolf.exe",
+    "waterfox.exe",
+    "thorium.exe",
+    "360se.exe",
+    "360chrome.exe",
+    "360chromex.exe",
+    "qqbrowser.exe",
+    "sogouexplorer.exe",
+    "2345explorer.exe",
+    "quark.exe",
+    "ego.exe",
+];
+
+const VIDEO_PLAYERS: &[&str] = &[
+    "potplayermini64.exe",
+    "potplayermini.exe",
+    "vlc.exe",
+    "mpv.exe",
+    "mpc-hc64.exe",
+    "mpc-hc.exe",
+    "mpc-be64.exe",
+    "mpc-be.exe",
+    "kmplayer.exe",
+    "wmplayer.exe",
+    "microsoft.media.player.exe",
+    "kodi.exe",
+    "plex.exe",
+    "qqplayer.exe",
+    "xmp.exe",
+    "qqlive.exe",
+    "qyclient.exe",
+    "qyplayer.exe",
+    "youkudesktop.exe",
+    "哔哩哔哩.exe",
+];
+
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct SleepWindow {
     /// "HH:MM"; a window whose end is before its start wraps past midnight.
@@ -92,7 +141,7 @@ impl Default for Config {
             alone_minutes: 5,
             sedentary_minutes: 60,
             hide_in_fullscreen: true,
-            fullscreen_exclude: Vec::new(),
+            fullscreen_exclude: BROWSERS.iter().chain(VIDEO_PLAYERS).map(|p| p.to_string()).collect(),
             sys: SysConfig::default(),
         }
     }

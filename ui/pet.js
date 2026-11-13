@@ -828,7 +828,7 @@ petHit.addEventListener("mousemove", (e) => {
     rub.restUntil = t + 4000;
     clearTimeout(noticeTimer);
     if (!asleep) {
-      feel("loved", 3);
+      feel("loved", 0.5);
       playOnce(pick(ANIMS.petted), { force: true, minMs: 1800 });
     }
   }
@@ -898,7 +898,7 @@ function onPetClick() {
   if (clicks.length >= 5) {
     clicks = [];
     burst = 0;
-    feel("grumpy", 2);
+    feel("grumpy", 0.5);
     ignoreClicksUntil = t + playOnce(pick(ANIMS.clickSpam), { force: true, minMs: 1500 });
     return;
   }

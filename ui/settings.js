@@ -37,8 +37,9 @@ function el(tag, cls, text) {
 }
 
 function removeButton(onClick) {
-  const b = el("button", "icon", "✕");
+  const b = el("button", "icon");
   b.title = "移除";
+  b.append(el("i", "glyph-x"));
   b.onclick = onClick;
   return b;
 }
@@ -184,20 +185,36 @@ function pathList(boxId, addId, list) {
 
 function initFullscreenExclude() {
   const list = config.fullscreenExclude;
+  // Folded down to the first line of capsules until the user opens it.
+  const fold = () => {
+    const [box, toggle] = [$("fs-exclude"), $("fs-fold-toggle")];
+    const open = $("fs-fold").classList.contains("open");
+    toggle.hidden = false; // it takes room from the capsules, so measure with it shown
+    const first = box.firstElementChild?.offsetTop;
+    const below = [...box.children].filter((c) => c.offsetTop > first).length;
+    toggle.hidden = below === 0;
+    toggle.firstElementChild.textContent = open ? "收起" : `还有 ${below} 个`;
+  };
+  $("fs-fold-toggle").onclick = () => {
+    $("fs-fold").classList.toggle("open");
+    fold();
+  };
+  // Also measures once the tab is shown and whenever the window is resized.
+  new ResizeObserver(fold).observe($("fs-exclude"));
   const render = () => {
     $("fs-exclude").innerHTML = "";
     list.forEach((name, i) => {
-      const row = el("div", "item");
-      row.append(
-        el("span", "grow", name),
+      const capsule = el("span", "capsule", name);
+      capsule.append(
         removeButton(() => {
           list.splice(i, 1);
           render();
           save();
         }),
       );
-      $("fs-exclude").append(row);
+      $("fs-exclude").append(capsule);
     });
+    fold();
   };
   const add = (name) => {
     name = (name || "").trim().toLowerCase();

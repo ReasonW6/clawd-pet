@@ -54,14 +54,17 @@
             <input type="checkbox" class="switch" data-key="hideInFullscreen" />
           </label>
           <div class="row stack">
-            <span class="text"><b>例外的程序</b><small>这些程序全屏时不隐藏，比如想让它陪你看视频，就把浏览器加进来</small></span>
+            <span class="text"><b>例外的程序</b><small>这些程序全屏时它不躲，陪你看视频。主流浏览器和视频软件已经在里面</small></span>
             <span class="add">
               <input type="text" id="fs-exclude-name" placeholder="进程名，如 chrome.exe" />
               <button id="fs-exclude-add">添加</button>
               <button id="fs-exclude-pick" class="ghost">选择程序…</button>
             </span>
+            <div id="fs-fold" class="fold">
+              <div id="fs-exclude" class="capsules"></div>
+              <button id="fs-fold-toggle" class="fold-toggle" hidden><span></span><i class="chevron"></i></button>
+            </div>
           </div>
-          <div id="fs-exclude" class="list"></div>
         </div>
         <div class="card">
           <label class="row">
@@ -74,7 +77,7 @@
           </label>
           <div class="row">
             <span class="text"><b>你的生日</b><small>当天它会给你吹蜡烛</small></span>
-            <span>
+            <span class="unit">
               <select id="birth-month"></select>
               <select id="birth-day"></select>
             </span>
@@ -98,11 +101,11 @@
         <div class="card">
           <label class="row">
             <span class="text"><b>多久没操作它就自己玩</b><small>键盘鼠标这么久没动（你可能走开了，也可能在看视频），它会多做运动、玩变装，也会无聊、想你</small></span>
-            <span><input type="number" data-key="aloneMinutes" min="1" max="120" /> 分钟</span>
+            <span class="unit"><input type="number" data-key="aloneMinutes" min="1" max="120" />分钟</span>
           </label>
           <label class="row">
             <span class="text"><b>久坐提醒</b><small>连续坐这么久就提醒你起来活动；填 0 关闭</small></span>
-            <span><input type="number" data-key="sedentaryMinutes" min="0" max="480" /> 分钟</span>
+            <span class="unit"><input type="number" data-key="sedentaryMinutes" min="0" max="480" />分钟</span>
           </label>
         </div>
       </section>
