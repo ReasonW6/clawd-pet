@@ -221,10 +221,17 @@ fn show_settings(app: &AppHandle) {
         let _ = w.set_focus();
         return;
     }
+    // Webviews sharing a data folder must be started with the same browser arguments.
+    // The pet's (software rendering, no separate GPU process) save some 20 MB of memory.
+    let args = app.config().app.windows.iter().find(|w| w.label == "main").and_then(|w| w.additional_browser_args.clone());
     // Creating a window from an event handler on the main thread deadlocks on Windows.
     let app = app.clone();
     std::thread::spawn(move || {
-        let _ = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
+        let mut builder = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()));
+        if let Some(args) = &args {
+            builder = builder.additional_browser_args(args);
+        }
+        let _ = builder
             .title("Clawd Pet 设置")
             // The page draws its own title bar.
             .decorations(false)
