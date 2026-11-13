@@ -2,7 +2,7 @@
 
 一只住在桌面上的像素小螃蟹。它实时反映 Claude Code（终端 / Desktop App / VS Code）的工作状态，能直接在气泡里批准或拒绝权限请求；没活干的时候有自己的作息，还会对你在电脑上的操作做出反应。
 
-动画素材来自 `../clawd-400`（400 个 GIF），技术栈是 Tauri 2 + 原生 HTML/JS。目前只在 Windows 上开发和测试。
+动画素材来自 [Clawd 400](https://github.com/khiqwq/clawd-400)（400 个 GIF，见[致谢](#致谢)），技术栈是 Tauri 2 + 原生 HTML/JS。目前只在 Windows 上开发和测试。
 
 ## 运行
 
@@ -105,3 +105,13 @@ Claude 没活给它的时候，它演完一个「场景」歇一会儿，再演�
 | [`src-tauri/src/autostart.rs`](src-tauri/src/autostart.rs) | 开机自启（`HKCU\…\Run` 下的 `ClawdPet` 项） |
 | [`scripts/gen-triggers.mjs`](scripts/gen-triggers.mjs) | 从 `ui/anims.js` 生成触发一览页面 |
 | [`src-tauri/src/main.rs`](src-tauri/src/main.rs) | 窗口、托盘、鼠标穿透、配置（存于 `%APPDATA%\dev.clawd.pet\config.json`） |
+
+## 致谢
+
+全部动画素材来自 **[Clawd 400](https://github.com/khiqwq/clawd-400)**，作者风花叶，按 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 授权：
+
+> Clawd 400 by 风花叶 — CC BY 4.0 — https://github.com/khiqwq/clawd-400
+
+本项目对素材的改动：`npm run import-assets` 导入时把 480×480 的 GIF 缩回它们原本绘制的 40×40 网格并重新编码，画面和帧时长不变；另外按动画名重命名了文件。素材不包含在本仓库里，需要自己下载 Clawd 400 再导入。
+
+Clawd 形象和 Claude、Claude Code 名称属于 Anthropic。本项目是非官方的同人作品，与 Anthropic 无关。
