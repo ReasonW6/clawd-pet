@@ -38,6 +38,8 @@ struct AppState {
     downloads: Option<PathBuf>,
     /// Where git reports the commands it runs, once the user has turned that on.
     git_trace: PathBuf,
+    /// Where `git_trace` used to be; a git config still pointing there counts as ours.
+    old_git_trace: PathBuf,
     /// Interactive regions (x, y, w, h) in logical px; everything else is click-through.
     hit_rects: Mutex<Vec<[f64; 4]>>,
     /// The user is dragging the pet around.
@@ -173,7 +175,7 @@ fn git_watch_get(state: State<AppState>) -> bool {
 #[tauri::command(async)]
 fn git_watch_set(on: bool, state: State<AppState>) -> Result<bool, String> {
     if on {
-        git::install(&state.git_trace)?;
+        git::install(&state.git_trace, &state.old_git_trace)?;
     } else {
         git::uninstall(&state.git_trace)?;
     }
@@ -463,7 +465,17 @@ fn main() {
                 std::process::exit(0);
             };
             let handle = app.handle().clone();
-            let config_path = app.path().app_config_dir()?.join("config.json");
+            // Our files live under the user profile, not AppData: Claude Desktop runs Claude
+            // Code in an MSIX container that redirects AppData writes, so a pet started from
+            // there (`npm run dev`) would get a config of its own, and git run from there
+            // would report to a folder the pet never sees. The user profile itself is shared.
+            let data_dir = app.path().home_dir()?.join(".clawd-pet");
+            let old_dir = app.path().app_config_dir()?;
+            let config_path = data_dir.join("config.json");
+            if !config_path.exists() && old_dir.join("config.json").exists() {
+                let _ = std::fs::create_dir_all(&data_dir);
+                let _ = std::fs::copy(old_dir.join("config.json"), &config_path);
+            }
             let mut cfg = Config::load(&config_path);
             if cfg.sys.folders.is_none() {
                 cfg.sys.folders = Some(default_folders(&handle));
@@ -473,7 +485,8 @@ fn main() {
             let shared = Arc::new(Shared::default());
             shared.bubbles.store(cfg.bubbles, Ordering::SeqCst);
             let events = sysmon::Events::new(handle.clone());
-            let git_trace = app.path().app_config_dir()?.join("git-trace");
+            let git_trace = data_dir.join("git-trace");
+            let old_git_trace = old_dir.join("git-trace");
             let _ = std::fs::create_dir_all(&git_trace);
             git::clear(&git_trace);
             app.manage(AppState {
@@ -484,6 +497,7 @@ fn main() {
                 watcher: Mutex::new(None),
                 downloads: app.path().download_dir().ok(),
                 git_trace,
+                old_git_trace,
                 hit_rects: Mutex::new(Vec::new()),
                 dragging: AtomicBool::new(false),
                 dirty: AtomicBool::new(false),

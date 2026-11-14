@@ -21,8 +21,12 @@ cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得�
   - `../clawd-400-src`：clawd-400 仓库的克隆。动画是 `scenes/*.py` 里的场景代码，在那里改完跑 `python generate.py` 重写 `gifs/` 和 `manifest.json`（几秒钟，结果是确定的），再回来 `import-assets`。修改动画走这条路，步骤见 README「修改动画」。
   - `../clawd-400`：预览网站下载的打包版，只能导入。
   - 动画时长 `ms` 从 GIF 实际播放的帧算，不用源 manifest 里的数字。
-- 端口 23490 兼作单实例锁：已有一只桌宠在跑时，新启动的实例（包括 `npm run dev`）会静默退出。`npm run build` 前也要先退出桌宠，否则 exe 被占用。开发版和正式版共用同一份配置 `%APPDATA%\dev.clawd.pet\config.json`。
+- 端口 23490 兼作单实例锁：已有一只桌宠在跑时，新启动的实例（包括 `npm run dev`）会静默退出。`npm run build` 前也要先退出桌宠，否则 exe 被占用。开发版和正式版共用同一份配置 `%USERPROFILE%\.clawd-pet\config.json`（新位置还没有配置时，启动会从旧位置 `%APPDATA%\dev.clawd.pet\config.json` 复制一份过来）。
 - 开机自启只在正式版可用，注册表值 `HKCU\...\Run\ClawdPet` 指向构建出来的 exe。
+- Claude 桌面版是 MSIX 打包应用，从 Claude Code 里启动的进程（`npm run dev`、直接运行 exe、运行安装包）都在它的容器里：
+  - 对 `%APPDATA%`、`%LOCALAPPDATA%` 和 HKCU 的写入被重定向到 `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache` 和 Claude 的私有注册表，读到的也是合并后的视图。自启动和卸载登记也会只写进虚拟注册表。用户目录本身和 `%TEMP%` 是共享的，所以配置和 git-trace 都放在 `~/.clawd-pet` 下，不放进 AppData。
+  - Claude 退出时，这些进程会被一起结束。
+  - 要让桌宠独立运行，或者读写真实的配置和注册表，用 `explorer.exe <exe 或 .cmd>` 转手启动。
 - 调试 WebView：启动前设置环境变量 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`，然后用 `http://127.0.0.1:9223/json` 列出页面，通过 CDP 执行 JS、截图（主窗口和设置窗口各是一个 page）。这个变量会整个替换 `tauri.conf.json` 里的 `additionalBrowserArgs`，所以值要写成那里的全部参数再加上 `--remote-debugging-port=9223`，否则调试时跑的是 GPU 渲染，和正式运行不一样。
 
 ## 架构
@@ -78,7 +82,7 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 |---|---|
 | 前台窗口切换、进出全屏 | `SetWinEventHook`，再把一个隐形窗口注册成 appbar，接收 `ABN_FULLSCREENAPP`；150 ms 去抖 |
 | 文件夹、回收站 | `notify` 文件监听；回收站看各盘 `$Recycle.Bin\<SID>` 里 `$I*` 文件的增减 |
-| Git | 设置里的开关在**全局 git 配置**里写入 `trace2.eventTarget` 等 4 项，git 把每条命令写成一个文件放进 `%APPDATA%\dev.clawd.pet\git-trace`；`git::read` 读完即删，只认用户直接执行且成功的命令 |
+| Git | 设置里的开关在**全局 git 配置**里写入 `trace2.eventTarget` 等 4 项，git 把每条命令写成一个文件放进 `%USERPROFILE%\.clawd-pet\git-trace`（不放在 AppData 里，见上面 MSIX 容器那条；配置还指向旧位置 `%APPDATA%\dev.clawd.pet\git-trace` 时，打开开关会把它改过来）；`git::read` 读完即删，只认用户直接执行且成功的命令 |
 | 键鼠空闲、剪贴板序号、网络、电量 | 1 秒一次的轮询线程，只做读一个数的廉价调用 |
 
 `~/.claude/settings.json` 的 hook 和全局 git 配置，都只在用户在设置里点开关时才改，不要在代码里或测试时自动写入。

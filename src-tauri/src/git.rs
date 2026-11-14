@@ -46,9 +46,11 @@ pub fn is_installed(dir: &Path) -> bool {
     global(TARGET).is_ok_and(|current| current == target(dir))
 }
 
-pub fn install(dir: &Path) -> Result<(), String> {
+/// `old` is where the trace folder used to be: a config pointing there is ours to move.
+pub fn install(dir: &Path, old: &Path) -> Result<(), String> {
     let current = global(TARGET)?;
-    if !current.is_empty() && current != target(dir) {
+    let moving = current == target(old);
+    if !moving && !current.is_empty() && current != target(dir) {
         return Err(format!("全局 git 配置里的 trace2.eventTarget 已经指向 {current}，为了不影响它，这里没有改动"));
     }
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -59,6 +61,12 @@ pub fn install(dir: &Path) -> Result<(), String> {
         if !out.status.success() {
             return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
         }
+    }
+    // Only now: the `git config` runs above still trace to the old folder, and with
+    // the folder gone git would write its trace to a file of that name instead.
+    if moving {
+        clear(old);
+        let _ = std::fs::remove_dir(old);
     }
     Ok(())
 }

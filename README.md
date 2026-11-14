@@ -76,7 +76,7 @@ Claude 没活给它的时候，它演完一个「场景」歇一会儿，再演�
 | 切到音乐、视频、聊天等软件（默认关闭） | 前台窗口的进程名 | 戴耳机、吃爆米花、打电话… |
 | 任何仓库里的 Git 操作：提交、合并、推送、克隆、切分支、撤销（默认关闭） | git 自己上报命令名（见下） | 提交图 / 分支合并 / 上传到云 / 你好世界 / 时间旅行 / 撤销撤销 |
 
-**Git 操作是怎么知道的**：不需要添加仓库。打开开关时，桌宠在全局 git 配置里加 4 行 `trace2.*` 设置（`eventTarget` 指向 `%APPDATA%\dev.clawd.pet\git-trace`），之后 git 每跑一条命令就在那个文件夹里写一个小文件，记着命令名和退出码。桌宠读完即删，只对用户自己执行且成功的命令有反应，忽略 status / fetch / log 这类后台命令。关掉开关会把这 4 行移除。桌宠没运行时，git 攒到 200 个文件就自动停止记录。
+**Git 操作是怎么知道的**：不需要添加仓库。打开开关时，桌宠在全局 git 配置里加 4 行 `trace2.*` 设置（`eventTarget` 指向 `%USERPROFILE%\.clawd-pet\git-trace`），之后 git 每跑一条命令就在那个文件夹里写一个小文件，记着命令名和退出码。桌宠读完即删，只对用户自己执行且成功的命令有反应，忽略 status / fetch / log 这类后台命令。关掉开关会把这 4 行移除。桌宠没运行时，git 攒到 200 个文件就自动停止记录。
 
 **开销**：前台窗口切换和进出全屏由系统事件通知（全屏隐藏、前台应用），文件、回收站和 Git 由文件系统通知，平时不占 CPU。需要定时看的只有两样：鼠标穿透要看光标位置（光标在小螃蟹附近时每 40 毫秒一次，离得远时每 200 毫秒一次）；键鼠空闲时间和剪贴板序号每秒读一次，网络每 5 秒、电量每 20 秒，都是只读一个数的系统调用。
 
@@ -134,7 +134,7 @@ git clone https://github.com/khiqwq/clawd-400.git ../clawd-400-src
 | [`src-tauri/src/hooks.rs`](src-tauri/src/hooks.rs) | 安装 / 卸载 Claude Code hook |
 | [`src-tauri/src/autostart.rs`](src-tauri/src/autostart.rs) | 开机自启（`HKCU\…\Run` 下的 `ClawdPet` 项） |
 | [`scripts/gen-triggers.mjs`](scripts/gen-triggers.mjs) | 从 `ui/anims.js` 生成触发一览页面 |
-| [`src-tauri/src/main.rs`](src-tauri/src/main.rs) | 窗口、托盘、鼠标穿透、配置（存于 `%APPDATA%\dev.clawd.pet\config.json`） |
+| [`src-tauri/src/main.rs`](src-tauri/src/main.rs) | 窗口、托盘、鼠标穿透、配置（存于 `%USERPROFILE%\.clawd-pet\config.json`） |
 
 ## 致谢
 
