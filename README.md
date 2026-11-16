@@ -114,6 +114,13 @@ git clone https://github.com/khiqwq/clawd-400.git ../clawd-400-src
 3. 回到本项目 `npm run import-assets`，然后重新运行 `npm run dev`，或者 `npm run build` 重新构建正式版（素材是打包进 exe 的）。
 4. 新做的动画还要在 `ui/anims.js` 里放到合适的位置，再 `npm run triggers`。
 
+桌宠自己的动画（Git 命令、Claude Code 联动、桌面版启动退出等）放在本仓库的 `scenes/<主题>.py`，写法和 Clawd 400 的场景完全一样，slug 不能和它的重复。`import-assets` 会用克隆里的引擎把它们渲染出来（`scripts/render-scenes.py`），和 400 个动画一起导入；用打包版导入时没有引擎，这些动画会缺失。单独预览、检查画风：
+
+```bash
+python ../clawd-400-src/render.py scenes/claude.py --out <输出目录> --sheet   # 每个动画一个 GIF 加一张逐帧拼图
+python ../clawd-400-src/lint.py scenes/claude.py
+```
+
 画风规则（脸上只有两只眼睛、身体只用标准橙色等）见 `../clawd-400-src/skills/clawd-pixel/references/style.md`。也可以让 Claude 来改：在 Claude Code 里装上 Clawd 400 自带的 skill，然后直接描述想要的动作。
 
 ```text
@@ -134,6 +141,7 @@ git clone https://github.com/khiqwq/clawd-400.git ../clawd-400-src
 | [`src-tauri/src/hooks.rs`](src-tauri/src/hooks.rs) | 安装 / 卸载 Claude Code hook |
 | [`src-tauri/src/autostart.rs`](src-tauri/src/autostart.rs) | 开机自启（`HKCU\…\Run` 下的 `ClawdPet` 项） |
 | [`scripts/gen-triggers.mjs`](scripts/gen-triggers.mjs) | 从 `ui/anims.js` 生成触发一览页面 |
+| [`scenes/`](scenes) | 桌宠自己的动画（用 Clawd 400 的引擎渲染），见[修改动画](#修改动画) |
 | [`src-tauri/src/main.rs`](src-tauri/src/main.rs) | 窗口、托盘、鼠标穿透、配置（存于 `%USERPROFILE%\.clawd-pet\config.json`） |
 
 ## 致谢

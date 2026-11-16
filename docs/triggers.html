@@ -63,10 +63,10 @@
   <h1>Clawd Pet 动画触发一览</h1>
   <p>每个动画什么时候播、怎么触发、播多久。动画列表直接取自 <code>ui/anims.js</code>，改完后运行 <code>npm run triggers</code> 重新生成本页。</p>
   <div class="stats">
-    <div class="stat"><b>140</b>个触发时机</div>
-    <div class="stat"><b>398</b>个动画有固定戏份</div>
-    <div class="stat"><b>2</b>个只随机出现</div>
-    <div class="stat"><b>400</b>个动画总数</div>
+    <div class="stat"><b>164</b>个触发时机</div>
+    <div class="stat"><b>420</b>个动画有固定戏份</div>
+    <div class="stat"><b>9</b>个只随机出现</div>
+    <div class="stat"><b>429</b>个动画总数</div>
   </div>
   <div class="legend">
     <div>
@@ -88,17 +88,8 @@
 <section id="claude"><h2>一、Claude Code 联动</h2><p class="intro">Claude Code 每发生一件事就通过 hook 通知桌宠。每个会话各记一个状态；多个会话同时在跑时，显示最紧急的那个：等你确认 &gt; 压缩上下文 &gt; 干活 &gt; 思考。</p><h3>会话开始与结束</h3>
 <div class="row">
   <div class="info">
-    <h4>新开或恢复一个会话</h4>
-    <p><code>SessionStart</code>，来源是 startup 或 resume，且没有别的会话在忙。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.2 秒</span></p>
-    <code>ANIMS.hello</code>
-  </div>
-  <div class="thumbs"><figure title="emo_nihao · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_nihao.gif" alt=""><figcaption>你好呀</figcaption></figure></div>
-</div>
-<div class="row">
-  <div class="info">
     <h4>执行 /clear</h4>
-    <p><code>SessionStart</code>，来源是 clear。</p>
+    <p><code>SessionStart</code>，来源是 clear。新开、恢复、退出会话都不播动画。</p>
     <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5 秒</span></p>
     <code>ANIMS.cleared</code>
   </div>
@@ -106,12 +97,21 @@
 </div>
 <div class="row">
   <div class="info">
-    <h4>会话退出</h4>
-    <p><code>SessionEnd</code>（/clear 引起的除外），且没有别的会话在忙。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.6 秒</span></p>
-    <code>ANIMS.bye</code>
+    <h4>Claude 桌面版启动</h4>
+    <p>桌面版的窗口第一次到前台（桌宠启动时它已经开着的不算）。只是关掉窗口、它还在托盘里的，再打开也不算。30 秒内只反应一次。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.3 秒</span></p>
+    <code>SYS_EVENTS[&quot;claude-open&quot;]</code>
   </div>
-  <div class="thumbs"><figure title="walk_out_door · 2.6s"><img loading="lazy" src="../ui/assets/clawd/walk_out_door.gif" alt=""><figcaption>开门离开</figcaption></figure></div>
+  <div class="thumbs"><figure title="cc_app_open · 4.3s"><img loading="lazy" src="../ui/assets/clawd/cc_app_open.gif" alt=""><figcaption>Claude 启动</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Claude 桌面版退出</h4>
+    <p>桌面版的主进程结束（桌宠等着这个进程，不轮询）。它的会话一并清掉，不用等会话自己超时。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.6 秒</span><span class="say">💬 Claude 下班啦，辛苦～</span></p>
+    <code>SYS_EVENTS[&quot;claude-quit&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="cc_app_close · 4.6s"><img loading="lazy" src="../ui/assets/clawd/cc_app_close.gif" alt=""><figcaption>Claude 退出</figcaption></figure></div>
 </div>
 <h3>思考与干活</h3>
 <div class="row">
@@ -130,7 +130,7 @@
     <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
     <code>ANIMS.tools.edit</code>
   </div>
-  <div class="thumbs"><figure title="desk_typing · 0.9s"><img loading="lazy" src="../ui/assets/clawd/desk_typing.gif" alt=""><figcaption>书桌打字 <b>30%</b></figcaption></figure><figure title="dev_laptop_front · 0.8s"><img loading="lazy" src="../ui/assets/clawd/dev_laptop_front.gif" alt=""><figcaption>笔记本打字 <b>30%</b></figcaption></figure><figure title="dev_matrix · 1.4s"><img loading="lazy" src="../ui/assets/clawd/dev_matrix.gif" alt=""><figcaption>黑客帝国 <b>30%</b></figcaption></figure><figure title="dev_keyboard_smash · 1.0s"><img loading="lazy" src="../ui/assets/clawd/dev_keyboard_smash.gif" alt=""><figcaption>暴躁砸键盘 <b>10%</b></figcaption></figure></div>
+  <div class="thumbs"><figure title="desk_typing · 0.9s"><img loading="lazy" src="../ui/assets/clawd/desk_typing.gif" alt=""><figcaption>书桌打字 <b>25%</b></figcaption></figure><figure title="dev_laptop_front · 0.8s"><img loading="lazy" src="../ui/assets/clawd/dev_laptop_front.gif" alt=""><figcaption>笔记本打字 <b>25%</b></figcaption></figure><figure title="dev_matrix · 1.4s"><img loading="lazy" src="../ui/assets/clawd/dev_matrix.gif" alt=""><figcaption>黑客帝国 <b>25%</b></figcaption></figure><figure title="cc_code_bricks · 4.2s"><img loading="lazy" src="../ui/assets/clawd/cc_code_bricks.gif" alt=""><figcaption>一行行搭代码 <b>25%</b></figcaption></figure></div>
 </div>
 <div class="row">
   <div class="info">
@@ -148,25 +148,52 @@
     <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
     <code>ANIMS.tools.search</code>
   </div>
-  <div class="thumbs"><figure title="dev_bug_hunt · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_bug_hunt.gif" alt=""><figcaption>放大镜找bug</figcaption></figure></div>
+  <div class="thumbs"><figure title="cc_code_search · 2.9s"><img loading="lazy" src="../ui/assets/clawd/cc_code_search.gif" alt=""><figcaption>翻代码找匹配</figcaption></figure></div>
 </div>
 <div class="row">
   <div class="info">
     <h4>用工具：上网查资料</h4>
-    <p><code>PreToolUse</code>，工具是 WebFetch / WebSearch。连续用同一类工具不换动画。</p>
+    <p><code>PreToolUse</code>，工具是 WebFetch / WebSearch，或名字里带 exa / tavily / web_search / web_fetch / firecrawl 的 MCP 工具（搜索和读网页算同一类，两种动画随机）。连续用同一类工具不换动画。</p>
     <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
     <code>ANIMS.tools.web</code>
   </div>
-  <div class="thumbs"><figure title="dev_wifi_search · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_wifi_search.gif" alt=""><figcaption>找信号</figcaption></figure></div>
+  <div class="thumbs"><figure title="cc_web_search · 4.5s"><img loading="lazy" src="../ui/assets/clawd/cc_web_search.gif" alt=""><figcaption>网页搜索</figcaption></figure><figure title="cc_web_read · 4.4s"><img loading="lazy" src="../ui/assets/clawd/cc_web_read.gif" alt=""><figcaption>读网页</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>用工具：用浏览器</h4>
+    <p><code>PreToolUse</code>，Claude 桌面版内置浏览器的工具（<code>mcp__Claude_Browser__</code>）。连续用同一类工具不换动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.tools.browser</code>
+  </div>
+  <div class="thumbs"><figure title="cc_browser_pane · 4.3s"><img loading="lazy" src="../ui/assets/clawd/cc_browser_pane.gif" alt=""><figcaption>内置浏览器操作</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>用工具：操作浏览器</h4>
+    <p><code>PreToolUse</code>，Claude in Chrome、Playwright、Chrome DevTools、Puppeteer 的 MCP 工具，或命令是 <code>ego-browser</code>。连续用同一类工具不换动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.tools.remoteBrowser</code>
+  </div>
+  <div class="thumbs"><figure title="cc_browser_remote · 4.2s"><img loading="lazy" src="../ui/assets/clawd/cc_browser_remote.gif" alt=""><figcaption>遥控外部浏览器</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>用工具：操控电脑</h4>
+    <p><code>PreToolUse</code>，操控电脑的工具（<code>mcp__computer-use__</code>）。连续用同一类工具不换动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.tools.computer</code>
+  </div>
+  <div class="thumbs"><figure title="cc_computer_use · 3.9s"><img loading="lazy" src="../ui/assets/clawd/cc_computer_use.gif" alt=""><figcaption>操控电脑</figcaption></figure></div>
 </div>
 <div class="row">
   <div class="info">
     <h4>用工具：派出小分队</h4>
-    <p><code>PreToolUse</code>，工具是 Task / Agent（派出子代理）。连续用同一类工具不换动画。</p>
+    <p><code>PreToolUse</code>，工具是 Task / Agent（派出子代理）。开始时先播一遍下面的「派出子代理」。连续用同一类工具不换动画。</p>
     <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
     <code>ANIMS.tools.agent</code>
   </div>
-  <div class="thumbs"><figure title="dev_pair_program · 2.2s"><img loading="lazy" src="../ui/assets/clawd/dev_pair_program.gif" alt=""><figcaption>结对编程</figcaption></figure></div>
+  <div class="thumbs"><figure title="cc_agent_wait · 3.1s"><img loading="lazy" src="../ui/assets/clawd/cc_agent_wait.gif" alt=""><figcaption>盯着子代理干活</figcaption></figure></div>
 </div>
 <div class="row">
   <div class="info">
@@ -180,16 +207,16 @@
 <div class="row">
   <div class="info">
     <h4>用工具：调用 MCP</h4>
-    <p><code>PreToolUse</code>，工具名以 <code>mcp__</code> 开头。连续用同一类工具不换动画。</p>
+    <p><code>PreToolUse</code>，其他工具名以 <code>mcp__</code> 开头的工具。连续用同一类工具不换动画。</p>
     <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
     <code>ANIMS.tools.mcp</code>
   </div>
-  <div class="thumbs"><figure title="dev_cable_plug · 3.2s"><img loading="lazy" src="../ui/assets/clawd/dev_cable_plug.gif" alt=""><figcaption>插网线</figcaption></figure></div>
+  <div class="thumbs"><figure title="cc_mcp_cart · 4.2s"><img loading="lazy" src="../ui/assets/clawd/cc_mcp_cart.gif" alt=""><figcaption>MCP：插卡带</figcaption></figure></div>
 </div>
 <div class="row">
   <div class="info">
     <h4>用工具：摆弄 Git</h4>
-    <p><code>PreToolUse</code>，Bash / PowerShell 命令里出现 <code>git </code>。连续用同一类工具不换动画。</p>
+    <p><code>PreToolUse</code>，Bash / PowerShell 命令里出现 <code>git </code>，但不是下面「Git 命令」里那些（status、log、diff 等）。连续用同一类工具不换动画。</p>
     <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
     <code>ANIMS.tools.git</code>
   </div>
@@ -198,11 +225,11 @@
 <div class="row">
   <div class="info">
     <h4>用工具：跑测试</h4>
-    <p><code>PreToolUse</code>，命令里出现 test / jest / vitest / pytest / mocha。连续用同一类工具不换动画。</p>
+    <p><code>PreToolUse</code>，命令里出现 test / jest / vitest / pytest / mocha。结果出来之前不预设成败，跑完看下面两行。连续用同一类工具不换动画。</p>
     <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
     <code>ANIMS.tools.test</code>
   </div>
-  <div class="thumbs"><figure title="dev_test_suite · 3.3s"><img loading="lazy" src="../ui/assets/clawd/dev_test_suite.gif" alt=""><figcaption>测试全绿</figcaption></figure></div>
+  <div class="thumbs"><figure title="cc_test_run · 2.2s"><img loading="lazy" src="../ui/assets/clawd/cc_test_run.gif" alt=""><figcaption>跑测试中</figcaption></figure></div>
 </div>
 <div class="row">
   <div class="info">
@@ -242,12 +269,156 @@
 </div>
 <div class="row">
   <div class="info">
+    <h4>Git 命令：init</h4>
+    <p>Claude 执行的命令里有 <code>git init</code>。一条命令里有好几个 git 命令时看最后一个，比如 <code>git add -A &amp;&amp; git commit</code> 算提交。每条 git 命令都重新选动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>GIT_ANIMS[&quot;init&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_init · 3.5s"><img loading="lazy" src="../ui/assets/clawd/git_init.gif" alt=""><figcaption>git init：插旗开新仓库</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git 命令：clone</h4>
+    <p>Claude 执行的命令里有 <code>git clone</code>。一条命令里有好几个 git 命令时看最后一个，比如 <code>git add -A &amp;&amp; git commit</code> 算提交。每条 git 命令都重新选动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>GIT_ANIMS[&quot;clone&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_clone · 3.3s"><img loading="lazy" src="../ui/assets/clawd/git_clone.gif" alt=""><figcaption>git clone：把远程仓库复印下来</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git 命令：add</h4>
+    <p>Claude 执行的命令里有 <code>git add</code>。一条命令里有好几个 git 命令时看最后一个，比如 <code>git add -A &amp;&amp; git commit</code> 算提交。每条 git 命令都重新选动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>GIT_ANIMS[&quot;add&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_add · 3.3s"><img loading="lazy" src="../ui/assets/clawd/git_add.gif" alt=""><figcaption>git add：文件一张张装进箱</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git 命令：commit</h4>
+    <p>Claude 执行的命令里有 <code>git commit</code>。一条命令里有好几个 git 命令时看最后一个，比如 <code>git add -A &amp;&amp; git commit</code> 算提交。每条 git 命令都重新选动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>GIT_ANIMS[&quot;commit&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_commit · 4.2s"><img loading="lazy" src="../ui/assets/clawd/git_commit.gif" alt=""><figcaption>git commit：封箱盖章入历史</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git 命令：push</h4>
+    <p>Claude 执行的命令里有 <code>git push</code>。一条命令里有好几个 git 命令时看最后一个，比如 <code>git add -A &amp;&amp; git commit</code> 算提交。每条 git 命令都重新选动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>GIT_ANIMS[&quot;push&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_push · 3.5s"><img loading="lazy" src="../ui/assets/clawd/git_push.gif" alt=""><figcaption>git push：抛上云端</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git 命令：pull / fetch</h4>
+    <p>Claude 执行的命令里有 <code>git pull</code> 等。一条命令里有好几个 git 命令时看最后一个，比如 <code>git add -A &amp;&amp; git commit</code> 算提交。每条 git 命令都重新选动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>GIT_ANIMS[&quot;pull&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_pull · 3.5s"><img loading="lazy" src="../ui/assets/clawd/git_pull.gif" alt=""><figcaption>git pull：拽绳子拉下来</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git 命令：branch</h4>
+    <p>Claude 执行的命令里有 <code>git branch</code>（git branch 只在新建分支时算；checkout -b、switch -c 也算新建分支）。一条命令里有好几个 git 命令时看最后一个，比如 <code>git add -A &amp;&amp; git commit</code> 算提交。每条 git 命令都重新选动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>GIT_ANIMS[&quot;branch&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_branch · 2.9s"><img loading="lazy" src="../ui/assets/clawd/git_branch.gif" alt=""><figcaption>git branch：长出一根新分支</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git 命令：switch / checkout</h4>
+    <p>Claude 执行的命令里有 <code>git switch</code> 等。一条命令里有好几个 git 命令时看最后一个，比如 <code>git add -A &amp;&amp; git commit</code> 算提交。每条 git 命令都重新选动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>GIT_ANIMS[&quot;switch&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_switch · 3.8s"><img loading="lazy" src="../ui/assets/clawd/git_switch.gif" alt=""><figcaption>git switch：跳到另一条分支</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git 命令：merge</h4>
+    <p>Claude 执行的命令里有 <code>git merge</code>。一条命令里有好几个 git 命令时看最后一个，比如 <code>git add -A &amp;&amp; git commit</code> 算提交。每条 git 命令都重新选动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>GIT_ANIMS[&quot;merge&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_merge · 3.4s"><img loading="lazy" src="../ui/assets/clawd/git_merge.gif" alt=""><figcaption>git merge：拉拉链合二为一</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git 命令：rebase</h4>
+    <p>Claude 执行的命令里有 <code>git rebase</code>。一条命令里有好几个 git 命令时看最后一个，比如 <code>git add -A &amp;&amp; git commit</code> 算提交。每条 git 命令都重新选动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>GIT_ANIMS[&quot;rebase&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_rebase · 3.5s"><img loading="lazy" src="../ui/assets/clawd/git_rebase.gif" alt=""><figcaption>git rebase：把提交搬到最新处</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git 命令：stash</h4>
+    <p>Claude 执行的命令里有 <code>git stash</code>。一条命令里有好几个 git 命令时看最后一个，比如 <code>git add -A &amp;&amp; git commit</code> 算提交。每条 git 命令都重新选动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>GIT_ANIMS[&quot;stash&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_stash · 4.0s"><img loading="lazy" src="../ui/assets/clawd/git_stash.gif" alt=""><figcaption>git stash：先藏抽屉再拿回</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git 命令：reset / restore / revert</h4>
+    <p>Claude 执行的命令里有 <code>git reset</code> 等。一条命令里有好几个 git 命令时看最后一个，比如 <code>git add -A &amp;&amp; git commit</code> 算提交。每条 git 命令都重新选动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>GIT_ANIMS[&quot;reset&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_reset · 3.7s"><img loading="lazy" src="../ui/assets/clawd/git_reset.gif" alt=""><figcaption>git reset：倒带回到旧提交</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git 命令：cherry-pick</h4>
+    <p>Claude 执行的命令里有 <code>git cherry-pick</code>。一条命令里有好几个 git 命令时看最后一个，比如 <code>git add -A &amp;&amp; git commit</code> 算提交。每条 git 命令都重新选动画。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>GIT_ANIMS[&quot;cherry-pick&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_cherry_pick · 4.3s"><img loading="lazy" src="../ui/assets/clawd/git_cherry_pick.gif" alt=""><figcaption>git cherry-pick：摘一颗挂到别处</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>派出子代理</h4>
+    <p>Task / Agent 的 <code>PreToolUse</code>，然后接着播上面「派出小分队」的动画。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">4.2 秒</span></p>
+    <code>ANIMS.agentSent</code>
+  </div>
+  <div class="thumbs"><figure title="cc_agent_dispatch · 4.2s"><img loading="lazy" src="../ui/assets/clawd/cc_agent_dispatch.gif" alt=""><figcaption>派出子代理</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>测试通过</h4>
+    <p>「跑测试」那条命令的 <code>PostToolUse</code>。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">3.3 秒</span></p>
+    <code>ANIMS.testPassed</code>
+  </div>
+  <div class="thumbs"><figure title="dev_test_suite · 3.3s"><img loading="lazy" src="../ui/assets/clawd/dev_test_suite.gif" alt=""><figcaption>测试全绿</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>测试没过</h4>
+    <p>「跑测试」那条命令的 <code>PostToolUseFailure</code>（命令退出码不为 0）。同一轮第 3 次失败时换成下面的「同一轮里第 3 次失败」。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">3.7 秒</span></p>
+    <code>ANIMS.testFailed</code>
+  </div>
+  <div class="thumbs"><figure title="cc_test_fail · 3.7s"><img loading="lazy" src="../ui/assets/clawd/cc_test_fail.gif" alt=""><figcaption>测试挂了</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
     <h4>有子代理在跑</h4>
     <p><code>SubagentStart</code> 到 <code>SubagentStop</code> 之间，盖过上面的工具动画。标签显示「小分队 ×N」。</p>
     <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
     <code>ANIMS.subagents</code>
   </div>
-  <div class="thumbs"><figure title="dev_pair_program · 2.2s"><img loading="lazy" src="../ui/assets/clawd/dev_pair_program.gif" alt=""><figcaption>结对编程</figcaption></figure></div>
+  <div class="thumbs"><figure title="cc_agent_wait · 3.1s"><img loading="lazy" src="../ui/assets/clawd/cc_agent_wait.gif" alt=""><figcaption>盯着子代理干活</figcaption></figure></div>
 </div>
 <div class="row">
   <div class="info">
@@ -256,7 +427,7 @@
     <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
     <code>ANIMS.compacting</code>
   </div>
-  <div class="thumbs"><figure title="dev_zip · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_zip.gif" alt=""><figcaption>压缩打包</figcaption></figure></div>
+  <div class="thumbs"><figure title="cc_compact_scroll · 4.6s"><img loading="lazy" src="../ui/assets/clawd/cc_compact_scroll.gif" alt=""><figcaption>卷起长卷轴</figcaption></figure></div>
 </div>
 <div class="row">
   <div class="info">
@@ -382,10 +553,10 @@
   <div class="info">
     <h4>Claude 答完了</h4>
     <p><code>Stop</code>，耗时不到 5 分钟。气泡总会弹；动画只在没有别的会话在忙时播。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.8–3.8 秒</span><span class="say">💬 项目名 搞定啦～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.8–4 秒</span><span class="say">💬 项目名 搞定啦～</span></p>
     <code>ANIMS.done</code>
   </div>
-  <div class="thumbs"><figure title="dev_ship_it · 2.8s"><img loading="lazy" src="../ui/assets/clawd/dev_ship_it.gif" alt=""><figcaption>打包发货</figcaption></figure><figure title="emo_victory_dance · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_victory_dance.gif" alt=""><figcaption>胜利之舞</figcaption></figure><figure title="dev_lgtm · 1.9s"><img loading="lazy" src="../ui/assets/clawd/dev_lgtm.gif" alt=""><figcaption>盖章通过</figcaption></figure><figure title="emo_thumbs_up · 1.6s"><img loading="lazy" src="../ui/assets/clawd/emo_thumbs_up.gif" alt=""><figcaption>点个赞</figcaption></figure><figure title="dev_pr_merged · 3.1s"><img loading="lazy" src="../ui/assets/clawd/dev_pr_merged.gif" alt=""><figcaption>顶开合并</figcaption></figure></div>
+  <div class="thumbs"><figure title="dev_ship_it · 2.8s"><img loading="lazy" src="../ui/assets/clawd/dev_ship_it.gif" alt=""><figcaption>打包发货</figcaption></figure><figure title="emo_victory_dance · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_victory_dance.gif" alt=""><figcaption>胜利之舞</figcaption></figure><figure title="dev_lgtm · 1.9s"><img loading="lazy" src="../ui/assets/clawd/dev_lgtm.gif" alt=""><figcaption>盖章通过</figcaption></figure><figure title="emo_thumbs_up · 1.6s"><img loading="lazy" src="../ui/assets/clawd/emo_thumbs_up.gif" alt=""><figcaption>点个赞</figcaption></figure><figure title="cc_task_tower · 4.0s"><img loading="lazy" src="../ui/assets/clawd/cc_task_tower.gif" alt=""><figcaption>收工：塔顶放星星</figcaption></figure></div>
 </div>
 <div class="row">
   <div class="info">
@@ -601,7 +772,7 @@
   </div>
   <div class="scenes"><div class="scene"><figure title="sport_roller_skates · 2.1s"><img loading="lazy" src="../ui/assets/clawd/sport_roller_skates.gif" alt=""><figcaption>溜冰鞋摇晃</figcaption></figure><span class="arrow">→</span><figure title="sport_banana_slip · 3.6s"><img loading="lazy" src="../ui/assets/clawd/sport_banana_slip.gif" alt=""><figcaption>踩香蕉皮滑倒 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="emo_dizzy · 1.3s"><img loading="lazy" src="../ui/assets/clawd/emo_dizzy.gif" alt=""><figcaption>晕头转向 <b>×3</b></figcaption></figure></div><div class="scene"><figure title="sport_parkour · 2.0s"><img loading="lazy" src="../ui/assets/clawd/sport_parkour.gif" alt=""><figcaption>跑酷翻越</figcaption></figure><span class="arrow">→</span><figure title="sport_wall_bonk · 3.7s"><img loading="lazy" src="../ui/assets/clawd/sport_wall_bonk.gif" alt=""><figcaption>撞墙眼冒金星 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="emo_dizzy · 1.3s"><img loading="lazy" src="../ui/assets/clawd/emo_dizzy.gif" alt=""><figcaption>晕头转向 <b>×3</b></figcaption></figure></div><div class="scene"><figure title="dev_task_topple · 3.2s"><img loading="lazy" src="../ui/assets/clawd/dev_task_topple.gif" alt=""><figcaption>任务堆倒塌 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="emo_awkward · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_awkward.gif" alt=""><figcaption>尴尬沉默 <b>×2</b></figcaption></figure></div><div class="scene"><figure title="sea_windy · 1.1s"><img loading="lazy" src="../ui/assets/clawd/sea_windy.gif" alt=""><figcaption>被大风吹</figcaption></figure><span class="arrow">→</span><figure title="sea_tornado · 1.3s"><img loading="lazy" src="../ui/assets/clawd/sea_tornado.gif" alt=""><figcaption>龙卷风 <b>×4</b></figcaption></figure><span class="arrow">→</span><figure title="emo_dizzy · 1.3s"><img loading="lazy" src="../ui/assets/clawd/emo_dizzy.gif" alt=""><figcaption>晕头转向 <b>×3</b></figcaption></figure></div><div class="scene"><figure title="life_lemon_sour · 1.7s"><img loading="lazy" src="../ui/assets/clawd/life_lemon_sour.gif" alt=""><figcaption>酸柠檬 <b>×2</b></figcaption></figure><span class="arrow">→</span><figure title="emo_cringe · 1.7s"><img loading="lazy" src="../ui/assets/clawd/emo_cringe.gif" alt=""><figcaption>嫌弃 <b>×2</b></figcaption></figure></div><div class="scene"><figure title="emo_nervous_sweat · 1.8s"><img loading="lazy" src="../ui/assets/clawd/emo_nervous_sweat.gif" alt=""><figcaption>紧张冒汗</figcaption></figure><span class="arrow">→</span><figure title="emo_panic_circles · 1.1s"><img loading="lazy" src="../ui/assets/clawd/emo_panic_circles.gif" alt=""><figcaption>慌得团团转</figcaption></figure><span class="arrow">→</span><figure title="emo_relieved · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_relieved.gif" alt=""><figcaption>松了口气 <b>×2</b></figcaption></figure></div><div class="scene"><figure title="dev_404 · 3.5s"><img loading="lazy" src="../ui/assets/clawd/dev_404.gif" alt=""><figcaption>找不到页面 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="emo_confused · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_confused.gif" alt=""><figcaption>一脸问号 <b>×2</b></figcaption></figure></div><div class="scene"><figure title="emo_sneeze · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_sneeze.gif" alt=""><figcaption>打喷嚏 <b>×2</b></figcaption></figure><span class="arrow">→</span><figure title="emo_embarrassed · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_embarrassed.gif" alt=""><figcaption>羞到冒烟 <b>×2</b></figcaption></figure></div></div>
 </div>
-<div class="note">随机惊喜：从全部 400 个动画里随便抽一个演 20–30 秒，只排除会被误认成真实状态的 7 个（盖被子睡觉、看书打瞌睡、蓝屏了、可怜巴巴、不耐烦、开门离开、思考中）。双击和菜单里的「随机来一段」用的也是这个范围。</div>
+<div class="note">随机惊喜：从全部 429 个动画里随便抽一个演 20–30 秒，只排除会被误认成真实状态的 7 个（盖被子睡觉、看书打瞌睡、蓝屏了、可怜巴巴、不耐烦、开门离开、思考中）。双击和菜单里的「随机来一段」用的也是这个范围。</div>
 <h3>当季</h3>
 <div class="row">
   <div class="info">
@@ -894,15 +1065,6 @@
     <code>NUDGES[2]</code>
   </div>
   <div class="thumbs"><figure title="cook_veggies · 1.6s"><img loading="lazy" src="../ui/assets/clawd/cook_veggies.gif" alt=""><figcaption>颠锅炒青菜</figcaption></figure><figure title="life_sushi_belt · 2.4s"><img loading="lazy" src="../ui/assets/clawd/life_sushi_belt.gif" alt=""><figcaption>回转寿司</figcaption></figure></div>
-</div>
-<div class="row">
-  <div class="info">
-    <h4>你又碰了电脑</h4>
-    <p>键鼠一阵没动静（默认 5 分钟）之后又有了输入。之后它会开心 2 分钟。超过 30 分钟没理它才说话；期间有任务完成的话，会打断当前动画来提醒你。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.2–4.4 秒</span><span class="say">💬 好久没理我啦，想你了～ / 项目名 已经搞定啦，快去看看～</span></p>
-    <code>ANIMS.welcomeBack</code>
-  </div>
-  <div class="thumbs"><figure title="emo_nihao · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_nihao.gif" alt=""><figcaption>你好呀</figcaption></figure><figure title="emo_happy_skip · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_happy_skip.gif" alt=""><figcaption>蹦蹦跳跳</figcaption></figure><figure title="emo_high_five · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_high_five.gif" alt=""><figcaption>击掌庆祝</figcaption></figure></div>
 </div></section>
 <section id="holidays"><h2>三、节日</h2><p class="intro">当天第一次空闲时（或启动时）庆祝一次并说祝福语，之后一整天抽场景时多一份很重的「节日」权重，每个节日动画单独成一个场景。农历节日按内置的 2026–2030 年日期表，下面列的是 2026 年的日期。可在设置的「系统联动 → 节日」里关闭。</p><div class="row">
   <div class="info">
@@ -1240,39 +1402,57 @@
 </div>
 <div class="row">
   <div class="info">
-    <h4>Git：提交</h4>
-    <p>任何仓库里成功执行 commit / cherry-pick / revert / tag。git 自己把命令名告诉桌宠，不用添加仓库。开关：Git 操作（默认关闭）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.6 秒</span></p>
-    <code>SYS_EVENTS[&quot;git-commit&quot;]</code>
+    <h4>Git：新建仓库</h4>
+    <p>任何仓库里成功执行 init。git 自己把命令名告诉桌宠，不用添加仓库。开关：Git 操作（默认关闭）。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5 秒</span><span class="say">💬 新仓库，开张啦～</span></p>
+    <code>SYS_EVENTS[&quot;git-init&quot;]</code>
   </div>
-  <div class="thumbs"><figure title="dev_git_graph · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_git_graph.gif" alt=""><figcaption>提交图</figcaption></figure><figure title="dev_contrib_graph · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_contrib_graph.gif" alt=""><figcaption>提交格子变绿</figcaption></figure></div>
+  <div class="thumbs"><figure title="git_init · 3.5s"><img loading="lazy" src="../ui/assets/clawd/git_init.gif" alt=""><figcaption>git init：插旗开新仓库</figcaption></figure></div>
 </div>
 <div class="row">
   <div class="info">
-    <h4>Git：合并</h4>
-    <p>成功执行 merge / pull / rebase。开关：Git 操作（默认关闭）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.9–3.1 秒</span></p>
-    <code>SYS_EVENTS[&quot;git-merge&quot;]</code>
+    <h4>Git：克隆</h4>
+    <p>成功执行 clone。开关：Git 操作（默认关闭）。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.3 秒</span></p>
+    <code>SYS_EVENTS[&quot;git-clone&quot;]</code>
   </div>
-  <div class="thumbs"><figure title="dev_git_merge · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_git_merge.gif" alt=""><figcaption>分支合并</figcaption></figure><figure title="dev_pr_merged · 3.1s"><img loading="lazy" src="../ui/assets/clawd/dev_pr_merged.gif" alt=""><figcaption>顶开合并</figcaption></figure></div>
+  <div class="thumbs"><figure title="git_clone · 3.3s"><img loading="lazy" src="../ui/assets/clawd/git_clone.gif" alt=""><figcaption>git clone：把远程仓库复印下来</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git：暂存</h4>
+    <p>成功执行 add（编辑器里点暂存也算）。开关：Git 操作（默认关闭）；1 分钟内只反应一次。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.3 秒</span></p>
+    <code>SYS_EVENTS[&quot;git-add&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_add · 3.3s"><img loading="lazy" src="../ui/assets/clawd/git_add.gif" alt=""><figcaption>git add：文件一张张装进箱</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git：提交</h4>
+    <p>成功执行 commit / tag。开关：Git 操作（默认关闭）。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.2 秒</span></p>
+    <code>SYS_EVENTS[&quot;git-commit&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_commit · 4.2s"><img loading="lazy" src="../ui/assets/clawd/git_commit.gif" alt=""><figcaption>git commit：封箱盖章入历史</figcaption></figure></div>
 </div>
 <div class="row">
   <div class="info">
     <h4>Git：推送</h4>
     <p>成功执行 push。开关：Git 操作（默认关闭）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.4 秒</span><span class="say">💬 推上去啦～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5 秒</span><span class="say">💬 推上去啦～</span></p>
     <code>SYS_EVENTS[&quot;git-push&quot;]</code>
   </div>
-  <div class="thumbs"><figure title="dev_cloud_upload · 2.2s"><img loading="lazy" src="../ui/assets/clawd/dev_cloud_upload.gif" alt=""><figcaption>上传到云</figcaption></figure></div>
+  <div class="thumbs"><figure title="git_push · 3.5s"><img loading="lazy" src="../ui/assets/clawd/git_push.gif" alt=""><figcaption>git push：抛上云端</figcaption></figure></div>
 </div>
 <div class="row">
   <div class="info">
-    <h4>Git：新仓库</h4>
-    <p>成功执行 clone / init。开关：Git 操作（默认关闭）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.6–2.9 秒</span></p>
-    <code>SYS_EVENTS[&quot;git-clone&quot;]</code>
+    <h4>Git：拉取</h4>
+    <p>成功执行 pull。开关：Git 操作（默认关闭）。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5 秒</span></p>
+    <code>SYS_EVENTS[&quot;git-pull&quot;]</code>
   </div>
-  <div class="thumbs"><figure title="dev_hello_world · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_hello_world.gif" alt=""><figcaption>你好世界</figcaption></figure><figure title="cos_mail_delivery · 2.6s"><img loading="lazy" src="../ui/assets/clawd/cos_mail_delivery.gif" alt=""><figcaption>邮递员送信</figcaption></figure></div>
+  <div class="thumbs"><figure title="git_pull · 3.5s"><img loading="lazy" src="../ui/assets/clawd/git_pull.gif" alt=""><figcaption>git pull：拽绳子拉下来</figcaption></figure></div>
 </div>
 <div class="row">
   <div class="info">
@@ -1281,16 +1461,52 @@
     <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.8 秒</span></p>
     <code>SYS_EVENTS[&quot;git-switch&quot;]</code>
   </div>
-  <div class="thumbs"><figure title="cos_time_travel · 1.9s"><img loading="lazy" src="../ui/assets/clawd/cos_time_travel.gif" alt=""><figcaption>时间旅行者</figcaption></figure></div>
+  <div class="thumbs"><figure title="git_switch · 3.8s"><img loading="lazy" src="../ui/assets/clawd/git_switch.gif" alt=""><figcaption>git switch：跳到另一条分支</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git：合并</h4>
+    <p>成功执行 merge。开关：Git 操作（默认关闭）。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.4 秒</span></p>
+    <code>SYS_EVENTS[&quot;git-merge&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_merge · 3.4s"><img loading="lazy" src="../ui/assets/clawd/git_merge.gif" alt=""><figcaption>git merge：拉拉链合二为一</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git：变基</h4>
+    <p>成功执行 rebase。开关：Git 操作（默认关闭）。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5 秒</span></p>
+    <code>SYS_EVENTS[&quot;git-rebase&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_rebase · 3.5s"><img loading="lazy" src="../ui/assets/clawd/git_rebase.gif" alt=""><figcaption>git rebase：把提交搬到最新处</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git：藏起改动</h4>
+    <p>成功执行 stash。开关：Git 操作（默认关闭）。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4 秒</span></p>
+    <code>SYS_EVENTS[&quot;git-stash&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_stash · 4.0s"><img loading="lazy" src="../ui/assets/clawd/git_stash.gif" alt=""><figcaption>git stash：先藏抽屉再拿回</figcaption></figure></div>
 </div>
 <div class="row">
   <div class="info">
     <h4>Git：撤销</h4>
-    <p>成功执行 reset / restore / stash。开关：Git 操作（默认关闭）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.3 秒</span></p>
-    <code>SYS_EVENTS[&quot;git-undo&quot;]</code>
+    <p>成功执行 reset / restore / revert。开关：Git 操作（默认关闭）。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.7 秒</span></p>
+    <code>SYS_EVENTS[&quot;git-reset&quot;]</code>
   </div>
-  <div class="thumbs"><figure title="dev_ctrl_z · 3.3s"><img loading="lazy" src="../ui/assets/clawd/dev_ctrl_z.gif" alt=""><figcaption>撤销撤销</figcaption></figure></div>
+  <div class="thumbs"><figure title="git_reset · 3.7s"><img loading="lazy" src="../ui/assets/clawd/git_reset.gif" alt=""><figcaption>git reset：倒带回到旧提交</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>Git：摘提交</h4>
+    <p>成功执行 cherry-pick。开关：Git 操作（默认关闭）。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.3 秒</span></p>
+    <code>SYS_EVENTS[&quot;git-cherry-pick&quot;]</code>
+  </div>
+  <div class="thumbs"><figure title="git_cherry_pick · 4.3s"><img loading="lazy" src="../ui/assets/clawd/git_cherry_pick.gif" alt=""><figcaption>git cherry-pick：摘一颗挂到别处</figcaption></figure></div>
 </div>
 <h3>前台应用（默认关闭）</h3>
 <div class="row">
@@ -1374,7 +1590,7 @@
   </div>
   <div class="thumbs"><figure title="dev_inbox_zero · 3.3s"><img loading="lazy" src="../ui/assets/clawd/dev_inbox_zero.gif" alt=""><figcaption>清空收件箱</figcaption></figure><figure title="life_post_letter · 3.0s"><img loading="lazy" src="../ui/assets/clawd/life_post_letter.gif" alt=""><figcaption>寄信</figcaption></figure></div>
 </div></section>
-<section id="unused"><h2>六、还没安排戏份的动画</h2><p class="intro">这 2 个动画没有固定的触发时机，只会在「随机惊喜」和双击时出现（嚎啕大哭、心碎这类太伤心的是特意留着的）。想给哪个安排角色，告诉我它的名字和想要的触发时机就行。</p><h3>情绪 · 2 个</h3><div class="thumbs loose"><figure title="emo_sob_fountain · 0.7s"><img loading="lazy" src="../ui/assets/clawd/emo_sob_fountain.gif" alt=""><figcaption>嚎啕大哭</figcaption></figure><figure title="emo_heartbreak · 2.1s"><img loading="lazy" src="../ui/assets/clawd/emo_heartbreak.gif" alt=""><figcaption>心碎了</figcaption></figure></div></section>
+<section id="unused"><h2>六、还没安排戏份的动画</h2><p class="intro">这 9 个动画没有固定的触发时机，只会在「随机惊喜」和双击时出现（嚎啕大哭、心碎这类太伤心的是特意留着的）。想给哪个安排角色，告诉我它的名字和想要的触发时机就行。</p><h3>视频重现 · 1 个</h3><div class="thumbs loose"><figure title="walk_out_door · 2.6s"><img loading="lazy" src="../ui/assets/clawd/walk_out_door.gif" alt=""><figcaption>开门离开</figcaption></figure></div><h3>情绪 · 3 个</h3><div class="thumbs loose"><figure title="emo_high_five · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_high_five.gif" alt=""><figcaption>击掌庆祝</figcaption></figure><figure title="emo_sob_fountain · 0.7s"><img loading="lazy" src="../ui/assets/clawd/emo_sob_fountain.gif" alt=""><figcaption>嚎啕大哭</figcaption></figure><figure title="emo_heartbreak · 2.1s"><img loading="lazy" src="../ui/assets/clawd/emo_heartbreak.gif" alt=""><figcaption>心碎了</figcaption></figure></div><h3>编程 · 5 个</h3><div class="thumbs loose"><figure title="dev_bug_hunt · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_bug_hunt.gif" alt=""><figcaption>放大镜找bug</figcaption></figure><figure title="dev_git_merge · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_git_merge.gif" alt=""><figcaption>分支合并</figcaption></figure><figure title="dev_keyboard_smash · 1.0s"><img loading="lazy" src="../ui/assets/clawd/dev_keyboard_smash.gif" alt=""><figcaption>暴躁砸键盘</figcaption></figure><figure title="dev_pair_program · 2.2s"><img loading="lazy" src="../ui/assets/clawd/dev_pair_program.gif" alt=""><figcaption>结对编程</figcaption></figure><figure title="dev_pr_merged · 3.1s"><img loading="lazy" src="../ui/assets/clawd/dev_pr_merged.gif" alt=""><figcaption>顶开合并</figcaption></figure></div></section>
 </main>
 </body>
 </html>

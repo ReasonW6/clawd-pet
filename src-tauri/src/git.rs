@@ -118,12 +118,18 @@ pub fn read(path: &Path) -> Option<&'static str> {
         return None;
     }
     Some(match command?.as_str() {
-        "commit" | "cherry-pick" | "revert" | "tag" => "git-commit",
-        "merge" | "pull" | "rebase" => "git-merge",
+        "init" => "git-init",
+        "clone" => "git-clone",
+        "add" => "git-add",
+        "commit" | "tag" => "git-commit",
         "push" => "git-push",
-        "clone" | "init" => "git-clone",
+        "pull" => "git-pull",
         "checkout" | "switch" => "git-switch",
-        "reset" | "restore" | "stash" => "git-undo",
+        "merge" => "git-merge",
+        "rebase" => "git-rebase",
+        "stash" => "git-stash",
+        "reset" | "restore" | "revert" => "git-reset",
+        "cherry-pick" => "git-cherry-pick",
         // status, fetch, log, diff...: mostly editors and prompts asking in the background.
         _ => return None,
     })

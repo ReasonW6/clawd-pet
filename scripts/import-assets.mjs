@@ -5,11 +5,15 @@
 // The source is either a clone of the clawd-400 repository (../clawd-400-src, whose
 // generate.py renders gifs/ and manifest.json from the scene code) or the pack
 // downloaded from its site (../clawd-400). The two write their manifests differently.
+// With a clone, the pet's own scenes (scenes/*.py) are rendered with its engine and
+// imported as well.
 //
 // The GIFs are 40x40 pixel art blown up to 480x480. They are stored at the size they
 // were drawn in and the page scales them back up (`image-rendering: pixelated`),
 // which leaves 144 times fewer pixels to decode and draw per frame.
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,11 +23,24 @@ const src = path.resolve(
 );
 const out = path.join(root, "ui", "assets", "clawd");
 
-const manifest = JSON.parse(fs.readFileSync(path.join(src, "manifest.json"), "utf8"));
+// The pet's own animations (scenes/*.py) are drawn with the clone's engine.
+const sources = [src];
+if (fs.existsSync(path.join(src, "engine.py"))) {
+  const own = path.join(os.tmpdir(), "clawd-pet-scenes");
+  const run = spawnSync("python", [path.join(root, "scripts", "render-scenes.py"), src, own], { stdio: "inherit" });
+  if (run.status !== 0) process.exit(run.status ?? 1);
+  sources.push(own);
+} else {
+  console.warn(`${src} is not a clone of clawd-400, so the pet's own animations in scenes/ are left out`);
+}
+const manifest = sources.flatMap((dir) => JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8")).map((m) => ({ ...m, dir })));
+const dups = manifest.map((m) => m.slug).filter((s, i, all) => all.indexOf(s) !== i);
+if (dups.length) throw new Error(`duplicate slugs: ${dups.join(", ")}`);
 fs.mkdirSync(out, { recursive: true });
 
-/** Theme names, as in clawd-400's site/build.py; the repository's manifest has only the id. */
-const THEME_ZH = { video: "视频重现", summer: "夏日篇", emotions: "情绪", life: "日常", dev: "编程", sports: "运动", costumes: "角色扮演", seasons: "节日季节" };
+/** Theme names, as in clawd-400's site/build.py (the repository's manifest has only the
+ *  id), and for the pet's own scenes. */
+const THEME_ZH = { video: "视频重现", summer: "夏日篇", emotions: "情绪", life: "日常", dev: "编程", sports: "运动", costumes: "角色扮演", seasons: "节日季节", git: "Git", claude: "Claude Code" };
 
 /** The grid the pixel art is drawn on. */
 const ART = 40;
@@ -226,7 +243,7 @@ function contentTop({ width, height, frames }) {
 
 let bytes = 0;
 const compact = manifest.map((m) => {
-  const original = fs.readFileSync(path.join(src, m.file));
+  const original = fs.readFileSync(path.join(m.dir, m.file));
   const art = decode(original);
   const frames = art.frames.map((f) => ({ delay: f.delay, pixels: shrink(f.pixels, art.width, art.height) }));
   // Anything that isn't plain blown-up pixel art is kept the way it came.
@@ -249,4 +266,4 @@ const compact = manifest.map((m) => {
 });
 
 fs.writeFileSync(path.join(out, "manifest.json"), JSON.stringify(compact));
-console.log(`Imported ${compact.length} animations from ${src} into ${path.relative(root, out)} (${(bytes / 1024 / 1024).toFixed(1)} MB)`);
+console.log(`Imported ${compact.length} animations from ${sources.join(" and ")} into ${path.relative(root, out)} (${(bytes / 1024 / 1024).toFixed(1)} MB)`);

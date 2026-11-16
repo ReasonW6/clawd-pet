@@ -14,7 +14,7 @@ const bySlug = Object.fromEntries(manifest.map((m) => [m.slug, m]));
 
 const ctx = vm.createContext({ window: {} });
 vm.runInContext(fs.readFileSync(path.join(root, "ui/anims.js"), "utf8"), ctx);
-const { ANIMS, TOOL_LABELS, SYS_EVENTS, APP_CATEGORIES, APP_ANIMS, LIFE, LIFE_WEIGHTS, OOPS, SCENE_INTRO, QUIRKS, ROUTINE, MOODS, NOT_FOR_FUN, SEASONS, NUDGES, holidaysOn } = ctx.window;
+const { ANIMS, TOOL_LABELS, GIT_ANIMS, SYS_EVENTS, APP_CATEGORIES, APP_ANIMS, LIFE, LIFE_WEIGHTS, OOPS, SCENE_INTRO, QUIRKS, ROUTINE, MOODS, NOT_FOR_FUN, SEASONS, NUDGES, holidaysOn } = ctx.window;
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const used = new Set();
@@ -83,17 +83,39 @@ const TOOL_RULES = {
   edit: "工具是 Edit / MultiEdit / Write / NotebookEdit",
   read: "工具是 Read / NotebookRead",
   search: "工具是 Grep / Glob / LS / ToolSearch",
-  web: "工具是 WebFetch / WebSearch",
-  agent: "工具是 Task / Agent（派出子代理）",
+  web: "工具是 WebFetch / WebSearch，或名字里带 exa / tavily / web_search / web_fetch / firecrawl 的 MCP 工具（搜索和读网页算同一类，两种动画随机）",
+  browser: "Claude 桌面版内置浏览器的工具（<code>mcp__Claude_Browser__</code>）",
+  remoteBrowser: "Claude in Chrome、Playwright、Chrome DevTools、Puppeteer 的 MCP 工具，或命令是 <code>ego-browser</code>",
+  computer: "操控电脑的工具（<code>mcp__computer-use__</code>）",
+  agent: "工具是 Task / Agent（派出子代理）。开始时先播一遍下面的「派出子代理」",
   todo: "工具是 TodoWrite / TaskCreate / TaskUpdate / TaskList",
-  mcp: "工具名以 <code>mcp__</code> 开头",
-  git: "Bash / PowerShell 命令里出现 <code>git </code>",
-  test: "命令里出现 test / jest / vitest / pytest / mocha",
+  mcp: "其他工具名以 <code>mcp__</code> 开头的工具",
+  git: "Bash / PowerShell 命令里出现 <code>git </code>，但不是下面「Git 命令」里那些（status、log、diff 等）",
+  test: "命令里出现 test / jest / vitest / pytest / mocha。结果出来之前不预设成败，跑完看下面两行",
   install: "命令是 npm / pnpm / yarn / bun / pip / uv / cargo 的 install / add / i / ci",
   build: "命令里出现 build / compile / tsc / make / cargo b",
   bash: "其他 Bash / PowerShell / Monitor 命令",
   other: "以上都不是的工具",
 };
+
+/** One row per git animation, with the subcommands that show it. */
+function gitRows() {
+  const bySlugs = new Map();
+  for (const [sub, slugs] of Object.entries(GIT_ANIMS)) {
+    const key = slugs.join();
+    if (!bySlugs.has(key)) bySlugs.set(key, { slugs, subs: [] });
+    bySlugs.get(key).subs.push(sub);
+  }
+  return [...bySlugs.values()].map(({ slugs, subs }) =>
+    row({
+      when: `Git 命令：${subs.join(" / ")}`,
+      how: `Claude 执行的命令里有 <code>git ${esc(subs[0])}</code>${subs.length > 1 ? " 等" : ""}${subs.includes("branch") ? "（git branch 只在新建分支时算；checkout -b、switch -c 也算新建分支）" : ""}。一条命令里有好几个 git 命令时看最后一个，比如 <code>git add -A &amp;&amp; git commit</code> 算提交。每条 git 命令都重新选动画。`,
+      play: ["loop"],
+      code: `GIT_ANIMS["${subs[0]}"]`,
+      slugs,
+    }),
+  );
+}
 
 const claude = section(
   "claude",
@@ -101,15 +123,19 @@ const claude = section(
   "Claude Code 每发生一件事就通过 hook 通知桌宠。每个会话各记一个状态；多个会话同时在跑时，显示最紧急的那个：等你确认 &gt; 压缩上下文 &gt; 干活 &gt; 思考。",
   [
     sub("会话开始与结束"),
-    row({ when: "新开或恢复一个会话", how: "<code>SessionStart</code>，来源是 startup 或 resume，且没有别的会话在忙。", play: ["polite", 1800], code: "ANIMS.hello", slugs: ANIMS.hello }),
-    row({ when: "执行 /clear", how: "<code>SessionStart</code>，来源是 clear。", play: ["polite", 2200], code: "ANIMS.cleared", slugs: ANIMS.cleared }),
-    row({ when: "会话退出", how: "<code>SessionEnd</code>（/clear 引起的除外），且没有别的会话在忙。", play: ["polite", 1800], code: "ANIMS.bye", slugs: ANIMS.bye }),
+    row({ when: "执行 /clear", how: "<code>SessionStart</code>，来源是 clear。新开、恢复、退出会话都不播动画。", play: ["polite", 2200], code: "ANIMS.cleared", slugs: ANIMS.cleared }),
+    row({ when: "Claude 桌面版启动", how: "桌面版的窗口第一次到前台（桌宠启动时它已经开着的不算）。只是关掉窗口、它还在托盘里的，再打开也不算。30 秒内只反应一次。", play: ["polite", 2600], code: 'SYS_EVENTS["claude-open"]', slugs: SYS_EVENTS["claude-open"].anims }),
+    row({ when: "Claude 桌面版退出", how: "桌面版的主进程结束（桌宠等着这个进程，不轮询）。它的会话一并清掉，不用等会话自己超时。", play: ["polite", 2600], say: SYS_EVENTS["claude-quit"].say, code: 'SYS_EVENTS["claude-quit"]', slugs: SYS_EVENTS["claude-quit"].anims }),
 
     sub("思考与干活"),
     row({ when: "你发出一条消息", how: "<code>UserPromptSubmit</code>。每次提问随机选一种思考姿势，直到 Claude 开始用工具。", play: ["loop"], code: "ANIMS.thinking", slugs: ANIMS.thinking }),
     ...Object.keys(TOOL_RULES).map((cat) =>
       row({ when: `用工具：${TOOL_LABELS[cat]}`, how: `<code>PreToolUse</code>，${TOOL_RULES[cat]}。连续用同一类工具不换动画${Array.isArray(ANIMS.tools[cat]) ? "" : "；每次开始时按图上的比例抽"}。`, play: ["loop"], code: `ANIMS.tools.${cat}`, slugs: ANIMS.tools[cat] }),
     ),
+    ...gitRows(),
+    row({ when: "派出子代理", how: "Task / Agent 的 <code>PreToolUse</code>，然后接着播上面「派出小分队」的动画。", play: ["force", 2500], code: "ANIMS.agentSent", slugs: ANIMS.agentSent }),
+    row({ when: "测试通过", how: "「跑测试」那条命令的 <code>PostToolUse</code>。", play: ["force", 2500], code: "ANIMS.testPassed", slugs: ANIMS.testPassed }),
+    row({ when: "测试没过", how: "「跑测试」那条命令的 <code>PostToolUseFailure</code>（命令退出码不为 0）。同一轮第 3 次失败时换成下面的「同一轮里第 3 次失败」。", play: ["force", 3000], code: "ANIMS.testFailed", slugs: ANIMS.testFailed }),
     row({ when: "有子代理在跑", how: "<code>SubagentStart</code> 到 <code>SubagentStop</code> 之间，盖过上面的工具动画。标签显示「小分队 ×N」。", play: ["loop"], code: "ANIMS.subagents", slugs: ANIMS.subagents }),
     row({ when: "压缩上下文", how: "<code>PreCompact</code> 到 <code>PostCompact</code> 之间。手动 /compact 结束后回到待命；自动压缩结束后，对话还在进行就回到思考，否则回到待命。超过 2 分钟没等到结束，也按这个规则退出。", play: ["loop"], code: "ANIMS.compacting", slugs: ANIMS.compacting }),
     row({ when: "任务跑了 5 分钟以上", how: "从你发消息算起超过 5 分钟还在忙，之后每 4 分钟来一次。", play: ["force", 3000], code: "ANIMS.longTask", slugs: ANIMS.longTask }),
@@ -233,7 +259,6 @@ const life = section(
     sub("问候与提醒"),
     row({ when: "桌宠启动", how: "按钟点说早上好 / 中午好 / 下午好 / 晚上好；当天是节日则改播节日动画。", play: ["polite", 1800], say: "下午好～", code: "ANIMS.hello", slugs: ANIMS.hello }),
     ...NUDGES.map((n, i) => row({ when: `${n.at} 提醒`, how: "到点后 10 分钟内、它手头的场景演完时说一次，每天一次。关掉「爱说话」则不提醒。", play: ["polite", 3000], say: n.say, code: `NUDGES[${i}]`, slugs: n.anims })),
-    row({ when: "你又碰了电脑", how: "键鼠一阵没动静（默认 5 分钟）之后又有了输入。之后它会开心 2 分钟。超过 30 分钟没理它才说话；期间有任务完成的话，会打断当前动画来提醒你。", play: ["polite", 2200], say: "好久没理我啦，想你了～ / 项目名 已经搞定啦，快去看看～", code: "ANIMS.welcomeBack", slugs: ANIMS.welcomeBack }),
   ],
 );
 
@@ -297,12 +322,18 @@ const SYS_INFO = {
   online: ["网络恢复", "联网状态从断开变回连接。", "网络"],
   dark: ["切到深色模式", "系统主题变为深色。", "深色 / 浅色模式"],
   light: ["切到浅色模式", "系统主题变为浅色。", "深色 / 浅色模式"],
-  "git-commit": ["Git：提交", "任何仓库里成功执行 commit / cherry-pick / revert / tag。git 自己把命令名告诉桌宠，不用添加仓库。", "Git 操作（默认关闭）"],
-  "git-merge": ["Git：合并", "成功执行 merge / pull / rebase。", "Git 操作（默认关闭）"],
+  "git-init": ["Git：新建仓库", "任何仓库里成功执行 init。git 自己把命令名告诉桌宠，不用添加仓库。", "Git 操作（默认关闭）"],
+  "git-clone": ["Git：克隆", "成功执行 clone。", "Git 操作（默认关闭）"],
+  "git-add": ["Git：暂存", "成功执行 add（编辑器里点暂存也算）。", "Git 操作（默认关闭）"],
+  "git-commit": ["Git：提交", "成功执行 commit / tag。", "Git 操作（默认关闭）"],
   "git-push": ["Git：推送", "成功执行 push。", "Git 操作（默认关闭）"],
-  "git-clone": ["Git：新仓库", "成功执行 clone / init。", "Git 操作（默认关闭）"],
+  "git-pull": ["Git：拉取", "成功执行 pull。", "Git 操作（默认关闭）"],
   "git-switch": ["Git：切分支", "成功执行 checkout / switch。", "Git 操作（默认关闭）"],
-  "git-undo": ["Git：撤销", "成功执行 reset / restore / stash。", "Git 操作（默认关闭）"],
+  "git-merge": ["Git：合并", "成功执行 merge。", "Git 操作（默认关闭）"],
+  "git-rebase": ["Git：变基", "成功执行 rebase。", "Git 操作（默认关闭）"],
+  "git-stash": ["Git：藏起改动", "成功执行 stash。", "Git 操作（默认关闭）"],
+  "git-reset": ["Git：撤销", "成功执行 reset / restore / revert。", "Git 操作（默认关闭）"],
+  "git-cherry-pick": ["Git：摘提交", "成功执行 cherry-pick。", "Git 操作（默认关闭）"],
 };
 const APP_NAMES = { music: "音乐", video: "视频", game: "游戏", code: "编辑器 / IDE", terminal: "终端", chat: "聊天", design: "设计", office: "办公与笔记", mail: "邮件" };
 
@@ -311,7 +342,8 @@ const system = section(
   "五、系统联动",
   "对你在 Claude Code 之外的操作做反应。全部是「一次性 · 让路」：Claude 正忙时不显示，它睡着时不理会。同一种事件默认 20 秒内只反应一次。每项都能在设置的「系统联动」里单独关掉。status、fetch、log 这类编辑器在后台反复执行的 git 命令，以及别的 git 命令派生出来的子命令，都不触发。",
   [
-    ...Object.entries(SYS_EVENTS).map(([kind, def]) => {
+    // The Claude app's own comings and goings are in the Claude Code section.
+    ...Object.entries(SYS_EVENTS).filter(([kind]) => !kind.startsWith("claude-")).map(([kind, def]) => {
       const [when, how, toggle] = SYS_INFO[kind];
       const cd = def.cooldown ? `；${def.cooldown >= 60 ? `${def.cooldown / 60} 分钟` : `${def.cooldown} 秒`}内只反应一次` : "";
       return row({ when, how: `${how}开关：${toggle}${cd}。`, play: ["polite", 2600], say: def.say, code: `SYS_EVENTS["${kind}"]`, slugs: def.anims });

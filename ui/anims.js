@@ -10,22 +10,28 @@ window.ANIMS = {
 
   thinking: ["dev_thinking", "desk_think", "idea_bulb"],
   tools: {
-    edit: { desk_typing: 30, dev_laptop_front: 30, dev_matrix: 30, dev_keyboard_smash: 10 },
+    edit: { desk_typing: 30, dev_laptop_front: 30, dev_matrix: 30, cc_code_bricks: 30 },
     read: ["read_stack", "dev_docs_scroll"],
-    search: ["dev_bug_hunt"],
+    search: ["cc_code_search"],
     bash: ["dev_terminal"],
-    git: ["dev_git_graph"],
-    test: ["dev_test_suite"],
+    git: ["dev_git_graph"], // status, log, diff...; the rest are in GIT_ANIMS
+    test: ["cc_test_run"], // no verdict yet: testPassed / testFailed follow
     install: ["dev_node_modules"],
     build: ["dev_compile_bar"],
-    web: ["dev_wifi_search"],
-    agent: ["dev_pair_program"],
+    web: ["cc_web_search", "cc_web_read"],
+    browser: ["cc_browser_pane"], // the desktop app's own browser pane
+    remoteBrowser: ["cc_browser_remote"], // a browser of its own (Chrome, ego...)
+    computer: ["cc_computer_use"],
+    agent: ["cc_agent_wait"],
     todo: ["dev_kanban"],
-    mcp: ["dev_cable_plug"],
+    mcp: ["cc_mcp_cart"],
     other: ["dev_robot_arm"],
   },
-  subagents: ["dev_pair_program"],
-  compacting: ["dev_zip"],
+  agentSent: ["cc_agent_dispatch"], // once, as the Agent tool sends one off
+  subagents: ["cc_agent_wait"],
+  testPassed: ["dev_test_suite"],
+  testFailed: ["cc_test_fail"],
+  compacting: ["cc_compact_scroll"],
   cleared: ["life_sweep_floor"],
   permission: ["emo_pretty_please"],
   allowed: ["emo_thumbs_up"],
@@ -43,11 +49,10 @@ window.ANIMS = {
   manyErrors: ["dev_this_is_fine"],
   apiError: ["dev_bsod"],
   longTask: ["dev_coffee_to_code", "dev_hourglass", "dev_pomodoro"],
-  done: ["dev_ship_it", "emo_victory_dance", "dev_lgtm", "emo_thumbs_up", "dev_pr_merged"],
+  done: ["dev_ship_it", "emo_victory_dance", "dev_lgtm", "emo_thumbs_up", "cc_task_tower"],
   bigDone: ["dev_deploy_rocket", "emo_joy_burst", "sport_podium"],
   sleepyDone: ["emo_yawn"],
-  hello: ["emo_nihao"],
-  bye: ["walk_out_door"],
+  hello: ["emo_nihao"], // the pet itself starting up
 
   // ---------------------------------------------------------- daily life
   bedtime: ["life_brush_teeth"], // before a night's sleep, not a nap
@@ -58,7 +63,6 @@ window.ANIMS = {
   wakeStartled: ["emo_shock_jump"],
   wakeGrumpy: ["emo_grumpy_pout", "emo_eye_roll"],
   stretch: ["stretch_tall", "sport_warmup", "sport_jumping_jacks"],
-  welcomeBack: ["emo_nihao", "emo_happy_skip", "emo_high_five"],
 
   // ---------------------------------------------------------- interaction
   click: ["emo_ticklish", "emo_giggle", "emo_wink", "emo_shy", "emo_blow_kiss"],
@@ -82,6 +86,9 @@ window.TOOL_LABELS = {
   install: "装依赖",
   build: "编译中",
   web: "上网查资料",
+  browser: "用浏览器",
+  remoteBrowser: "操作浏览器",
+  computer: "操控电脑",
   agent: "派出小分队",
   todo: "排计划",
   mcp: "调用 MCP",
@@ -95,9 +102,16 @@ window.toolCategory = function toolCategory(name = "", input = {}) {
   if (/^(WebFetch|WebSearch)$/.test(name)) return "web";
   if (/^(Task|Agent)$/.test(name)) return "agent";
   if (/^(TodoWrite|TaskCreate|TaskUpdate|TaskList)$/.test(name)) return "todo";
-  if (name.startsWith("mcp__")) return "mcp";
+  if (name.startsWith("mcp__")) {
+    if (/^mcp__(remote-devices__)?Claude_Browser__/.test(name)) return "browser";
+    if (/^mcp__.*(claude-in-chrome|playwright|chrome-devtools|puppeteer)/i.test(name)) return "remoteBrowser";
+    if (/^mcp__(computer-use__|remote-devices__computer)/.test(name)) return "computer";
+    if (/exa|tavily|web_?search|web_?fetch|firecrawl/i.test(name)) return "web";
+    return "mcp";
+  }
   if (/^(Bash|PowerShell|Monitor)$/.test(name)) {
     const cmd = String(input.command || "");
+    if (/\bego-browser\s/.test(cmd)) return "remoteBrowser";
     if (/\bgit\s/.test(cmd)) return "git";
     if (/\b(test|tests|jest|vitest|pytest|mocha)\b/.test(cmd)) return "test";
     if (/\b(npm|pnpm|yarn|bun|pip|uv|cargo)\s+(i|install|add|ci)\b/.test(cmd)) return "install";
@@ -105,6 +119,40 @@ window.toolCategory = function toolCategory(name = "", input = {}) {
     return "bash";
   }
   return "other";
+};
+
+// What a git command Claude runs looks like; anything else is ANIMS.tools.git.
+window.GIT_ANIMS = {
+  init: ["git_init"],
+  clone: ["git_clone"],
+  add: ["git_add"],
+  commit: ["git_commit"],
+  push: ["git_push"],
+  pull: ["git_pull"],
+  fetch: ["git_pull"],
+  branch: ["git_branch"],
+  switch: ["git_switch"],
+  checkout: ["git_switch"],
+  merge: ["git_merge"],
+  rebase: ["git_rebase"],
+  stash: ["git_stash"],
+  reset: ["git_reset"],
+  restore: ["git_reset"],
+  revert: ["git_reset"],
+  "cherry-pick": ["git_cherry_pick"],
+};
+
+/** Animations for a git command line: the last git subcommand in it that has its own
+ *  (`git add -A && git commit` is a commit). `git branch` only counts when it makes one. */
+window.gitAnims = function gitAnims(cmd = "") {
+  let found = null;
+  for (const [, sub, rest] of String(cmd).matchAll(/\bgit(?:\s+-[Cc]\s+\S+)*\s+([a-z-]+)([^&|;\n]*)/g)) {
+    if (sub === "branch" && !/^\s+[^-\s]/.test(rest)) continue;
+    // checkout -b, switch -c: a branch is born
+    if (/^(checkout|switch)$/.test(sub) && /\s-[bcB]\b/.test(rest)) found = GIT_ANIMS.branch;
+    else if (GIT_ANIMS[sub]) found = GIT_ANIMS[sub];
+  }
+  return found || ANIMS.tools.git;
 };
 
 // ------------------------------------------------------------ what the user does on the computer
@@ -124,12 +172,21 @@ window.SYS_EVENTS = {
   online: { anims: ["dev_packet_ping", "emo_relieved"], say: "网回来啦～" },
   dark: { anims: ["dev_dark_mode"] },
   light: { anims: ["sea_day_night"] },
-  "git-commit": { anims: ["dev_git_graph", "dev_contrib_graph"] },
-  "git-merge": { anims: ["dev_git_merge", "dev_pr_merged"] },
-  "git-push": { anims: ["dev_cloud_upload"], say: "推上去啦～" },
-  "git-clone": { anims: ["dev_hello_world", "cos_mail_delivery"] },
-  "git-switch": { anims: ["cos_time_travel"] },
-  "git-undo": { anims: ["dev_ctrl_z"] },
+  "git-init": { anims: ["git_init"], say: "新仓库，开张啦～" },
+  "git-clone": { anims: ["git_clone"] },
+  "git-add": { anims: ["git_add"], cooldown: 60 },
+  "git-commit": { anims: ["git_commit"] },
+  "git-push": { anims: ["git_push"], say: "推上去啦～" },
+  "git-pull": { anims: ["git_pull"] },
+  "git-switch": { anims: ["git_switch"] },
+  "git-merge": { anims: ["git_merge"] },
+  "git-rebase": { anims: ["git_rebase"] },
+  "git-stash": { anims: ["git_stash"] },
+  "git-reset": { anims: ["git_reset"] },
+  "git-cherry-pick": { anims: ["git_cherry_pick"] },
+  // The Claude desktop app starting up and quitting (not a window coming and going).
+  "claude-open": { anims: ["cc_app_open"], cooldown: 30 },
+  "claude-quit": { anims: ["cc_app_close"], say: "Claude 下班啦，辛苦～", cooldown: 30 },
 };
 
 // Foreground application (process name) -> category -> animations.

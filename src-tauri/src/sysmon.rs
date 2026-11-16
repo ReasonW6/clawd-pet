@@ -12,6 +12,8 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
@@ -195,23 +197,54 @@ pub fn cursor_in(hwnd: *mut std::ffi::c_void) -> Option<(f64, f64, f64, f64)> {
 
 /// Runs `on_change` when another window comes to the foreground, or when a window
 /// goes full-screen or leaves it, once things have settled. Also tells the pet which
-/// program is in front, if it is set to react to that. The system delivers these
-/// events; nothing runs in between.
+/// program is in front, if it is set to react to that, and when the Claude desktop
+/// app starts and quits. The system delivers these events; nothing runs in between.
 #[cfg(windows)]
 pub fn watch_foreground(events: Events, config: Arc<Mutex<Config>>, on_change: impl Fn() + Send + 'static) {
     std::thread::spawn(move || {
+        // Already running when the pet starts: only its quitting is news.
+        if let Some(pid) = win::find_claude_app() {
+            follow_claude_app(&events, pid);
+        }
         let mut front = String::new();
         win::foreground_loop(&mut || {
-            if config.lock().unwrap().sys.apps {
-                let exe = win::foreground_exe();
-                if !exe.is_empty() && exe != front {
-                    front = exe.clone();
-                    events.emit_now("app", json!(exe));
+            if let Some((pid, path)) = win::foreground_process() {
+                // It has just started when a window of it comes to the front that
+                // isn't the process being followed.
+                if pid != CLAUDE_APP.load(Ordering::SeqCst) && win::is_claude_app(&path) && follow_claude_app(&events, pid) {
+                    events.emit_now("claude-open", Value::Null);
+                }
+                if config.lock().unwrap().sys.apps {
+                    let exe = win::exe_name(&path);
+                    if exe != front {
+                        front = exe.clone();
+                        events.emit_now("app", json!(exe));
+                    }
                 }
             }
             on_change();
         });
     });
+}
+
+/// Process id of the Claude desktop app being followed, 0 when none.
+#[cfg(windows)]
+static CLAUDE_APP: AtomicU32 = AtomicU32::new(0);
+
+/// Follows the Claude desktop app's process: when it ends, the app has quit (closing
+/// its window may only send it to the tray). Waiting on the process costs nothing.
+#[cfg(windows)]
+fn follow_claude_app(events: &Events, pid: u32) -> bool {
+    let Some(process) = win::wait_handle(pid) else { return false };
+    CLAUDE_APP.store(pid, Ordering::SeqCst);
+    let events = events.clone();
+    std::thread::spawn(move || {
+        win::wait_exit(process);
+        if CLAUDE_APP.compare_exchange(pid, 0, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+            events.emit_now("claude-quit", Value::Null);
+        }
+    });
+    true
 }
 
 /// The system's double-click interval.
@@ -312,8 +345,12 @@ mod win {
     use windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber;
     use windows_sys::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
     use windows_sys::Win32::System::SystemInformation::GetTickCount;
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    };
     use windows_sys::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+        OpenProcess, QueryFullProcessImageNameW, WaitForSingleObject, INFINITE, PROCESS_QUERY_LIMITED_INFORMATION,
+        PROCESS_SYNCHRONIZE,
     };
     use windows_sys::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
     use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
@@ -468,27 +505,88 @@ mod win {
     }
 
     /// Lower-case file name of the foreground window's process, e.g. "spotify.exe".
-    pub fn foreground_exe() -> String {
+    fn foreground_exe() -> String {
+        foreground_process().map(|(_, path)| exe_name(&path)).unwrap_or_default()
+    }
+
+    pub fn exe_name(path: &str) -> String {
+        path.rsplit('\\').next().unwrap_or_default().to_lowercase()
+    }
+
+    /// Id and executable path of the foreground window's process.
+    pub fn foreground_process() -> Option<(u32, String)> {
         unsafe {
             let hwnd = GetForegroundWindow();
             if hwnd.is_null() {
-                return String::new();
+                return None;
             }
             let mut pid = 0;
             GetWindowThreadProcessId(hwnd, &mut pid);
+            Some((pid, process_path(pid)?))
+        }
+    }
+
+    fn process_path(pid: u32) -> Option<String> {
+        unsafe {
             let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
             if process.is_null() {
-                return String::new();
+                return None;
             }
             let mut buf = [0u16; 520];
             let mut len = buf.len() as u32;
             let ok = QueryFullProcessImageNameW(process, 0, buf.as_mut_ptr(), &mut len);
             CloseHandle(process);
-            if ok == 0 {
-                return String::new();
+            (ok != 0).then(|| String::from_utf16_lossy(&buf[..len as usize]))
+        }
+    }
+
+    /// The Claude desktop app, from the Store (WindowsApps\Claude_...\app\Claude.exe)
+    /// or the standalone installer (AnthropicClaude\app-...\claude.exe). Claude Code's
+    /// own claude.exe lives elsewhere.
+    pub fn is_claude_app(path: &str) -> bool {
+        let path = path.to_lowercase();
+        path.ends_with("\\claude.exe") && (path.contains("\\windowsapps\\claude_") || path.contains("\\anthropicclaude\\"))
+    }
+
+    /// The Claude desktop app's main process, if it is running: the one whose parent
+    /// isn't a claude.exe (its helpers and Claude Code sessions are its children).
+    pub fn find_claude_app() -> Option<u32> {
+        unsafe {
+            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if snap.is_null() || snap as isize == -1 {
+                return None;
             }
-            let path = String::from_utf16_lossy(&buf[..len as usize]);
-            path.rsplit('\\').next().unwrap_or_default().to_lowercase()
+            let mut procs = Vec::new();
+            let mut e: PROCESSENTRY32W = zeroed();
+            e.dwSize = size_of::<PROCESSENTRY32W>() as u32;
+            let mut ok = Process32FirstW(snap, &mut e);
+            while ok != 0 {
+                let len = e.szExeFile.iter().position(|&c| c == 0).unwrap_or(e.szExeFile.len());
+                let name = String::from_utf16_lossy(&e.szExeFile[..len]).to_lowercase();
+                procs.push((e.th32ProcessID, e.th32ParentProcessID, name));
+                ok = Process32NextW(snap, &mut e);
+            }
+            CloseHandle(snap);
+            let is_claude = |pid: u32| procs.iter().any(|(p, _, name)| *p == pid && name == "claude.exe");
+            procs
+                .iter()
+                .filter(|(pid, parent, name)| name == "claude.exe" && !is_claude(*parent) && *pid != 0)
+                .map(|(pid, ..)| *pid)
+                .find(|&pid| process_path(pid).is_some_and(|path| is_claude_app(&path)))
+        }
+    }
+
+    /// A handle to wait on the process with, as a plain number so it can go to another thread.
+    pub fn wait_handle(pid: u32) -> Option<usize> {
+        let process = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+        (!process.is_null()).then_some(process as usize)
+    }
+
+    /// Blocks until the process ends, then closes the handle.
+    pub fn wait_exit(process: usize) {
+        unsafe {
+            WaitForSingleObject(process as *mut c_void, INFINITE);
+            CloseHandle(process as *mut c_void);
         }
     }
 }

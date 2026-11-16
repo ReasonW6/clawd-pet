@@ -238,12 +238,10 @@ function onHook(p) {
         playOnce(pick(ANIMS.cleared), { minMs: 2200 });
       } else if (p.source === "startup" || p.source === "resume") {
         s.state = "idle";
-        if (!anyBusy()) playOnce(pick(ANIMS.hello));
       }
       break;
     case "SessionEnd":
       sessions.delete(s.id);
-      if (p.reason !== "clear" && !anyBusy()) playOnce(pick(ANIMS.bye));
       break;
     case "UserPromptSubmit":
       s.state = "thinking";
@@ -262,7 +260,10 @@ function onHook(p) {
         break;
       }
       const cat = toolCategory(p.tool_name, p.tool_input || {});
-      if (cat !== s.cat || s.state !== "working") s.anim = pick(ANIMS.tools[cat]);
+      // Each git command gets its own look, so a new one always picks again.
+      if (cat === "git") s.anim = pick(gitAnims(p.tool_input?.command));
+      else if (cat !== s.cat || s.state !== "working") s.anim = pick(ANIMS.tools[cat]);
+      if (cat === "agent") playOnce(pick(ANIMS.agentSent), { force: true, minMs: 2500 });
       s.state = "working";
       s.cat = cat;
       break;
@@ -272,6 +273,8 @@ function onHook(p) {
         s.state = "working";
         if (p.tool_name === "AskUserQuestion") playOnce(pick(ANIMS.answered), { force: true, minMs: 1500 });
         else if (p.tool_name === "ExitPlanMode") playOnce(pick(ANIMS.planApproved), { force: true, minMs: 1500 });
+      } else if (toolCategory(p.tool_name, p.tool_input || {}) === "test") {
+        playOnce(pick(ANIMS.testPassed), { force: true, minMs: 2500 });
       }
       break;
     case "PostToolUseFailure":
@@ -281,6 +284,8 @@ function onHook(p) {
         if (s.fails === 3) {
           feel("down", 3);
           playOnce(pick(ANIMS.manyErrors), { force: true, minMs: 3000 });
+        } else if (toolCategory(p.tool_name, p.tool_input || {}) === "test") {
+          playOnce(pick(ANIMS.testFailed), { force: true, minMs: 3000 });
         } else {
           playOnce(pick(ANIMS.toolError), { force: true, minMs: 1500 });
         }
@@ -620,7 +625,12 @@ function onUserEvent({ kind, detail }) {
     idleBase = pick(restPool());
     render();
   } else if (kind === "back") {
-    onBack(detail);
+    onBack();
+  } else if (kind === "claude-quit") {
+    // Its sessions went with it, whether or not their SessionEnd made it out.
+    for (const [id, s] of sessions) if (fromDesktop(s)) sessions.delete(id);
+    reactTo(kind, SYS_EVENTS[kind]);
+    render();
   } else if (kind === "app") {
     const category = Object.keys(APP_CATEGORIES).find((c) => APP_CATEGORIES[c].includes(detail)) || null;
     if (category && category !== lastAppCategory) reactTo(`app:${category}`, { anims: APP_ANIMS[category], cooldown: 120 });
@@ -639,22 +649,21 @@ function reactTo(key, def) {
   if (def.say && !anyBusy()) toast(def.say);
 }
 
-/** The user touched the keyboard or mouse again after `aloneSeconds` without. */
-function onBack(aloneSeconds) {
+/** The user touched the keyboard or mouse again after a while without. The pet has
+ *  been getting on with its own life meanwhile, so it doesn't drop it to say hello. */
+function onBack() {
   leftAlone = false;
   presentSince = now();
   const names = [...new Set(unseenDone)].join("、");
   unseenDone = [];
   if (names) toast(`${names} 已经搞定啦，快去看看～`, { ms: 9000 });
-  if (!asleep) {
-    feel("happy", 2);
-    playOnce(pick(ANIMS.welcomeBack), { force: Boolean(names), minMs: 2200 });
-    if (!names && config.chatty && aloneSeconds >= 30 * 60) toast(`好久没理我啦${nick()}，想你了～`);
-  }
   render();
 }
 
 // ---------------------------------------------------------------- labels
+
+/** Sessions in the Claude desktop app, which all end when it quits. */
+const fromDesktop = (s) => s.entry === "claude-desktop";
 
 function entryLabel(entry) {
   if (!entry) return "Claude Code";
