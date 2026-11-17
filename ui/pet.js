@@ -8,6 +8,7 @@ const sprite = $("sprite");
 const bubble = $("bubble");
 const label = $("label");
 const petHit = $("pet-hit");
+const dot = $("dot");
 
 const MIN = 60 * 1000;
 const TOAST_MS = 4500;
@@ -37,6 +38,8 @@ const STREAK_CHANCE = 0.4;
 const STREAK_MAX = 3;
 /** Left alone this long, boredom turns into loneliness. */
 const LONELY_AFTER_MS = 15 * MIN;
+/** How long a finished turn's last words (and the done animation) stay up. */
+const DONE_SHOW_MS = 15 * 1000;
 const SLEEPY_BEFORE_BED_MS = 30 * MIN;
 
 /** Picks from a list, or from a { key: weight } map by weight. */
@@ -164,7 +167,7 @@ function session(p) {
   const id = p.session_id || "default";
   let s = sessions.get(id);
   if (!s) {
-    s = { id, entry: "", cwd: "", title: "", state: "idle", cat: null, anim: null, waitAnim: null, waitSince: 0, waitUntil: 0, compactSince: 0, subagents: 0, fails: 0, turnStart: 0, nextBreak: 0, t: now() };
+    s = { id, entry: "", cwd: "", title: "", state: "idle", cat: null, anim: null, waitAnim: null, waitSince: 0, waitUntil: 0, compactSince: 0, subagents: 0, fails: 0, turnStart: 0, nextBreak: 0, reply: "", t: now() };
     sessions.set(id, s);
   }
   if (p._entry) s.entry = p._entry;
@@ -242,8 +245,11 @@ function onHook(p) {
       break;
     case "SessionEnd":
       sessions.delete(s.id);
+      if (speech?.sid === s.id) hush();
       break;
     case "UserPromptSubmit":
+      if (speech?.sid === s.id) hush();
+      s.reply = "";
       s.state = "thinking";
       s.cat = null;
       s.anim = pick(ANIMS.thinking);
@@ -319,6 +325,7 @@ function onHook(p) {
       if (s.turnStart && Date.parse(p.timestamp) < s.turnStart) break;
       // Polite: only shows when no other session is busy.
       if (s.state !== "idle") playOnce(pick(ANIMS.interrupted), { minMs: 2000 });
+      if (speech?.sid === s.id && !speech.done) hush();
       s.state = "idle";
       s.subagents = 0;
       s.turnStart = 0;
@@ -338,10 +345,17 @@ function onHook(p) {
       // AskUserQuestion / ExitPlanMode come here too, right after their PreToolUse.
       if (s.state !== "waiting") wait(s);
       break;
+    case "Reply":
+      // Synthetic, from transcript.rs: the first line of something Claude said.
+      if (!config.replies || (s.turnStart && Date.parse(p.timestamp) < s.turnStart)) break;
+      s.reply = p.text;
+      say(s, false);
+      break;
     case "Stop":
       onTurnDone(s);
       break;
     case "StopFailure":
+      if (speech?.sid === s.id) hush();
       s.state = "idle";
       s.subagents = 0;
       s.turnStart = 0;
@@ -369,6 +383,15 @@ function onTurnDone(s) {
   } else if (took >= MIN) {
     feel("happy", 3);
   }
+  if (config.replies && s.reply) {
+    // Its last words, ticked, with the done animation for a while; onBack still
+    // tells a user who was away.
+    if (leftAlone) unseenDone.push(name);
+    say(s, true);
+    if (!anyBusy()) speech.anim = pick(anims);
+    if (speech.anim) playOnce(speech.anim, { minMs: DONE_SHOW_MS });
+    return;
+  }
   if (leftAlone) {
     // Maybe nobody is looking: keep the news up until the user touches the computer again.
     unseenDone.push(name);
@@ -377,6 +400,87 @@ function onTurnDone(s) {
     toast(text, { ms });
   }
   if (!anyBusy()) playOnce(pick(anims), { minMs });
+}
+
+// ---------------------------------------------------------------- what Claude says
+
+// The first line of each thing Claude says shows above the pet as it comes. When the
+// turn ends its last words stay up for DONE_SHOW_MS with a tick; a click on them or on
+// the pet meanwhile goes to that session in the desktop app. Then they shrink into the pet.
+let speech = null; // { sid, text, done, anim, timer, leaving }
+const HUSH_MS = 320; // the .leaving animation in style.css
+// The user can fold the words away: then a dot by the status line counts the sessions with
+// something going on, until a click on it brings the words back.
+let folded = false;
+let folding = false;
+
+function say(s, done) {
+  clearTimeout(speech?.timer);
+  speech = { sid: s.id, text: s.reply, done, anim: null, timer: null, leaving: false };
+  if (done) speech.timer = setTimeout(hush, DONE_SHOW_MS);
+  renderBubble();
+  queueHitRects();
+}
+
+/** Shrinks the words into the pet, or just drops them if something else is showing. */
+function hush() {
+  if (!speech || speech.leaving) return;
+  clearTimeout(speech.timer);
+  if (!bubbleKey?.startsWith("speech-")) {
+    speech = null;
+    return;
+  }
+  speech.leaving = true;
+  bubble.classList.add("leaving");
+  const gone = speech;
+  setTimeout(() => {
+    if (speech === gone) speech = null;
+    renderBubble();
+    queueHitRects();
+  }, HUSH_MS);
+}
+
+function fold() {
+  if (folding || folded) return;
+  folding = true;
+  bubble.classList.add("leaving");
+  setTimeout(() => {
+    folding = false;
+    folded = true;
+    renderBubble();
+    queueHitRects();
+  }, HUSH_MS);
+}
+
+function unfold() {
+  folded = false;
+  renderBubble();
+  queueHitRects();
+}
+
+/** Sessions with something to say: those at work, and the one whose words are up. */
+function talkers() {
+  return [...sessions.values()].filter((s) => s.state !== "idle" || s.id === speech?.sid).length;
+}
+
+function renderDot() {
+  const n = folded ? talkers() : 0;
+  dot.hidden = !n;
+  dot.textContent = n > 99 ? "99+" : String(n);
+}
+
+/** A click on finished words or on the pet under them: back to that session. */
+function followSpeech() {
+  if (!speech?.done || speech.leaving) return false;
+  const s = sessions.get(speech.sid);
+  if (s && fromDesktop(s)) invoke("focus_claude", { title: s.title || null });
+  if (speech.anim && oneShot?.slug === speech.anim) {
+    clearTimeout(oneShotTimer);
+    oneShot = null;
+    render();
+  }
+  hush();
+  return true;
 }
 
 // ---------------------------------------------------------------- moods
@@ -629,6 +733,7 @@ function onUserEvent({ kind, detail }) {
   } else if (kind === "claude-quit") {
     // Its sessions went with it, whether or not their SessionEnd made it out.
     for (const [id, s] of sessions) if (fromDesktop(s)) sessions.delete(id);
+    if (speech && !sessions.has(speech.sid)) hush();
     reactTo(kind, SYS_EVENTS[kind]);
     render();
   } else if (kind === "app") {
@@ -735,8 +840,7 @@ function renderLabel() {
   const lead = leader();
   let text = "";
   if (lead) {
-    const others = [...sessions.values()].filter((x) => x !== lead && x.state !== "idle").length;
-    text = `${sessionName(lead)} · ${stateText(lead)}` + (others ? `  +${others}` : "");
+    text = `${sessionName(lead)} · ${stateText(lead)}`;
   } else if (petHit.matches(":hover")) {
     // What the pet is up to on its own, and how it feels.
     text = asleep ? "睡觉中 💤" : [manifest[currentSlug]?.zh, MOODS[mood()]?.label].filter(Boolean).join(" · ");
@@ -798,6 +902,8 @@ function suggestionText(sug) {
 }
 
 function renderBubble() {
+  renderDot();
+  bubble.classList.toggle("leaving", Boolean((speech?.leaving || folding) && !perms.length && !toastText));
   if (perms.length) {
     const req = perms[0];
     if (bubbleKey === `perm-${req.id}-${perms.length}`) return;
@@ -843,6 +949,35 @@ function renderBubble() {
       clearToast();
     };
     bubble.append(t);
+    bubble.hidden = false;
+    return;
+  }
+  if (speech && !folded) {
+    // Whose words, when more than one session is going.
+    const s = sessions.get(speech.sid);
+    const busy = [...sessions.values()].filter((x) => x.state !== "idle" && x !== s).length;
+    const who = s && busy ? sessionName(s) : "";
+    const key = `speech-${speech.sid}-${speech.done}-${who}-${speech.text}`;
+    if (bubbleKey === key) return;
+    bubbleKey = key;
+    bubble.innerHTML = "";
+    const card = el("div", speech.done ? "speech done" : "speech");
+    if (who) card.append(el("div", "who", who));
+    const line = el("div", "line");
+    const text = el("span", "text", speech.text);
+    text.title = speech.text;
+    line.append(text);
+    if (speech.done) line.append(el("span", "tick", "✓"));
+    card.append(line);
+    const close = el("button", "fold");
+    close.title = "收起";
+    close.onclick = (e) => {
+      e.stopPropagation();
+      fold();
+    };
+    card.append(close);
+    card.onclick = followSpeech;
+    bubble.append(card);
     bubble.hidden = false;
     return;
   }
@@ -896,7 +1031,7 @@ function queueHitRects() {
   hitQueued = true;
   requestAnimationFrame(() => {
     hitQueued = false;
-    const rects = [petHit, bubble, label]
+    const rects = [petHit, bubble, label, dot]
       .filter((e) => !e.hidden)
       .map((e) => e.getBoundingClientRect())
       .filter((r) => r.width > 0)
@@ -922,6 +1057,8 @@ let ignoreClicksUntil = 0;
 const rub = { lastX: null, dir: 0, turns: 0, t: 0, restUntil: 0 };
 let noticeTimer = null;
 let noticeRestUntil = 0;
+
+dot.addEventListener("click", unfold);
 
 petHit.addEventListener("mousedown", (e) => {
   if (e.button !== 0) return;
@@ -1007,6 +1144,7 @@ function onDragEnd() {
 // once, and it ignores further clicks until that tantrum has played out.
 function onPetClick() {
   const t = now();
+  if (followSpeech()) return;
   if (t < ignoreClicksUntil) return;
   clearTimeout(noticeTimer);
   if (stir(AWAKE_AFTER_POKE_MS)) {

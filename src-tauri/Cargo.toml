@@ -15,6 +15,14 @@ notify = "8"
 rfd = "0.15"
 
 [target.'cfg(windows)'.dependencies]
+# The same version tauri already builds; only for UI Automation, which is COM.
+windows = { version = "0.62", features = [
+  "Win32_System_Com",
+  "Win32_System_Variant",
+  "Win32_UI_Accessibility",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",

@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod autostart;
+mod claude_app;
 mod config;
 mod git;
 mod hooks;
@@ -87,6 +88,7 @@ fn set_config(mut config: Config, app: AppHandle, state: State<AppState>) {
         std::mem::replace(&mut *current, config.clone())
     };
     state.shared.bubbles.store(config.bubbles, Ordering::SeqCst);
+    transcript::show_replies(config.replies);
     if old.size != config.size {
         if let Some(w) = main_window(&app) {
             resize_anchored(&w, old.size, config.size);
@@ -100,6 +102,12 @@ fn set_config(mut config: Config, app: AppHandle, state: State<AppState>) {
     if let Some(w) = main_window(&app) {
         step_aside(&app, &state, &w);
     }
+}
+
+/// Brings the Claude desktop app forward, on the session with this title if given.
+#[tauri::command]
+fn focus_claude(title: Option<String>) {
+    claude_app::focus(title);
 }
 
 #[tauri::command]
@@ -445,6 +453,7 @@ fn main() {
             get_config,
             set_config,
             set_hit_rects,
+            focus_claude,
             drag_started,
             resolve_permission,
             show_menu,
@@ -484,6 +493,7 @@ fn main() {
             let config = Arc::new(Mutex::new(cfg.clone()));
             let shared = Arc::new(Shared::default());
             shared.bubbles.store(cfg.bubbles, Ordering::SeqCst);
+            transcript::show_replies(cfg.replies);
             let events = sysmon::Events::new(handle.clone());
             let git_trace = data_dir.join("git-trace");
             let old_git_trace = old_dir.join("git-trace");

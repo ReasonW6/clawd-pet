@@ -231,6 +231,15 @@ pub fn watch_foreground(events: Events, config: Arc<Mutex<Config>>, on_change: i
 #[cfg(windows)]
 static CLAUDE_APP: AtomicU32 = AtomicU32::new(0);
 
+/// The Claude desktop app's main process, if it is running.
+#[cfg(windows)]
+pub fn claude_app() -> Option<u32> {
+    match CLAUDE_APP.load(Ordering::SeqCst) {
+        0 => win::find_claude_app(),
+        pid => Some(pid),
+    }
+}
+
 /// Follows the Claude desktop app's process: when it ends, the app has quit (closing
 /// its window may only send it to the tray). Waiting on the process costs nothing.
 #[cfg(windows)]

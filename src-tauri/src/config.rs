@@ -108,6 +108,8 @@ pub struct Config {
     pub chatty: bool,
     /// Show Allow/Deny bubbles for Claude Code permission requests.
     pub bubbles: bool,
+    /// Show the first line of what Claude says above the pet while it works.
+    pub replies: bool,
     pub sleep_enabled: bool,
     pub sleep_windows: Vec<SleepWindow>,
     /// Minutes without keyboard/mouse input before the pet starts amusing itself.
@@ -133,6 +135,7 @@ impl Default for Config {
             birthday: String::new(),
             chatty: true,
             bubbles: true,
+            replies: true,
             sleep_enabled: true,
             sleep_windows: vec![
                 SleepWindow { start: "13:00".into(), end: "14:00".into() },

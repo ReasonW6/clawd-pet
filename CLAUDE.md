@@ -43,9 +43,12 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
 - `hooks.rs` 往 `~/.claude/settings.json` 写 `type: "http"` 的 hook（先备份为 `settings.json.clawd-pet.bak`）。它只识别、删改 URL 以 `http://127.0.0.1:23490/clawd-pet/` 开头的条目。
 - `server.rs` 是手写在 std 上的 HTTP 服务：
-  - `/clawd-pet/event` 立即应答。转发给前端的 `hook-event` 只带 `EVENT_FIELDS` 里列出的字段、`tool_input.command` 和后端加的 `_entry` / `_title`；prompt、文件内容、回复正文都不转发。`pet.js` 要读新字段时，先把它加进 `EVENT_FIELDS`。
+  - `/clawd-pet/event` 立即应答。转发给前端的 `hook-event` 只带 `EVENT_FIELDS` 里列出的字段、`tool_input.command` 和后端加的 `_entry` / `_title`；prompt、文件内容、回复正文都不转发（回复只有 `transcript.rs` 读出的第一行，见下）。`pet.js` 要读新字段时，先把它加进 `EVENT_FIELDS`。
   - `/clawd-pet/permission` 一直挂着连接，直到前端调用 `resolve_permission`，或者 Claude Code 断开连接（用户在原界面先作答了），断开时发 `permission-closed`。`permission-request` 带的是完整的请求内容，气泡要显示 `tool_input`。
-- 中断（Esc、Desktop 停止按钮）不触发任何 hook，Desktop 也收不到 `idle_prompt`。`transcript.rs` 从 `UserPromptSubmit` 到 `Stop` 之间监听该会话的 transcript，读到 `[Request interrupted by user` 开头的用户消息，就发出一个合成的 `hook-event`，`hook_event_name` 为 `Interrupt`。
+- `transcript.rs` 从 `UserPromptSubmit` 到 `Stop` 之间监听该会话的 transcript，补上 hook 不报的两样东西，都作为合成的 `hook-event` 发出：
+  - `Interrupt`：中断（Esc、Desktop 停止按钮）不触发任何 hook，Desktop 也收不到 `idle_prompt`；读到 `[Request interrupted by user` 开头的用户消息就发。
+  - `Reply`：Claude 每写完一个文本块，transcript 就追加一条 assistant 记录；只取第一行（去掉 Markdown 记号，截到 80 字）放进 `text`。这是唯一转发的回复内容，设置里的 `replies` 关掉时不读。收到 `Stop` 时先把文件再读一遍再停止监听，最后一句才不会漏，所以 `Reply` 总在 `Stop` 之前到前端。
+- 点完成气泡切到桌面版会话（`claude_app.rs`）：桌面版的 `claude://code/<id>` 被功能开关关着，要的也是应用内部的 id，所以用 UI Automation 在它的侧边栏里按会话标题找 Invoke 按钮去点（行的名字是「标题」或「标题 运行中」这样带状态的）。依赖 `windows` crate（和 tauri 用的同一版本），只用于这里的 COM 调用；其余 Win32 调用仍用 `windows-sys`。`SetForegroundWindow` 只在桌宠刚被点过、自己是前台时才管用，所以 `focus_claude` 要在点击处理里同步调用，不能等。
 
 ### 前端（`ui/`）
 

@@ -55,7 +55,7 @@ body {
   left: 8px;
   right: 8px;
   /* Just above the drawing, with room for the bubble's tail. */
-  bottom: calc(var(--label-space) + var(--size) * (1 - var(--content-top)) + 12px);
+  bottom: calc(var(--label-space) + var(--size) * (1 - var(--content-top)) + 16px);
   display: flex;
   justify-content: center;
   align-items: flex-end;
@@ -74,26 +74,29 @@ body {
   max-width: 300px;
   max-height: 100%;
   box-sizing: border-box;
-  padding: 8px 12px;
+  padding: 9px 14px;
   background: var(--paper);
   border: 2px solid var(--ink);
-  border-radius: 10px;
-  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.18);
+  border-radius: 18px;
+  /* A filter rather than box-shadow, so the tail gets the shadow too. */
+  filter: drop-shadow(2px 3px 0 rgba(0, 0, 0, 0.13));
   pointer-events: auto;
+  /* Pops out of, and shrinks back into, the tail. */
+  transform-origin: calc(100% - 40px) 100%;
   animation: pop 0.18s ease-out;
 }
 
+/* A soft curved tail on the right, its tip bending back towards the pet. It covers
+   the bubble's bottom border where they join. */
 #bubble::after {
   content: "";
   position: absolute;
-  left: 50%;
-  bottom: -9px;
-  width: 12px;
-  height: 12px;
-  background: var(--paper);
-  border-right: 2px solid var(--ink);
-  border-bottom: 2px solid var(--ink);
-  transform: translateX(-50%) rotate(45deg);
+  right: 28px;
+  bottom: -16px;
+  width: 20px;
+  height: 18px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 18'%3E%3Cpath d='M5 0V2C6 7 5 12 1.5 16.5C9 15 15.5 9.5 19 2V0Z' fill='%23fffaf3'/%3E%3Cpath d='M5 2C6 7 5 12 1.5 16.5C9 15 15.5 9.5 19 2' fill='none' stroke='%232b2b2b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    no-repeat;
 }
 
 #bubble[hidden],
@@ -117,6 +120,104 @@ body {
   line-height: 1.5;
   word-break: break-word;
   cursor: pointer;
+}
+
+/* What Claude just said: one line, two at most. */
+.speech {
+  position: relative;
+  max-width: 250px;
+  padding-right: 18px;
+  cursor: default;
+}
+
+/* Folds the words away into the dot by the status line. */
+.speech .fold {
+  position: absolute;
+  top: -3px;
+  right: -8px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.speech .fold::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 9px;
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: #9a9a9a;
+}
+
+.speech .fold:hover {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.speech .fold:hover::before {
+  background: var(--ink);
+}
+
+.speech.done {
+  cursor: pointer;
+}
+
+.speech .who {
+  color: #8a8a8a;
+  font-size: 11px;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.speech .line {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.speech .text {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  word-break: break-word;
+}
+
+.speech .tick {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--clawd);
+  color: #fff;
+  font-size: 11px;
+  font-weight: bold;
+  line-height: 18px;
+  text-align: center;
+  margin-bottom: 1px;
+}
+
+/* Shrinks down into the pet. */
+#bubble.leaving {
+  animation: shrink 0.32s ease-in forwards;
+  pointer-events: none;
+}
+
+@keyframes shrink {
+  to {
+    transform: translateY(24px) scale(0.1);
+    opacity: 0;
+  }
 }
 
 .perm {
@@ -226,12 +327,20 @@ body {
   text-decoration: underline;
 }
 
-#label {
+/* The status line under the pet, and next to it the dot that stands in for folded words. */
+#status {
   position: absolute;
   left: 50%;
   bottom: 10px;
   transform: translateX(-50%);
   max-width: calc(100% - 16px);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+#label {
+  min-width: 0;
   padding: 3px 10px;
   border-radius: 999px;
   background: rgba(43, 43, 43, 0.82);
@@ -240,4 +349,37 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* How many sessions have something going on; a click brings the words back. */
+#dot {
+  flex: none;
+  min-width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--clawd);
+  color: #fff;
+  font-size: 11px;
+  font-weight: bold;
+  line-height: 20px;
+  text-align: center;
+  cursor: pointer;
+  animation: dot-in 0.22s ease-out;
+}
+
+#dot:hover {
+  background: #ea8c5e;
+}
+
+#dot[hidden] {
+  display: none;
+}
+
+@keyframes dot-in {
+  from {
+    transform: scale(0.3);
+    opacity: 0;
+  }
 }

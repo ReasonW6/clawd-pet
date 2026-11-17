@@ -157,11 +157,12 @@ const claude = section(
     row({ when: "API 出错，这一轮中止", how: "<code>StopFailure</code>（限流、服务器错误等）。", play: ["force", 3000], say: "呜…出错了（错误类型）", code: "ANIMS.apiError", slugs: ANIMS.apiError }),
 
     sub("完成"),
-    row({ when: "Claude 答完了", how: "<code>Stop</code>，耗时不到 5 分钟。气泡总会弹；动画只在没有别的会话在忙时播。", play: ["polite", 2600], say: "项目名 搞定啦～", code: "ANIMS.done", slugs: ANIMS.done }),
+    row({ when: "Claude 答完了", how: "<code>Stop</code>，耗时不到 5 分钟。开着「头顶显示对话进度」时，气泡换成 Claude 最后一句话的第一行加一个勾，动画和气泡一起留 15 秒，这期间点气泡或小螃蟹会切到桌面版里的这个会话，然后气泡缩回去；关着时弹「搞定啦」，动画播 2.6 秒。动画只在没有别的会话在忙时播。", play: ["polite", 2600], say: "项目名 搞定啦～", code: "ANIMS.done", slugs: ANIMS.done }),
     row({ when: "长任务完成", how: "<code>Stop</code>，耗时 5 分钟以上。", play: ["polite", 3500], say: "项目名 跑了 N 分钟，终于搞定啦！", code: "ANIMS.bigDone", slugs: ANIMS.bigDone }),
     row({ when: "睡眠时段里完成", how: "<code>Stop</code> 时正处在睡眠时段。", play: ["polite", 2500], say: "项目名 搞定…困了 💤", code: "ANIMS.sleepyDone", slugs: ANIMS.sleepyDone }),
     row({ when: "你中途叫停", how: "按 Esc 或 Desktop 的停止按钮。中断不触发 <code>Stop</code>，桌宠从会话记录（transcript）里读到中断标记后回到待命；动画只在没有别的会话在忙时播。", play: ["polite", 2000], code: "ANIMS.interrupted", slugs: ANIMS.interrupted }),
-    `<div class="note">完成之后的余韵：任务跑了 1 分钟以上，它会开心 3 分钟；长任务完成会得意 5 分钟（见「它自己的生活 → 情绪」）。如果完成时键鼠已经一阵没动静，「搞定啦」的气泡会一直留着，等你碰了电脑它再提醒一次「已经搞定啦，快去看看～」。</div>`,
+    `<div class="note">干活时的头顶气泡：开着「头顶显示对话进度」时，Claude 每说完一段话（会话记录里多一条），气泡就换成那段话的第一行；几个会话同时在忙时，上面加一行会话名。点气泡右上角的「－」收起，小螃蟹下方的状态标签右边多一个圆点，数字是在忙或刚说完话的会话数，点它再展开；收起状态一直保持到你点圆点。长任务完成和睡眠时段里完成也一样走完成气泡（各自的动画留 15 秒）。</div>`,
+    `<div class="note">完成之后的余韵：任务跑了 1 分钟以上，它会开心 3 分钟；长任务完成会得意 5 分钟（见「它自己的生活 → 情绪」）。如果完成时键鼠已经一阵没动静，「搞定啦」的气泡会一直留着（开着对话进度时则是完成气泡照常 15 秒后收起），等你碰了电脑它再提醒一次「已经搞定啦，快去看看～」。</div>`,
     `<div class="note">没有动画的情况：会话超过 30 分钟没有任何事件，会当作已结束，直接回到待命。</div>`,
   ],
 );

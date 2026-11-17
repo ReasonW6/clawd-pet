@@ -1,13 +1,17 @@
-//! Spots interrupts (Esc, or the Desktop app's stop button). They fire no hook:
-//! Claude Code only records a "[Request interrupted by user…]" user message in the
-//! session transcript. A session's transcript is watched from its UserPromptSubmit
-//! until its turn ends, and only the bytes appended since are read.
+//! Follows a session's transcript from its UserPromptSubmit until its turn ends,
+//! reading only the bytes appended since, for what no hook reports:
+//! - interrupts (Esc, or the Desktop app's stop button): Claude Code only records a
+//!   "[Request interrupted by user…]" user message;
+//! - what Claude says along the way: each text block of a reply is appended as soon
+//!   as it is complete. Only its first line goes to the pet, and only while the user
+//!   has that turned on.
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
@@ -18,11 +22,21 @@ const TITLE_TAIL: u64 = 512 * 1024;
 const TITLE_HEAD: u64 = 64 * 1024;
 /// A session without a title yet is looked at again this often, on any event.
 const UNTITLED_RECHECK: Duration = Duration::from_secs(10);
+/// How much of a reply's first line is passed on; the bubble cuts it shorter.
+const REPLY_CHARS: usize = 80;
+
+/// Pass on what Claude says (`Config::replies`).
+static REPLIES: AtomicBool = AtomicBool::new(true);
+
+pub fn show_replies(on: bool) {
+    REPLIES.store(on, Ordering::SeqCst);
+}
 
 /// normalised transcript path -> (session id, bytes already read)
 type Files = Arc<Mutex<HashMap<String, (String, u64)>>>;
 
 struct State {
+    app: AppHandle,
     files: Files,
     watcher: Mutex<RecommendedWatcher>,
 }
@@ -88,6 +102,7 @@ fn last_title(buf: &[u8]) -> Option<String> {
 pub fn init(app: AppHandle) {
     let files: Files = Default::default();
     let f = files.clone();
+    let a = app.clone();
     let Ok(watcher) = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(e) = res else { return };
         if !matches!(e.kind, EventKind::Modify(_)) {
@@ -96,17 +111,27 @@ pub fn init(app: AppHandle) {
         for path in &e.paths {
             let mut files = f.lock().unwrap();
             let Some((session, offset)) = files.get_mut(&key(path)) else { continue };
-            if let Some(ts) = scan(path, offset) {
-                let _ = app.emit(
-                    "hook-event",
-                    json!({ "hook_event_name": "Interrupt", "session_id": session, "timestamp": ts }),
-                );
-            }
+            report(&a, session, scan(path, offset));
         }
     }) else {
         return;
     };
-    let _ = STATE.set(State { files, watcher: Mutex::new(watcher) });
+    let _ = STATE.set(State { app, files, watcher: Mutex::new(watcher) });
+}
+
+fn report(app: &AppHandle, session: &str, found: Found) {
+    if let Some((text, ts)) = found.reply {
+        let _ = app.emit(
+            "hook-event",
+            json!({ "hook_event_name": "Reply", "session_id": session, "text": text, "timestamp": ts }),
+        );
+    }
+    if let Some(ts) = found.interrupt {
+        let _ = app.emit(
+            "hook-event",
+            json!({ "hook_event_name": "Interrupt", "session_id": session, "timestamp": ts }),
+        );
+    }
 }
 
 /// Called with every hook event.
@@ -126,7 +151,11 @@ pub fn on_hook(p: &Value) {
             }
         }
         "Stop" | "StopFailure" | "SessionEnd" => {
-            if st.files.lock().unwrap().remove(&key(&path)).is_some() {
+            let removed = st.files.lock().unwrap().remove(&key(&path));
+            if let Some((session, mut offset)) = removed {
+                // The reply's last words are written just before Stop, and the watcher
+                // may not have reported them yet. This runs before Stop reaches the pet.
+                report(&st.app, &session, scan(&path, &mut offset));
                 let _ = st.watcher.lock().unwrap().unwatch(&path);
             }
         }
@@ -139,9 +168,37 @@ fn key(path: &Path) -> String {
     path.to_string_lossy().replace('/', "\\").to_lowercase()
 }
 
-/// Reads the complete lines appended since `offset`; returns the timestamp of an
-/// interrupt among them.
-fn scan(path: &Path, offset: &mut u64) -> Option<String> {
+#[derive(Default)]
+struct Found {
+    /// The first line of the latest thing Claude said, and when.
+    reply: Option<(String, String)>,
+    /// When the turn was interrupted.
+    interrupt: Option<String>,
+}
+
+/// Looks through the complete lines appended since `offset`.
+fn scan(path: &Path, offset: &mut u64) -> Found {
+    let mut found = Found::default();
+    let Some(text) = read_from(path, offset) else { return found };
+    let replies = REPLIES.load(Ordering::SeqCst);
+    for l in text.lines() {
+        let interrupt = l.contains(MARKER);
+        let reply = replies && l.contains(r#""assistant""#) && l.contains(r#""text""#);
+        if !interrupt && !reply {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(l) else { continue };
+        let ts = || v["timestamp"].as_str().unwrap_or_default().to_string();
+        if interrupt && is_interrupt(&v) {
+            found.interrupt = Some(ts());
+        } else if let Some(line) = reply.then(|| said(&v)).flatten() {
+            found.reply = Some((line, ts()));
+        }
+    }
+    found
+}
+
+fn read_from(path: &Path, offset: &mut u64) -> Option<String> {
     let mut file = std::fs::File::open(path).ok()?;
     let len = file.metadata().ok()?.len();
     if len < *offset {
@@ -152,13 +209,27 @@ fn scan(path: &Path, offset: &mut u64) -> Option<String> {
     file.take(len - *offset).read_to_end(&mut buf).ok()?;
     let complete = buf.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
     *offset += complete as u64;
-    String::from_utf8_lossy(&buf[..complete])
-        .lines()
-        .filter(|l| l.contains(MARKER))
-        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
-        .filter(is_interrupt)
-        .last()
-        .and_then(|v| v["timestamp"].as_str().map(str::to_string))
+    Some(String::from_utf8_lossy(&buf[..complete]).into_owned())
+}
+
+/// The first line of text in a main-thread assistant message, without Markdown marks.
+fn said(v: &Value) -> Option<String> {
+    if v["type"] != "assistant" || v["isSidechain"] == true {
+        return None;
+    }
+    let content = v["message"]["content"].as_array()?;
+    let text = content.iter().rev().find(|i| i["type"] == "text")?["text"].as_str()?;
+    let line = text.lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with("```"))?;
+    let line = line.trim_start_matches(['#', '>', '-', '*', ' ']).replace("**", "").replace('`', "");
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+    let mut out: String = line.chars().take(REPLY_CHARS).collect();
+    if line.chars().count() > REPLY_CHARS {
+        out.push('…');
+    }
+    Some(out)
 }
 
 /// A main-thread user message whose text starts with the marker. The plain substring
