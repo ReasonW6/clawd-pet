@@ -105,6 +105,10 @@ mod imp {
         let buttons = uia.CreatePropertyCondition(UIA_ControlTypePropertyId, &VARIANT::from(UIA_ButtonControlTypeId.0))?;
         let all = root.FindAll(TreeScope_Descendants, &buttons)?;
         let row = format!("{title} ");
+        // Another session's title may start with this one ("Fix bug in parser" for
+        // "Fix bug"): an exact name wins, otherwise the shortest, which leaves the
+        // least room for anything but a status.
+        let mut best: Option<(usize, IUIAutomationInvokePattern)> = None;
         for i in 0..all.Length()? {
             let e = all.GetElement(i)?;
             let name = e.CurrentName()?.to_string();
@@ -112,11 +116,20 @@ mod imp {
             if name != title && !(name.starts_with(&row) && !name.ends_with("的更多选项")) {
                 continue;
             }
+            if best.as_ref().is_some_and(|(len, _)| *len <= name.len()) {
+                continue;
+            }
             if let Ok(invoke) = e.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId) {
-                invoke.Invoke()?;
-                return Ok(true);
+                if name == title {
+                    invoke.Invoke()?;
+                    return Ok(true);
+                }
+                best = Some((name.len(), invoke));
             }
         }
-        Ok(false)
+        match best {
+            Some((_, invoke)) => invoke.Invoke().map(|_| true),
+            None => Ok(false),
+        }
     }
 }
