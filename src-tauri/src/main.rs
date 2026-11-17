@@ -3,6 +3,7 @@
 mod autostart;
 mod claude_app;
 mod config;
+mod desktop_sessions;
 mod git;
 mod hooks;
 mod server;

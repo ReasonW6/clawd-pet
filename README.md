@@ -31,7 +31,8 @@ Claude Code HTTP hooks ──POST──▶ 127.0.0.1:23490 (Rust) ──event─
 - 联动会往 `~/.claude/settings.json` 写入一组 `type: "http"` 的 hook（写之前备份为 `settings.json.clawd-pet.bak`），只识别并删改 URL 以 `http://127.0.0.1:23490/clawd-pet/` 开头的条目，不碰其他 hook。
 - 请求头 `X-Clawd-Entry` 带上 `$CLAUDE_CODE_ENTRYPOINT`，用来区分终端（`cli`）、Desktop（`claude-desktop`）和 VS Code 会话。
 - 审批气泡和小螃蟹下方的标签显示会话标题（Desktop 侧边栏里的名字，或 `/rename` 起的名字，读自 transcript 里的 `custom-title`）；没有标题时显示「来源 · 项目名」。
-- `PermissionRequest` 会挂起连接，等你在气泡里点「允许 / 总是允许 / 拒绝」；如果你在终端或 Desktop 里先作答，Claude Code 会断开连接，气泡自动消失。`AskUserQuestion` / `ExitPlanMode` 始终交给原界面。
+- `PermissionRequest` 会挂起连接，等你在气泡里点「允许 / 总是允许 / 拒绝」；如果你在终端里先作答，Claude Code 会断开连接，气泡自动消失。Desktop 里作答不会断开连接，桌宠看后面发生的事：允许了，等那次调用跑完时收起；拒绝了，在会话记录里看到那次调用的结果时收起；这一轮结束或被叫停时也会收起。`AskUserQuestion` / `ExitPlanMode` 始终交给原界面。
+- 从一个会话开出去的会话（Desktop 的 /btw 分支、另开的侧会话）在 Claude Code 里各是一个会话，桌宠从 Desktop 自己的会话记录（`claude-code-sessions` 下的 `local_*.json`）里读出它的来源，把它归到来源会话名下：标签显示来源会话的标题加「分支 ×N」，一家子都停下才算完成。
 - 头顶的对话进度：Claude 每说完一段话，会话记录（transcript）里就多一条，桌宠读出它的第一行放进头顶气泡。完成时最后那句话打上勾，连同完成动画留 15 秒；这期间点气泡或小螃蟹，会把 Claude 桌面版叫到前台并切到那个会话，之后气泡缩回小螃蟹身上。气泡右上角的「－」可以随时收起它，收起后小螃蟹下方的状态标签右边多一个圆点，数字是正在忙或刚说完话的会话数，点圆点再展开。只有这一行文字会读出来，全部在本机；设置里「头顶显示对话进度」可以关掉，关掉后完成时只弹「搞定啦」。
 - 切到会话：桌面版没有能打开指定 Code 会话的链接（`claude://code/<id>` 要的是应用内部的 id），所以桌宠通过 Windows 的 UI Automation 在侧边栏里按标题找到那一行并点它。侧边栏收起、或会话所在的分组折叠时找不到，就只把窗口叫到前台；桌面版没开时用 `claude://code` 启动它。
 - 桌宠没运行时，hook 连接会立刻失败，Claude Code 按原流程继续，不受影响。
@@ -139,6 +140,7 @@ python ../clawd-400-src/lint.py scenes/claude.py
 | [`ui/pet.js`](ui/pet.js) | 状态机：会话状态、场景调度、情绪、睡眠、互动、气泡 |
 | [`ui/settings.html`](ui/settings.html) | 设置窗口（性格 / 作息 / Claude 联动 / 系统联动 / 动画图鉴） |
 | [`src-tauri/src/server.rs`](src-tauri/src/server.rs) | 接收 hook 的本地 HTTP 服务，挂起权限请求 |
+| [`src-tauri/src/desktop_sessions.rs`](src-tauri/src/desktop_sessions.rs) | 从 Desktop 的会话记录里找出一个会话是从哪个会话开出来的 |
 | [`src-tauri/src/sysmon.rs`](src-tauri/src/sysmon.rs) | 系统联动：文件夹和回收站监听、前台窗口事件、系统状态轮询 |
 | [`src-tauri/src/git.rs`](src-tauri/src/git.rs) | Git 操作感知：安装 / 卸载 trace2 配置，读取 git 上报的命令 |
 | [`src-tauri/src/hooks.rs`](src-tauri/src/hooks.rs) | 安装 / 卸载 Claude Code hook |

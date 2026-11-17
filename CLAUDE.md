@@ -44,10 +44,18 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 - `hooks.rs` 往 `~/.claude/settings.json` 写 `type: "http"` 的 hook（先备份为 `settings.json.clawd-pet.bak`）。它只识别、删改 URL 以 `http://127.0.0.1:23490/clawd-pet/` 开头的条目。
 - `server.rs` 是手写在 std 上的 HTTP 服务：
   - `/clawd-pet/event` 立即应答。转发给前端的 `hook-event` 只带 `EVENT_FIELDS` 里列出的字段、`tool_input.command` 和后端加的 `_entry` / `_title`；prompt、文件内容、回复正文都不转发（回复只有 `transcript.rs` 读出的第一行，见下）。`pet.js` 要读新字段时，先把它加进 `EVENT_FIELDS`。
-  - `/clawd-pet/permission` 一直挂着连接，直到前端调用 `resolve_permission`，或者 Claude Code 断开连接（用户在原界面先作答了），断开时发 `permission-closed`。`permission-request` 带的是完整的请求内容，气泡要显示 `tool_input`。
-- `transcript.rs` 从 `UserPromptSubmit` 到 `Stop` 之间监听该会话的 transcript，补上 hook 不报的两样东西，都作为合成的 `hook-event` 发出：
+  - `/clawd-pet/permission` 一直挂着连接，直到前端调用 `resolve_permission`，或者用户在原界面先作答了，这时发 `permission-closed`。`permission-request` 带的是完整的请求内容，气泡要显示 `tool_input`。
+  - 终端里在原界面作答，Claude Code 会断开连接。桌面版不会：它让钩子和应用内的弹窗同时跑，用户在应用里答完也不取消钩子，连接要挂到超时。所以要从后面发生的事看出请求已经答过了：
+    - 对应到具体调用：PermissionRequest 不带 `tool_use_id`，紧挨在它前面的 `PreToolUse` 带。`Shared::observe` 记下最近的 `PreToolUse`，请求到来时按会话、子代理 `agent_id`、工具名和输入认领一个（`claim`）。之后同一个 `tool_use_id` 的 `PostToolUse` / `PostToolUseFailure` 到了，就放掉请求。
+    - 在应用里拒绝并留言时，这一轮接着跑，没有任何 hook；`transcript.rs` 看到那次调用的 `tool_result`（`"tool_use_id":"…"`）就调 `server::answered`。中断时调 `server::interrupted`。
+    - 这一轮结束也放掉（`Stop`、`SubagentStop`、`UserPromptSubmit`，只放同一个线程的；`SessionEnd` 放掉整个会话的）。
+    - `/event` 先 `observe` 再回包：Claude Code 等着这个回包，所以下一个请求不会抢在这个事件之前。
+    - `permission-closed` 带 `answered`：只是等满超时放弃的为 false，这时 Claude Code 还在原界面等着，前端保持「等你确认」。
+- `transcript.rs` 从一轮的第一个事件到 `Stop` 之间监听该会话的 transcript，补上 hook 不报的两样东西，都作为合成的 `hook-event` 发出。不是每一轮都从 `UserPromptSubmit` 开始（后台任务回来、桌面版唤醒会话都会自己开一轮），所以 `PreToolUse` 等事件也会开始监听；`UserPromptSubmit` 则把读取位置挪到文件末尾，免得把上一轮的中断标记算进来。只有主线程的事件（不带 `agent_id`）会开始监听和挪位置。两小时既没有事件、文件也没写入的，就停止监听（桌面版退出时，会话没有 `Stop` 就没了）。
   - `Interrupt`：中断（Esc、Desktop 停止按钮）不触发任何 hook，Desktop 也收不到 `idle_prompt`；读到 `[Request interrupted by user` 开头的用户消息就发。
   - `Reply`：Claude 每写完一个文本块，transcript 就追加一条 assistant 记录；只取第一行（去掉 Markdown 记号，截到 80 字）放进 `text`。这是唯一转发的回复内容，设置里的 `replies` 关掉时不读。收到 `Stop` 时先把文件再读一遍再停止监听，最后一句才不会漏，所以 `Reply` 总在 `Stop` 之前到前端。
+- 子代理的事件带 `agent_id`（会话 id 和主线程一样）。子代理自己的 `UserPromptSubmit` 不算会话的新一轮；会话已经回到待命时，子代理的 `PreToolUse` / `PostToolUse` / `PostToolUseFailure` 也不再让它忙起来：后台子代理会比这一轮活得久，中断后也可能还有零星事件。
+- 嵌套会话（`desktop_sessions.rs`）：桌面版的 /btw 分支、侧会话在 Claude Code 里是独立的会话，hook 不带来源。桌面版自己的会话记录 `<数据目录>\claude-code-sessions\<账号>\<组织>\local_<应用 id>.json` 里有：`cliSessionId` 是 hook 里的 `session_id`，`spawnedFrom.sessionId` 是来源会话的应用 id。数据目录在商店版是 `%LOCALAPPDATA%\Claude-Data\<包名>`，否则是 `%APPDATA%\Claude`。`cliSessionId` 总在文件开头，所以只读每个文件的前 256 字节来找；还没有记录的会话，全部记录最多每 5 秒重新搜一遍。来源会话被 rewind 后 `cliSessionId` 会变，所以每 30 秒重读一次它的文件开头。找到的来源作为 `_parent` / `_parent_title` / `_parent_cwd` 加进事件。前端用 `rootOf` 把一家子归到最上面那个会话名下，一家子都停了才庆祝完成。用过桌面版开会话的工具（`SPAWN_TOOLS`）的那一轮，结束后先等 8 秒，让刚开的会话报到。这是桌面版的内部格式，读不到就当没有来源。
 - 点完成气泡切到桌面版会话（`claude_app.rs`）：桌面版的 `claude://code/<id>` 被功能开关关着，要的也是应用内部的 id，所以用 UI Automation 在它的侧边栏里按会话标题找 Invoke 按钮去点（行的名字是「标题」或「标题 运行中」这样带状态的）。依赖 `windows` crate（和 tauri 用的同一版本），只用于这里的 COM 调用；其余 Win32 调用仍用 `windows-sys`。`SetForegroundWindow` 只在桌宠刚被点过、自己是前台时才管用，所以 `focus_claude` 要在点击处理里同步调用，不能等。
 
 ### 前端（`ui/`）

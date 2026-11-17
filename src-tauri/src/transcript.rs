@@ -1,10 +1,12 @@
-//! Follows a session's transcript from its UserPromptSubmit until its turn ends,
-//! reading only the bytes appended since, for what no hook reports:
+//! Follows a session's transcript while a turn is under way, until its Stop, reading
+//! only the bytes appended since, for what no hook reports:
 //! - interrupts (Esc, or the Desktop app's stop button): Claude Code only records a
 //!   "[Request interrupted by user…]" user message;
 //! - what Claude says along the way: each text block of a reply is appended as soon
 //!   as it is complete. Only its first line goes to the pet, and only while the user
-//!   has that turned on.
+//!   has that turned on;
+//! - a tool call that is waiting for permission getting its result: in the Desktop
+//!   app the user may have answered there, denying with a note goes on with no hook.
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde_json::{json, Value};
@@ -24,6 +26,9 @@ const TITLE_HEAD: u64 = 64 * 1024;
 const UNTITLED_RECHECK: Duration = Duration::from_secs(10);
 /// How much of a reply's first line is passed on; the bubble cuts it shorter.
 const REPLY_CHARS: usize = 80;
+/// A transcript with no hook event and no write for this long is let go: its session
+/// may have gone without a Stop, e.g. with the Desktop app quitting.
+const FORGET_AFTER: Duration = Duration::from_secs(2 * 60 * 60);
 
 /// Pass on what Claude says (`Config::replies`).
 static REPLIES: AtomicBool = AtomicBool::new(true);
@@ -32,8 +37,18 @@ pub fn show_replies(on: bool) {
     REPLIES.store(on, Ordering::SeqCst);
 }
 
-/// normalised transcript path -> (session id, bytes already read)
-type Files = Arc<Mutex<HashMap<String, (String, u64)>>>;
+/// A transcript being followed.
+struct Followed {
+    /// As it was watched.
+    path: PathBuf,
+    session: String,
+    /// Bytes already read.
+    offset: u64,
+    touched: Instant,
+}
+
+/// normalised transcript path -> the transcript being followed there
+type Files = Arc<Mutex<HashMap<String, Followed>>>;
 
 struct State {
     app: AppHandle,
@@ -110,8 +125,10 @@ pub fn init(app: AppHandle) {
         }
         for path in &e.paths {
             let mut files = f.lock().unwrap();
-            let Some((session, offset)) = files.get_mut(&key(path)) else { continue };
-            report(&a, session, scan(path, offset));
+            let Some(t) = files.get_mut(&key(path)) else { continue };
+            t.touched = Instant::now();
+            let found = scan(path, &t.session, &mut t.offset);
+            report(&a, &t.session, found);
         }
     }) else {
         return;
@@ -120,6 +137,9 @@ pub fn init(app: AppHandle) {
 }
 
 fn report(app: &AppHandle, session: &str, found: Found) {
+    for call in &found.answered {
+        crate::server::answered(call);
+    }
     if let Some((text, ts)) = found.reply {
         let _ = app.emit(
             "hook-event",
@@ -127,6 +147,7 @@ fn report(app: &AppHandle, session: &str, found: Found) {
         );
     }
     if let Some(ts) = found.interrupt {
+        crate::server::interrupted(session);
         let _ = app.emit(
             "hook-event",
             json!({ "hook_event_name": "Interrupt", "session_id": session, "timestamp": ts }),
@@ -137,29 +158,72 @@ fn report(app: &AppHandle, session: &str, found: Found) {
 /// Called with every hook event.
 pub fn on_hook(p: &Value) {
     let Some(st) = STATE.get() else { return };
+    forget_stale(st);
     let Some(path) = p["transcript_path"].as_str().map(PathBuf::from) else { return };
+    let k = key(&path);
+    // A subagent's events carry the session's transcript too, but its prompt doesn't
+    // start a turn of the session, and one left in the background runs on after it.
+    let main = !p["agent_id"].is_string();
     match p["hook_event_name"].as_str().unwrap_or_default() {
-        "UserPromptSubmit" => {
-            let end = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        // Not every turn starts with a prompt: a background task finishing, or the Desktop
+        // app waking a session, starts one too. A prompt reads on from there, so that a
+        // marker left over from before it isn't taken for this turn's.
+        ev @ ("UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "PreCompact") => {
             let session = p["session_id"].as_str().unwrap_or("default").to_string();
-            let fresh = st.files.lock().unwrap().insert(key(&path), (session, end)).is_none();
+            let restart = main && ev == "UserPromptSubmit";
+            let end = || std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let fresh = {
+                let mut files = st.files.lock().unwrap();
+                match files.get_mut(&k) {
+                    Some(t) => {
+                        t.touched = Instant::now();
+                        if restart {
+                            t.offset = end();
+                            t.session = session;
+                        }
+                        false
+                    }
+                    None if main => {
+                        let t = Followed { path: path.clone(), session, offset: end(), touched: Instant::now() };
+                        files.insert(k.clone(), t);
+                        true
+                    }
+                    None => false,
+                }
+            };
             // Never call into the watcher while holding `files`: its callback takes that lock.
             // A failed watch (e.g. the file doesn't exist yet) must not leave the entry
-            // behind, or later prompts would never retry.
+            // behind, or later events would never retry.
             if fresh && st.watcher.lock().unwrap().watch(&path, RecursiveMode::NonRecursive).is_err() {
-                st.files.lock().unwrap().remove(&key(&path));
+                st.files.lock().unwrap().remove(&k);
             }
         }
         "Stop" | "StopFailure" | "SessionEnd" => {
-            let removed = st.files.lock().unwrap().remove(&key(&path));
-            if let Some((session, mut offset)) = removed {
+            let removed = st.files.lock().unwrap().remove(&k);
+            if let Some(mut t) = removed {
                 // The reply's last words are written just before Stop, and the watcher
                 // may not have reported them yet. This runs before Stop reaches the pet.
-                report(&st.app, &session, scan(&path, &mut offset));
-                let _ = st.watcher.lock().unwrap().unwatch(&path);
+                report(&st.app, &t.session, scan(&path, &t.session, &mut t.offset));
+                let _ = st.watcher.lock().unwrap().unwatch(&t.path);
             }
         }
         _ => {}
+    }
+}
+
+/// Lets go of transcripts whose session went quiet without a Stop.
+fn forget_stale(st: &State) {
+    let stale: Vec<PathBuf> = {
+        let mut files = st.files.lock().unwrap();
+        let keys: Vec<String> = files.iter().filter(|(_, t)| t.touched.elapsed() > FORGET_AFTER).map(|(k, _)| k.clone()).collect();
+        keys.iter().filter_map(|k| files.remove(k)).map(|t| t.path).collect()
+    };
+    if stale.is_empty() {
+        return;
+    }
+    let mut watcher = st.watcher.lock().unwrap();
+    for path in stale {
+        let _ = watcher.unwatch(&path);
     }
 }
 
@@ -174,14 +238,26 @@ struct Found {
     reply: Option<(String, String)>,
     /// When the turn was interrupted.
     interrupt: Option<String>,
+    /// Calls waiting for permission that got their result.
+    answered: Vec<String>,
 }
 
 /// Looks through the complete lines appended since `offset`.
-fn scan(path: &Path, offset: &mut u64) -> Found {
+fn scan(path: &Path, session: &str, offset: &mut u64) -> Found {
     let mut found = Found::default();
     let Some(text) = read_from(path, offset) else { return found };
     let replies = REPLIES.load(Ordering::SeqCst);
+    // A result names its call this way; the call itself has it as "id".
+    let asking: Vec<(String, String)> = crate::server::asking(session)
+        .into_iter()
+        .map(|call| (format!(r#""tool_use_id":"{call}""#), call))
+        .collect();
     for l in text.lines() {
+        for (needle, call) in &asking {
+            if l.contains(needle.as_str()) && !found.answered.contains(call) {
+                found.answered.push(call.clone());
+            }
+        }
         let interrupt = l.contains(MARKER);
         let reply = replies && l.contains(r#""assistant""#) && l.contains(r#""text""#);
         if !interrupt && !reply {

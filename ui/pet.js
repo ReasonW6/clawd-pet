@@ -40,6 +40,10 @@ const STREAK_MAX = 3;
 const LONELY_AFTER_MS = 15 * MIN;
 /** How long a finished turn's last words (and the done animation) stay up. */
 const DONE_SHOW_MS = 15 * 1000;
+/** Desktop app tools that start another session, and how long a turn that used one
+ *  waits for that session to report in before it counts as done. */
+const SPAWN_TOOLS = /^mcp__ccd_session__(start_session|hand_off_to_session)$/;
+const SPAWN_GRACE_MS = 8 * 1000;
 const SLEEPY_BEFORE_BED_MS = 30 * MIN;
 
 /** Picks from a list, or from a { key: weight } map by weight. */
@@ -139,7 +143,7 @@ function playOnce(slug, { force = false, minMs = 1800, then, life = false } = {}
 
 const BUSY_RANK = { waiting: 5, compacting: 4, working: 3, thinking: 2, idle: 0 };
 
-/** session_id -> { id, entry, cwd, title, state, cat, anim, waitAnim, waitSince, waitUntil, compactSince, subagents, fails, turnStart, nextBreak, t } */
+/** session_id -> { id, entry, cwd, title, parent, parentTitle, state, cat, anim, waitAnim, waitSince, waitUntil, compactSince, subagents, fails, turnStart, nextBreak, t } */
 const sessions = new Map();
 /** Pending permission requests: { id, payload }. */
 const perms = [];
@@ -167,14 +171,37 @@ function session(p) {
   const id = p.session_id || "default";
   let s = sessions.get(id);
   if (!s) {
-    s = { id, entry: "", cwd: "", title: "", state: "idle", cat: null, anim: null, waitAnim: null, waitSince: 0, waitUntil: 0, compactSince: 0, subagents: 0, fails: 0, turnStart: 0, nextBreak: 0, reply: "", t: now() };
+    s = { id, entry: "", cwd: "", title: "", parent: "", parentTitle: "", parentCwd: "", spawnedAt: 0, state: "idle", cat: null, anim: null, waitAnim: null, waitSince: 0, waitUntil: 0, compactSince: 0, subagents: 0, fails: 0, turnStart: 0, nextBreak: 0, reply: "", t: now() };
     sessions.set(id, s);
   }
   if (p._entry) s.entry = p._entry;
   if (p.cwd) s.cwd = p.cwd;
   if (p._title) s.title = p._title;
+  if (p._parent) {
+    s.parent = p._parent;
+    s.parentTitle = p._parent_title || "";
+    s.parentCwd = p._parent_cwd || "";
+    // Its sidebar title, until the parent's own transcript gives one.
+    const up = sessions.get(s.parent);
+    if (up && !up.title) up.title = s.parentTitle;
+  }
   s.t = now();
   return s;
+}
+
+/** A session started from another in the desktop app (a /btw fork, a session another
+ *  one started) counts as part of that one: this is the session at the top. */
+function rootOf(s) {
+  for (let i = 0; s.parent && i < 8; i++) {
+    s = sessions.get(s.parent) || { id: s.parent, entry: s.entry, cwd: s.parentCwd, title: s.parentTitle, state: "idle" };
+  }
+  return s;
+}
+
+/** Busy sessions of the same family as `s`, other than `s`. */
+function busyKin(s) {
+  const root = rootOf(s).id;
+  return [...sessions.values()].filter((x) => x !== s && x.state !== "idle" && rootOf(x).id === root);
 }
 
 /** Where an automatic compaction leaves a session: back to the turn it interrupted,
@@ -227,9 +254,16 @@ function stir(ms) {
 
 const WAKING_EVENTS = new Set(["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "Stop", "StopFailure"]);
 
+/** What a subagent does that would make an idle session look busy. */
+const AGENT_ACTIVITY = new Set(["PreToolUse", "PostToolUse", "PostToolUseFailure"]);
+
 function onHook(p) {
   const ev = p.hook_event_name;
   const s = session(p);
+  // A subagent's own prompt isn't a new turn of the session. And one left running in
+  // the background, or still winding down after an interrupt, doesn't make a session
+  // that is done busy again.
+  if (p.agent_id && (ev === "UserPromptSubmit" || (s.state === "idle" && AGENT_ACTIVITY.has(ev)))) return;
   if (WAKING_EVENTS.has(ev) && stir(AWAKE_AFTER_WORK_MS)) {
     playOnce(pick(ANIMS.wakeStartled), { force: true, minMs: 1000 });
   }
@@ -275,6 +309,7 @@ function onHook(p) {
       break;
     }
     case "PostToolUse":
+      if (SPAWN_TOOLS.test(p.tool_name)) s.spawnedAt = now();
       if (s.state === "waiting") {
         s.state = "working";
         if (p.tool_name === "AskUserQuestion") playOnce(pick(ANIMS.answered), { force: true, minMs: 1500 });
@@ -369,10 +404,32 @@ function onHook(p) {
 
 function onTurnDone(s) {
   const took = s.turnStart ? now() - s.turnStart : 0;
-  const name = projectName(s);
   s.state = "idle";
   s.subagents = 0;
   s.turnStart = 0;
+  // A session it just started in the desktop app takes a moment to report in: give it
+  // that before telling whether the family is done.
+  const grace = s.spawnedAt + SPAWN_GRACE_MS - now();
+  s.spawnedAt = 0;
+  if (grace > 0) {
+    setTimeout(() => {
+      if (s.state !== "idle" || sessions.get(s.id) !== s) return; // it went on meanwhile
+      familyDone(s, took);
+      render();
+    }, grace);
+    return;
+  }
+  familyDone(s, took);
+}
+
+function familyDone(s, took) {
+  const name = projectName(rootOf(s));
+  // Sessions started from one another are done when all of them are; till then only
+  // its last words show.
+  if (busyKin(s).length) {
+    if (config.replies && s.reply) say(s, true);
+    return;
+  }
 
   let [text, ms, anims, minMs] = [`${name} 搞定啦～`, TOAST_MS, ANIMS.done, 2600];
   if (sleepWindowAt(new Date())) {
@@ -458,9 +515,11 @@ function unfold() {
   queueHitRects();
 }
 
-/** Sessions with something to say: those at work, and the one whose words are up. */
+/** Sessions with something to say: those at work, and the one whose words are up. A
+ *  session and those started from it count once. */
 function talkers() {
-  return [...sessions.values()].filter((s) => s.state !== "idle" || s.id === speech?.sid).length;
+  const busy = [...sessions.values()].filter((s) => s.state !== "idle" || s.id === speech?.sid);
+  return new Set(busy.map((s) => rootOf(s).id)).size;
 }
 
 function renderDot() {
@@ -840,7 +899,11 @@ function renderLabel() {
   const lead = leader();
   let text = "";
   if (lead) {
-    text = `${sessionName(lead)} · ${stateText(lead)}`;
+    // Under the name of the session at the top of its family, with how many of those
+    // started from it are busy.
+    const root = rootOf(lead);
+    const forks = busyKin(root).length;
+    text = `${sessionName(root)} · ${stateText(lead)}${forks ? ` · 分支 ×${forks}` : ""}`;
   } else if (petHit.matches(":hover")) {
     // What the pet is up to on its own, and how it feels.
     text = asleep ? "睡觉中 💤" : [manifest[currentSlug]?.zh, MOODS[mood()]?.label].filter(Boolean).join(" · ");
@@ -1202,7 +1265,12 @@ async function boot() {
     render();
   });
   await listen("permission-closed", (e) => {
+    const req = perms.find((x) => x.id === e.payload.id);
     removePerm(e.payload.id);
+    // Answered in Claude Code itself: back to work, unless it is asking something else.
+    // When the bubble only gave up waiting, Claude Code is still asking there.
+    const s = req && sessions.get(req.payload.session_id);
+    if (e.payload.answered && s?.state === "waiting" && !perms.some((x) => x.payload.session_id === s.id)) s.state = "working";
     render();
   });
   await listen("user-event", (e) => onUserEvent(e.payload));

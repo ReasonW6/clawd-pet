@@ -141,7 +141,7 @@ const claude = section(
     row({ when: "任务跑了 5 分钟以上", how: "从你发消息算起超过 5 分钟还在忙，之后每 4 分钟来一次。", play: ["force", 3000], code: "ANIMS.longTask", slugs: ANIMS.longTask }),
 
     sub("需要你确认"),
-    row({ when: "Claude 请求权限（开着审批气泡）", how: "<code>PermissionRequest</code>。头顶弹出「拒绝 / 总是允许 / 允许」，直到你作答，或你在原界面答了。优先级仅次于被拎起来。", play: ["loop"], code: "ANIMS.permission", slugs: ANIMS.permission }),
+    row({ when: "Claude 请求权限（开着审批气泡）", how: "<code>PermissionRequest</code>。头顶弹出「拒绝 / 总是允许 / 允许」，直到你作答，或你在原界面答了：终端里答完马上收起；桌面版不告诉钩子，允许了要等那次调用跑完，拒绝了要等会话记录里出现它的结果，这一轮结束或被叫停时也收起。等满约 10 分钟气泡自己放弃，这时仍算等你确认。优先级仅次于被拎起来。", play: ["loop"], code: "ANIMS.permission", slugs: ANIMS.permission }),
     row({ when: "你在气泡里点了允许", how: "点「允许」或「总是允许」。", play: ["force", 1200], code: "ANIMS.allowed", slugs: ANIMS.allowed }),
     row({ when: "你在气泡里点了拒绝", how: "点「拒绝」。", play: ["force", 1800], code: "ANIMS.denied", slugs: ANIMS.denied }),
     row({ when: "要你去原界面作答", how: "气泡关着时的权限请求，或 <code>Notification</code> 的 permission_prompt / elicitation_dialog，直接是这个。提问、计划、填表先用下面各自的动画等着，约 45 秒还没回应、播完手头这一轮后才换成这个。", play: ["loop"], code: "ANIMS.waiting", slugs: ANIMS.waiting }),
@@ -160,9 +160,10 @@ const claude = section(
     row({ when: "Claude 答完了", how: "<code>Stop</code>，耗时不到 5 分钟。开着「头顶显示对话进度」时，气泡换成 Claude 最后一句话的第一行加一个勾，动画和气泡一起留 15 秒，这期间点气泡或小螃蟹会切到桌面版里的这个会话，然后气泡缩回去；关着时弹「搞定啦」，动画播 2.6 秒。动画只在没有别的会话在忙时播。", play: ["polite", 2600], say: "项目名 搞定啦～", code: "ANIMS.done", slugs: ANIMS.done }),
     row({ when: "长任务完成", how: "<code>Stop</code>，耗时 5 分钟以上。", play: ["polite", 3500], say: "项目名 跑了 N 分钟，终于搞定啦！", code: "ANIMS.bigDone", slugs: ANIMS.bigDone }),
     row({ when: "睡眠时段里完成", how: "<code>Stop</code> 时正处在睡眠时段。", play: ["polite", 2500], say: "项目名 搞定…困了 💤", code: "ANIMS.sleepyDone", slugs: ANIMS.sleepyDone }),
-    row({ when: "你中途叫停", how: "按 Esc 或 Desktop 的停止按钮。中断不触发 <code>Stop</code>，桌宠从会话记录（transcript）里读到中断标记后回到待命；动画只在没有别的会话在忙时播。", play: ["polite", 2000], code: "ANIMS.interrupted", slugs: ANIMS.interrupted }),
-    `<div class="note">干活时的头顶气泡：开着「头顶显示对话进度」时，Claude 每说完一段话（会话记录里多一条），气泡就换成那段话的第一行；几个会话同时在忙时，上面加一行会话名。点气泡右上角的「－」收起，小螃蟹下方的状态标签右边多一个圆点，数字是在忙或刚说完话的会话数，点它再展开；收起状态一直保持到你点圆点。长任务完成和睡眠时段里完成也一样走完成气泡（各自的动画留 15 秒）。</div>`,
+    row({ when: "你中途叫停", how: "按 Esc 或 Desktop 的停止按钮。中断不触发 <code>Stop</code>，桌宠从会话记录（transcript）里读到中断标记后回到待命，挂着的审批气泡一起收起。不是你发消息开始的那一轮（后台任务回来、桌面版唤醒会话）也算；之后后台子代理的动静不会再让它忙起来。动画只在没有别的会话在忙时播。", play: ["polite", 2000], code: "ANIMS.interrupted", slugs: ANIMS.interrupted }),
+    `<div class="note">干活时的头顶气泡：开着「头顶显示对话进度」时，Claude 每说完一段话（会话记录里多一条），气泡就换成那段话的第一行；几个会话同时在忙时，上面加一行会话名。点气泡右上角的「－」收起，小螃蟹下方的状态标签右边多一个圆点，数字是在忙或刚说完话的会话数（开出去的会话和它的来源算一个），点它再展开；收起状态一直保持到你点圆点。长任务完成和睡眠时段里完成也一样走完成气泡（各自的动画留 15 秒）。</div>`,
     `<div class="note">完成之后的余韵：任务跑了 1 分钟以上，它会开心 3 分钟；长任务完成会得意 5 分钟（见「它自己的生活 → 情绪」）。如果完成时键鼠已经一阵没动静，「搞定啦」的气泡会一直留着（开着对话进度时则是完成气泡照常 15 秒后收起），等你碰了电脑它再提醒一次「已经搞定啦，快去看看～」。</div>`,
+    `<div class="note">从一个会话开出去的会话（桌面版的 /btw 分支、另开的侧会话）算作同一件事：桌宠从桌面版自己的会话记录里认出它们的来源。标签用最上面那个会话的名字，后面加「分支 ×N」表示有几个开出去的会话在忙；一家子都停下才算完成，在那之前先停下的只显示它最后一句话，不庆祝。刚开出会话的那一轮停下时，先等 8 秒让新会话报到再决定。</div>`,
     `<div class="note">没有动画的情况：会话超过 30 分钟没有任何事件，会当作已结束，直接回到待命。</div>`,
   ],
 );
