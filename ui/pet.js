@@ -727,6 +727,13 @@ function tick() {
     playOnce(pick(ANIMS.longTask), { force: true, minMs: 3000 });
   }
 
+  // Left open with nothing going on, the chat would keep bubbles and reminders away
+  // for good.
+  if (chat) {
+    if (chat.phase !== "idle" || chat.stack.some((m) => m.kind === "compose")) chat.quietSince = t;
+    else if (t - chat.quietSince >= CHAT_IDLE_MS) closeChat();
+  }
+
   const quiet = !lead && !perms.length && !oneShot && !dragging && !chat;
   if (!quiet) nextSceneAt = Math.max(nextSceneAt, t + CALM_AFTER_MS);
   const win = sleepWindowAt(d);
@@ -1277,13 +1284,15 @@ const CHAT_GAP = 10;
 const CHAT_TOP_ROOM = 12;
 /** Messages sent along as context, counting both sides. */
 const CHAT_HISTORY = 24;
+/** The chat closes itself after this long with no box open and no reply coming. */
+const CHAT_IDLE_MS = 4 * MIN;
 /** How far either side of the pet the tails are: the reply's on its left, the user's on its right. */
 const TAIL_REACH = 48;
 /** How far in from its outer end a bubble's tail sits, while the window leaves room for that. */
 const TAIL_INSET = 30;
 /** How far a bubble may reach across the pet's middle; one wider grows out on its own side. */
 const CHAT_REACH = 70;
-let chat = null; // { req, history: [{ role, text }], stack: [msg] top to bottom, phase, reply }
+let chat = null; // { req, history: [{ role, text }], stack: [msg] top to bottom, phase, reply, quietSince }
 let chatReq = 0;
 /** Bubbles on screen, those on their way out included: { kind, el, card, body, sp, gone, ... }. */
 const msgs = new Set();
@@ -1329,7 +1338,7 @@ function openChat() {
   stir(AWAKE_AFTER_POKE_MS);
   cancelLife();
   clearTimeout(noticeTimer);
-  chat = { req: 0, history: [], stack: [], phase: "idle", reply: null };
+  chat = { req: 0, history: [], stack: [], phase: "idle", reply: null, quietSince: now() };
   openCompose();
 }
 
