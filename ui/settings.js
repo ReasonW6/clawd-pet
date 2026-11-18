@@ -331,6 +331,9 @@ function showAi() {
   $("ai-model-note").textContent = "点「获取模型」从服务商那里拉列表，也可以直接填";
   $("ai-model-note").classList.remove("bad");
   renderModels();
+  $("ai-search-note").textContent = p.search
+    ? "问到新闻、天气、最新版本这类事，它会用服务商自带的联网搜索自己去查，回复上会标出「搜了一下」。有的服务商按次收费"
+    : `${p.name} 没有能直接用的联网搜索，开着也搜不了。支持的有：${providers.filter((x) => x.search).map((x) => x.name).join("、")}`;
 }
 
 /** The models to pick from, narrowed down by what is typed in the box. */

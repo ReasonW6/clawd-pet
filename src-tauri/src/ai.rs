@@ -2,13 +2,16 @@
 //! conversation, as plain text, only while the chat is open, and sends all of it with
 //! each message; nothing is written anywhere. Replies stream back as `ai` events
 //! `{ id, kind, text }`: kind is "text" (more of the reply), "look" (taking a
-//! screenshot), "blind" (the model can't take images), "done" (text "refused" when the
-//! model declined) or "error".
+//! screenshot), "search" (it went online; text "link" when it only read a link the user
+//! sent), "blind" (the model can't take images), "done" (text "refused" when the model
+//! declined) or "error".
 //!
 //! Two wire formats cover the providers: OpenAI's chat completions, which most of them
 //! speak, and Anthropic's messages. When the user allows it, the model gets a tool that
 //! takes a screenshot of the pet's monitor (screen.rs) and decides itself when to use it.
-//! A screenshot only lives for the turn it was taken in.
+//! A screenshot only lives for the turn it was taken in. Where the provider has a web
+//! search of its own that the model calls when it wants (`Search`), it is turned on too,
+//! if the user allows that.
 
 use crate::config::{AiConfig, AiProfile};
 use crate::screen;
@@ -48,6 +51,26 @@ pub struct Provider {
     /// provider lets every one of its models do without.
     #[serde(skip)]
     pub extra: &'static str,
+    /// The provider's own web search, told to the settings page as whether there is one.
+    #[serde(serialize_with = "has_search")]
+    pub search: Search,
+}
+
+/// How a provider's own web search is turned on: one the model uses when it wants and
+/// the provider runs, so that the pet has nothing to do but ask for it.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Search {
+    None,
+    /// Anthropic's web search tool.
+    Anthropic,
+    /// Entries added to `tools`, as a JSON array.
+    Tools(&'static str),
+    /// JSON merged into the request.
+    Body(&'static str),
+}
+
+fn has_search<S: serde::Serializer>(search: &Search, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_bool(*search != Search::None)
 }
 
 const BASE: Provider = Provider {
@@ -61,6 +84,7 @@ const BASE: Provider = Provider {
     key_url: "",
     needs_key: true,
     extra: "",
+    search: Search::None,
 };
 
 pub const PROVIDERS: &[Provider] = &[
@@ -73,6 +97,7 @@ pub const PROVIDERS: &[Provider] = &[
         model: "claude-opus-5-5",
         models: &["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"],
         key_url: "https://platform.claude.com/settings/keys",
+        search: Search::Anthropic,
         ..BASE
     },
     Provider {
@@ -129,6 +154,7 @@ pub const PROVIDERS: &[Provider] = &[
         model: "openrouter/auto",
         models: &["openrouter/auto"],
         key_url: "https://openrouter.ai/keys",
+        search: Search::Tools(r#"[{"type":"openrouter:web_search","parameters":{"max_uses":3}}]"#),
         ..BASE
     },
     Provider {
@@ -140,6 +166,8 @@ pub const PROVIDERS: &[Provider] = &[
         models: &["deepseek-flash", "deepseek-v4-pro"],
         key_url: "https://platform.deepseek.com/api_keys",
         extra: r#"{"thinking":{"type":"disabled"}}"#,
+        // With thinking off, a plain search; reading links the user sends comes along.
+        search: Search::Tools(r#"[{"type":"deepseek_web_search"},{"type":"deepseek_read_url"}]"#),
         ..BASE
     },
     Provider {
@@ -160,6 +188,8 @@ pub const PROVIDERS: &[Provider] = &[
         model: "glm-5.3-flash",
         models: &["glm-5.3-flash", "glm-5.3-flashx", "glm-4.6v-flash"],
         key_url: "https://open.bigmodel.cn/usercenter/apikeys",
+        // search_result only adds what was found to the response, by which it shows.
+        search: Search::Tools(r#"[{"type":"web_search","web_search":{"enable":true,"search_engine":"search_std","search_result":true}}]"#),
         ..BASE
     },
     Provider {
@@ -171,6 +201,7 @@ pub const PROVIDERS: &[Provider] = &[
         models: &["qwen3.8-flash", "qwen3.7-plus", "qwen4-max"],
         key_url: "https://bailian.console.aliyun.com/?tab=model#/api-key",
         extra: r#"{"enable_thinking":false}"#,
+        search: Search::Body(r#"{"enable_search":true}"#),
         ..BASE
     },
     Provider {
@@ -341,7 +372,7 @@ const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
 const EFFORT_MODELS: &[&str] = &["claude-opus-5", "claude-sonnet-5", "claude-haiku-5", "claude-fable-5", "claude-mythos-5"];
 
 const TOOL: &str = "look_at_screen";
-const TOOL_DESC: &str = "截一张用户当前屏幕的图来看（图里没有你自己）。只在要看用户屏幕上的东西才能回答时用。";
+const TOOL_DESC: &str = "截一张用户当前屏幕的图来看（图里没有你自己）。回答需要看屏幕上的东西时，直接调用，不用先问用户。";
 /// Rounds of tool calls in one turn, and screenshots among them.
 const MAX_ROUNDS: usize = 4;
 const MAX_SHOTS: usize = 2;
@@ -370,6 +401,13 @@ static NO_TOOLS: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 /// Models that turned a screenshot down, same keys: asked without the screenshot
 /// tool from then on, until the pet restarts.
 static NO_IMAGES: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+/// Models that turned the provider's web search down (a provider may have it for some
+/// of its models only), same keys: asked without it from then on, until the pet restarts.
+static NO_SEARCH: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+/// Searches a model may make in one request, where the provider takes a limit.
+const MAX_SEARCHES: u32 = 3;
 
 /// The task answering the current chat, aborted when another starts or the chat
 /// closes, so that a reply nobody will see stops streaming (and billing).
@@ -458,6 +496,7 @@ struct Target {
     /// Anthropic's own API, which takes the extras that only it knows.
     official: bool,
     extra: Option<Value>,
+    search: Search,
 }
 
 fn target(ai: &AiConfig, provider: &str, need_model: bool) -> Result<Target, String> {
@@ -489,6 +528,7 @@ fn target(ai: &AiConfig, provider: &str, need_model: bool) -> Result<Target, Str
         model: model.to_string(),
         official: p.id == "anthropic" && base == p.base_url,
         extra: serde_json::from_str(p.extra).ok(),
+        search: p.search,
     })
 }
 
@@ -537,6 +577,8 @@ enum Fail {
     Stopped,
     /// The model doesn't do tools, so the screenshot tool has to go.
     NoTools,
+    /// The model doesn't do the provider's web search, so that has to go.
+    NoSearch,
     Status(u16, String),
     Other(String),
 }
@@ -555,6 +597,7 @@ fn describe(f: Fail) -> String {
     match f {
         Fail::Stopped => String::new(),
         Fail::NoTools => "这个模型用不了工具".into(),
+        Fail::NoSearch => "这个模型用不了联网搜索".into(),
         Fail::Other(m) => m,
         Fail::Status(code, msg) => {
             let hint = match code {
@@ -605,6 +648,18 @@ fn refuses_tools(f: &Fail) -> bool {
         Fail::Status(code, msg) if turned_down(*code) => {
             let m = msg.to_lowercase();
             m.contains("tool") || m.contains("function")
+        }
+        _ => false,
+    }
+}
+
+/// A model the provider's web search isn't there for (or an account it isn't turned on
+/// for) turns the request down, naming the search, the tool or the field.
+fn rejects_search(f: &Fail) -> bool {
+    match f {
+        Fail::Status(code, msg) if turned_down(*code) => {
+            let m = msg.to_lowercase();
+            ["search", "web", "tool", "enable_", "联网", "搜索"].iter().any(|w| m.contains(w))
         }
         _ => false,
     }
@@ -678,6 +733,8 @@ struct Round {
     assistant: Value,
     wrote: bool,
     refused: bool,
+    /// The provider's own tools ran out of steps: sending the reply back so far carries on.
+    paused: bool,
 }
 
 /// Streams text deltas to the front end, starting a new line if an earlier round of
@@ -687,6 +744,7 @@ struct Speaker<'a> {
     id: u64,
     newline: bool,
     wrote: bool,
+    searched: bool,
 }
 
 impl Speaker<'_> {
@@ -700,17 +758,45 @@ impl Speaker<'_> {
         self.wrote = true;
         emit(self.app, self.id, "text", s);
     }
+
+    /// That it went online, once a turn: "search", or "link" for only reading one.
+    fn searched(&mut self, how: &str) {
+        if !self.searched {
+            self.searched = true;
+            emit(self.app, self.id, "search", how);
+        }
+    }
 }
 
-async fn openai_round(t: &Target, system: &str, msgs: &[Value], tools: bool, last: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
+/// Merges JSON given as text into `body`.
+fn merge(body: &mut Value, json: &str) {
+    if let Ok(Value::Object(m)) = serde_json::from_str::<Value>(json) {
+        for (k, v) in m {
+            body[k] = v;
+        }
+    }
+}
+
+async fn openai_round(t: &Target, system: &str, msgs: &[Value], tools: bool, search: bool, last: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
     let mut all = vec![json!({ "role": "system", "content": system })];
     all.extend_from_slice(msgs);
     let mut body = json!({ "model": t.model, "stream": true, "messages": all });
+    let mut list: Vec<Value> = Vec::new();
     if tools {
-        body["tools"] = json!([{
+        list.push(json!({
             "type": "function",
             "function": { "name": TOOL, "description": TOOL_DESC, "parameters": { "type": "object", "properties": {} } },
-        }]);
+        }));
+    }
+    if search {
+        match t.search {
+            Search::Tools(json) => list.extend(serde_json::from_str::<Vec<Value>>(json).unwrap_or_default()),
+            Search::Body(json) => merge(&mut body, json),
+            _ => {}
+        }
+    }
+    if !list.is_empty() {
+        body["tools"] = Value::Array(list);
         if last {
             body["tool_choice"] = "none".into();
         }
@@ -725,6 +811,8 @@ async fn openai_round(t: &Target, system: &str, msgs: &[Value], tools: bool, las
     let mut text = String::new();
     let mut reasoning = String::new();
     let mut calls: Vec<Value> = Vec::new();
+    // DeepSeek's searches, sent once at the end: they go back with a tool call.
+    let mut server_calls = Value::Null;
     each_event(out.id, resp, |data| {
         if data == "[DONE]" {
             return Ok(true);
@@ -744,6 +832,17 @@ async fn openai_round(t: &Target, system: &str, msgs: &[Value], tools: bool, las
         for tc in delta["tool_calls"].as_array().into_iter().flatten() {
             merge_call(&mut calls, tc);
         }
+        // What a search left behind, whichever way the provider tells it: DeepSeek's
+        // steps, the sources Zhipu adds, citations.
+        if let Some(steps) = delta["server_tool_calls"].as_array().filter(|a| !a.is_empty()) {
+            let kinds: Vec<&str> = steps.iter().flat_map(|s| s["calls"].as_array().into_iter().flatten()).filter_map(|c| c["kind"].as_str()).collect();
+            out.searched(if !kinds.is_empty() && kinds.iter().all(|k| *k == "read_link") { "link" } else { "search" });
+            server_calls = Value::Array(steps.clone());
+        }
+        let found = |x: &Value| x.as_array().is_some_and(|a| !a.is_empty());
+        if found(&v["web_search"]) || found(&delta["annotations"]) {
+            out.searched("search");
+        }
         Ok(false)
     })
     .await?;
@@ -762,6 +861,9 @@ async fn openai_round(t: &Target, system: &str, msgs: &[Value], tools: bool, las
     if !reasoning.is_empty() {
         assistant["reasoning_content"] = reasoning.into();
     }
+    if !server_calls.is_null() {
+        assistant["server_tool_calls"] = server_calls;
+    }
     Ok(Round {
         calls: calls
             .iter()
@@ -770,6 +872,7 @@ async fn openai_round(t: &Target, system: &str, msgs: &[Value], tools: bool, las
         assistant,
         wrote: out.wrote,
         refused: false,
+        paused: false,
     })
 }
 
@@ -808,7 +911,7 @@ fn append(block: &mut Value, field: &str, s: &str) {
     block[field] = all.into();
 }
 
-async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], tools: bool, last: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
+async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], tools: bool, search: bool, last: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
     let mut body = json!({
         "model": t.model,
         "max_tokens": if t.official { 16000 } else { 8192 },
@@ -816,8 +919,17 @@ async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], tools: bool, 
         "system": system,
         "messages": msgs,
     });
+    let mut list: Vec<Value> = Vec::new();
     if tools {
-        body["tools"] = json!([{ "name": TOOL, "description": TOOL_DESC, "input_schema": { "type": "object", "properties": {} } }]);
+        list.push(json!({ "name": TOOL, "description": TOOL_DESC, "input_schema": { "type": "object", "properties": {} } }));
+    }
+    if search && t.search == Search::Anthropic {
+        // The plain version: the newer one filters results with code first, which takes
+        // longer than a short chat reply is worth, and isn't there for every model.
+        list.push(json!({ "type": "web_search_20250305", "name": "web_search", "max_uses": MAX_SEARCHES }));
+    }
+    if !list.is_empty() {
+        body["tools"] = Value::Array(list);
         // The tools stay listed even then: the history has tool_use blocks in it.
         if last {
             body["tool_choice"] = json!({ "type": "none" });
@@ -845,7 +957,12 @@ async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], tools: bool, 
             partial.resize(i + 1, String::new());
         }
         match v["type"].as_str().unwrap_or("") {
-            "content_block_start" => blocks[i] = v["content_block"].clone(),
+            "content_block_start" => {
+                blocks[i] = v["content_block"].clone();
+                if blocks[i]["type"] == "server_tool_use" {
+                    out.searched("search");
+                }
+            }
             "content_block_delta" => {
                 let d = &v["delta"];
                 match d["type"].as_str().unwrap_or("") {
@@ -900,7 +1017,8 @@ async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], tools: bool, 
         .filter(|b| b["type"] == "tool_use")
         .map(|b| (b["id"].as_str().unwrap_or("").to_owned(), b["name"].as_str().unwrap_or("").to_owned()))
         .collect();
-    Ok(Round { calls, assistant: json!({ "role": "assistant", "content": blocks }), wrote: out.wrote, refused })
+    let paused = stop == "pause_turn";
+    Ok(Round { calls, assistant: json!({ "role": "assistant", "content": blocks }), wrote: out.wrote, refused, paused })
 }
 
 // ---------------------------------------------------------------- a turn of the chat
@@ -918,9 +1036,20 @@ enum Sight {
     NoImages,
 }
 
+/// What the model is told about going online.
+#[derive(Clone, Copy)]
+enum Web {
+    /// The provider's search is on; with links too where it reads those.
+    On { links: bool },
+    /// The provider has one, but the user hasn't allowed it.
+    Off,
+    /// The provider or the model has none.
+    None,
+}
+
 /// The instructions for the chat: who the pet is, the persona it talks in, and what
 /// holds whatever the persona (short replies that fit a bubble, among others).
-fn system_prompt(nickname: &str, now: &str, identity: &str, persona: &str, sight: Sight) -> String {
+fn system_prompt(nickname: &str, now: &str, identity: &str, persona: &str, sight: Sight, web: Web) -> String {
     let identity = match identity.trim() {
         "" => IDENTITY,
         mine => mine,
@@ -946,11 +1075,19 @@ fn system_prompt(nickname: &str, now: &str, identity: &str, persona: &str, sight
         s += &format!("- 现在是 {now}。\n");
     }
     s += match sight {
-        Sight::Tool => "- 你有一个 look_at_screen 工具，能截一张用户当前屏幕的图。只在问题和屏幕上的东西有关（比如“这个报错啥意思”“帮我看看这个”），或者不看答不上来时才用，闲聊别用。之前截的图不会留着，要再看就再截一次。\n",
+        Sight::Tool => "- 你有一个 look_at_screen 工具，能截一张用户当前屏幕的图，用户已经允许你看。只要回答需要看屏幕（对方说到屏幕上的东西，比如“这个报错啥意思”“帮我看看这个”“这里怎么弄”，或者不看就答不准），就直接调用工具去看，别先问“要我看一下吗”，也别让对方描述屏幕。纯闲聊不用看。之前截的图不会留着，要再看就再截一次。\n",
         Sight::Off => "- 你看不到用户的屏幕。用户让你看屏幕时，告诉对方可以在设置的「AI 聊天」里打开「允许它看屏幕」。\n",
         Sight::NoTools => "- 你看不到用户的屏幕：现在用的这个模型不支持工具调用，截不了图。用户让你看屏幕时，告诉对方换个支持工具调用的模型才行。\n",
         Sight::NoImages => "- 你看不到用户的屏幕：现在用的这个模型不支持看图。用户让你看屏幕时，告诉对方换个能看图的模型才行。\n",
     };
+    s += match web {
+        Web::On { .. } => "- 你能上网搜索。问到新闻、天气、价格、比分、版本更新这类最新的事，或者你拿不准的事实时，直接去搜，别先问“要我搜一下吗”。搜完用自己的话简短说结论，不贴链接，不列来源。\n",
+        Web::Off => "- 你上不了网。对方要你查最新的东西时，告诉对方可以在设置的「AI 聊天」里打开「允许它上网搜索」。\n",
+        Web::None => "- 你上不了网：现在用的服务商或模型不支持联网搜索。问到最新消息、天气这类实时的事，直说你查不了，别编。\n",
+    };
+    if let Web::On { links: true } = web {
+        s += "- 对方发来链接，你可以直接打开看。\n";
+    }
     s
 }
 
@@ -1014,16 +1151,16 @@ fn push_results(wire: Wire, msgs: &mut Vec<Value>, results: Vec<(String, Result<
 
 /// On the `last` round the model may not call a tool any more, so that the turn ends
 /// with an answer instead of a call nobody will run.
-async fn send(t: &Target, system: &str, msgs: &[Value], tools: bool, last: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
+async fn send(t: &Target, system: &str, msgs: &[Value], tools: bool, search: bool, last: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
     match t.wire {
-        Wire::OpenAi => openai_round(t, system, msgs, tools, last, out).await,
-        Wire::Anthropic => anthropic_round(t, system, msgs, tools, last, out).await,
+        Wire::OpenAi => openai_round(t, system, msgs, tools, search, last, out).await,
+        Wire::Anthropic => anthropic_round(t, system, msgs, tools, search, last, out).await,
     }
 }
 
 /// Answers one turn. Ok(true): the model declined, and what it said shouldn't go back
 /// as context.
-async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &[Turn], eye: Option<&Eye>) -> Result<bool, Fail> {
+async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &[Turn], eye: Option<&Eye>, search: bool) -> Result<bool, Fail> {
     let mut msgs: Vec<Value> = history
         .iter()
         .filter(|h| !h.text.trim().is_empty())
@@ -1035,7 +1172,7 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
     let mut blind = false;
     // A request with a screenshot in it went through: the model does take images.
     let mut seen = false;
-    let mut out = Speaker { app, id, newline: false, wrote: false };
+    let mut out = Speaker { app, id, newline: false, wrote: false, searched: false };
     let tools = eye.is_some();
     for n in 0..MAX_ROUNDS {
         // Closed while a tool ran: nothing more goes out, a screenshot least of all.
@@ -1043,7 +1180,9 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
             return Err(Fail::Stopped);
         }
         let last = n + 1 == MAX_ROUNDS;
-        let round = match send(t, system, &msgs, tools, last, &mut out).await {
+        let round = match send(t, system, &msgs, tools, search, last, &mut out).await {
+            // Turned down with the search on: that goes first, the screenshot tool after.
+            Err(f) if search && n == 0 && rejects_search(&f) => return Err(Fail::NoSearch),
             Err(f) if tools && n == 0 && refuses_tools(&f) => return Err(Fail::NoTools),
             // A model that doesn't take images, by what it says: tell it so and try again.
             Err(f) if !slots.is_empty() && !seen && rejects_images(&f) => {
@@ -1058,7 +1197,7 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
                     }
                 }
                 emit(app, id, "blind", "");
-                let round = send(t, system, &msgs, tools, last, &mut out).await?;
+                let round = send(t, system, &msgs, tools, search, last, &mut out).await?;
                 // That was it: no more screenshots for this model.
                 remember(&NO_IMAGES, t.key());
                 blind = true;
@@ -1067,6 +1206,12 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
             r => r?,
         };
         seen |= !slots.is_empty();
+        // Searching ran out of steps on the provider's side: the reply so far goes back
+        // as it is, and the provider carries on from there.
+        if round.paused && round.calls.is_empty() && !last {
+            msgs.push(round.assistant);
+            continue;
+        }
         if round.calls.is_empty() {
             if round.refused && !round.wrote {
                 out.say("这个我不太方便聊～");
@@ -1104,21 +1249,38 @@ pub fn start(app: AppHandle, ai: AiConfig, nickname: String, now: String, id: u6
         let result = match target(&ai, &ai.provider, true) {
             Ok(t) => {
                 let model = t.key();
-                let sight = match &eye {
+                let mut sight = match &eye {
                     None => Sight::Off,
                     Some(_) if knows(&NO_TOOLS, &model) => Sight::NoTools,
                     Some(_) if knows(&NO_IMAGES, &model) => Sight::NoImages,
                     Some(_) => Sight::Tool,
                 };
-                let tool_eye = if let Sight::Tool = sight { eye.as_ref() } else { None };
+                let links = matches!(t.search, Search::Tools(s) if s.contains("read_url"));
+                let mut web = match t.search {
+                    Search::None => Web::None,
+                    _ if knows(&NO_SEARCH, &model) => Web::None,
+                    _ if !ai.search => Web::Off,
+                    _ => Web::On { links },
+                };
                 let persona = persona_prompt(&ai);
-                let mut r = converse(&app, id, &t, &system_prompt(&nickname, &now, &ai.identity, &persona, sight), &history, tool_eye).await;
-                // Turned down for offering the screenshot tool: once more without it.
-                if let Err(Fail::NoTools) = r {
-                    remember(&NO_TOOLS, model);
-                    r = converse(&app, id, &t, &system_prompt(&nickname, &now, &ai.identity, &persona, Sight::NoTools), &history, None).await;
+                loop {
+                    let tool_eye = if let Sight::Tool = sight { eye.as_ref() } else { None };
+                    let search = matches!(web, Web::On { .. });
+                    let system = system_prompt(&nickname, &now, &ai.identity, &persona, sight, web);
+                    match converse(&app, id, &t, &system, &history, tool_eye, search).await {
+                        // Turned down for the search, or for offering the screenshot tool:
+                        // once more without it. Each goes once, so this ends.
+                        Err(Fail::NoSearch) => {
+                            remember(&NO_SEARCH, model.clone());
+                            web = Web::None;
+                        }
+                        Err(Fail::NoTools) => {
+                            remember(&NO_TOOLS, model.clone());
+                            sight = Sight::NoTools;
+                        }
+                        r => break r.map_err(describe),
+                    }
                 }
-                r.map_err(describe)
             }
             Err(e) => Err(e),
         };

@@ -123,6 +123,8 @@ pub struct AiConfig {
     pub profiles: BTreeMap<String, AiProfile>,
     /// Give the model a tool that takes a screenshot of the pet's monitor.
     pub screen: bool,
+    /// Turn on the provider's own web search, where it has one.
+    pub search: bool,
     /// Who the pet believes it is, as the user rewrote it; empty for `ai::IDENTITY`.
     pub identity: String,
     /// Who the pet chats as: an id from `ai::PERSONAS`, or of one in `custom_personas`.
@@ -139,6 +141,7 @@ impl Default for AiConfig {
             provider: "deepseek".into(),
             profiles: BTreeMap::new(),
             screen: false,
+            search: true,
             identity: String::new(),
             persona: "default".into(),
             persona_prompts: BTreeMap::new(),
