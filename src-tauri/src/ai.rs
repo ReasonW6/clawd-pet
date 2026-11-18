@@ -471,6 +471,17 @@ fn refuses_tools(f: &Fail) -> bool {
     }
 }
 
+/// A model that doesn't take images turns down a request carrying one, and says so.
+fn rejects_images(f: &Fail) -> bool {
+    match f {
+        Fail::Status(code, msg) if turned_down(*code) => {
+            let m = msg.to_lowercase();
+            ["image", "vision", "multimodal", "multi-modal", "图片", "图像"].iter().any(|w| m.contains(w))
+        }
+        _ => false,
+    }
+}
+
 // ---------------------------------------------------------------- streaming
 
 fn stopped(id: u64) -> bool {
@@ -732,12 +743,25 @@ async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], tools: bool, 
     .await?;
 
     blocks.retain(|b| !b.is_null());
+    let refused = stop == "refusal";
+    if let Some(at) = blocks.iter().rposition(|b| b["type"] == "fallback") {
+        // The model before the fallback declined: its thinking and tool calls don't go
+        // back (nor run), only what it said and the fallback block itself.
+        let mut i = 0;
+        blocks.retain(|b| {
+            i += 1;
+            i > at || !matches!(b["type"].as_str(), Some("thinking" | "redacted_thinking" | "tool_use"))
+        });
+    } else if refused {
+        // A refusal cuts the reply off; what came before it isn't kept as said.
+        blocks.retain(|b| b["type"] != "text");
+    }
     let calls = blocks
         .iter()
         .filter(|b| b["type"] == "tool_use")
         .map(|b| (b["id"].as_str().unwrap_or("").to_owned(), b["name"].as_str().unwrap_or("").to_owned()))
         .collect();
-    Ok(Round { calls, assistant: json!({ "role": "assistant", "content": blocks }), wrote: out.wrote, refused: stop == "refusal" })
+    Ok(Round { calls, assistant: json!({ "role": "assistant", "content": blocks }), wrote: out.wrote, refused })
 }
 
 // ---------------------------------------------------------------- a turn of the chat
@@ -856,6 +880,8 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
     let mut shots = 0;
     // Turned a screenshot down earlier in this turn: no more of them.
     let mut blind = false;
+    // A request with a screenshot in it went through: the model does take images.
+    let mut seen = false;
     let mut out = Speaker { app, id, newline: false, wrote: false };
     let tools = eye.is_some();
     for n in 0..MAX_ROUNDS {
@@ -866,8 +892,8 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
         let last = n + 1 == MAX_ROUNDS;
         let round = match send(t, system, &msgs, tools, last, &mut out).await {
             Err(f) if tools && n == 0 && refuses_tools(&f) => return Err(Fail::NoTools),
-            // Most likely a model that doesn't take images: tell it so and try again.
-            Err(Fail::Status(code, _)) if turned_down(code) && !slots.is_empty() => {
+            // A model that doesn't take images, by what it says: tell it so and try again.
+            Err(f) if !slots.is_empty() && !seen && rejects_images(&f) => {
                 // From the back, so that a dropped message doesn't move the rest.
                 slots.sort_by_key(|(i, _)| *i);
                 for (i, blind) in slots.drain(..).rev() {
@@ -887,6 +913,7 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
             }
             r => r?,
         };
+        seen |= !slots.is_empty();
         if round.calls.is_empty() {
             if round.refused && !round.wrote {
                 out.say("这个我不太方便聊～");
