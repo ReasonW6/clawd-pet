@@ -203,6 +203,16 @@ fn ai_providers() -> &'static [ai::Provider] {
     ai::PROVIDERS
 }
 
+#[tauri::command]
+fn ai_personas() -> &'static [ai::Persona] {
+    ai::PERSONAS
+}
+
+#[tauri::command]
+fn ai_identity() -> &'static str {
+    ai::IDENTITY
+}
+
 /// Answers the chat `history` (ending with the user's message) as chat `id`, in `ai`
 /// events. `now` is the local date and time, in words.
 #[tauri::command]
@@ -267,6 +277,13 @@ fn refresh_tray(app: &AppHandle) {
 fn toggle_visible(app: &AppHandle) {
     if let Some(w) = main_window(app) {
         let show = !w.is_visible().unwrap_or(false);
+        // Straight to the system, as in step_aside: show() would take the keyboard focus,
+        // and keys typed after it would go to the pet without the user looking.
+        #[cfg(windows)]
+        if let Ok(hwnd) = w.hwnd() {
+            sysmon::set_shown(hwnd.0 as _, show);
+        }
+        #[cfg(not(windows))]
         let _ = if show { w.show() } else { w.hide() };
         tell_shown(app, show);
     }
@@ -519,6 +536,8 @@ fn main() {
             git_watch_get,
             git_watch_set,
             ai_providers,
+            ai_personas,
+            ai_identity,
             ai_chat,
             ai_cancel,
             ai_models,

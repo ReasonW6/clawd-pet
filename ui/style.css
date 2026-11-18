@@ -421,6 +421,12 @@ body {
   pointer-events: none;
 }
 
+/* The box waiting unseen for the first key typed after a reply. */
+.msg.standby {
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* The user's side is peach, to tell it apart from the reply's cream at a glance. */
 .msg.compose,
 .msg.me {
