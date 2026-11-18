@@ -121,14 +121,15 @@ impl Shared {
         }
     }
 
-    /// The call a permission request is for: the latest unclaimed one of the same
-    /// thread, tool and input; or, if a hook changed the input on the way, the only
-    /// unclaimed one of that thread and tool.
+    /// The call a permission request is for: the earliest unclaimed one of the same
+    /// thread, tool and input (identical calls in parallel ask in the order they were
+    /// made); or, if a hook changed the input on the way, the only unclaimed one of that
+    /// thread and tool.
     fn claim(&self, p: &Value) -> Option<String> {
         let (session, agent, tool) = (p["session_id"].as_str()?, p["agent_id"].as_str(), p["tool_name"].as_str()?);
         let mut calls = self.calls.lock().unwrap();
         let ours = |c: &Call| c.session == session && c.agent.as_deref() == agent && c.tool == tool;
-        let i = calls.iter().rposition(|c| ours(c) && c.input == p["tool_input"]).or_else(|| {
+        let i = calls.iter().position(|c| ours(c) && c.input == p["tool_input"]).or_else(|| {
             let mut same = calls.iter().enumerate().filter(|(_, c)| ours(c)).map(|(i, _)| i);
             match (same.next(), same.next()) {
                 (Some(i), None) => Some(i),

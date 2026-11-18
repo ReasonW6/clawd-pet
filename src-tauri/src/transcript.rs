@@ -253,8 +253,15 @@ fn scan(path: &Path, session: &str, offset: &mut u64) -> Found {
         .map(|call| (format!(r#""tool_use_id":"{call}""#), call))
         .collect();
     for l in text.lines() {
+        // The id may also turn up quoted in other text (a command, a file); only a
+        // user message carrying the result counts. The substring is just the cheap check.
+        let mut parsed: Option<Value> = None;
         for (needle, call) in &asking {
-            if l.contains(needle.as_str()) && !found.answered.contains(call) {
+            if !l.contains(needle.as_str()) || found.answered.contains(call) {
+                continue;
+            }
+            let v = parsed.get_or_insert_with(|| serde_json::from_str(l).unwrap_or(Value::Null));
+            if answers(v, call) {
                 found.answered.push(call.clone());
             }
         }
@@ -272,6 +279,14 @@ fn scan(path: &Path, session: &str, offset: &mut u64) -> Found {
         }
     }
     found
+}
+
+/// A user message with the result of tool call `call` in it.
+fn answers(v: &Value, call: &str) -> bool {
+    let user = v["type"] == "user" || v["message"]["role"] == "user";
+    user && v["message"]["content"]
+        .as_array()
+        .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result" && b["tool_use_id"] == call))
 }
 
 fn read_from(path: &Path, offset: &mut u64) -> Option<String> {
