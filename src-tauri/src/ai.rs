@@ -14,8 +14,9 @@ use crate::screen;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
@@ -263,6 +264,10 @@ pub struct Eye {
 /// The chat whose events still go out; anything else has been closed.
 static CURRENT: AtomicU64 = AtomicU64::new(0);
 
+/// Models that turned the screenshot tool down, as "address model": asked without it
+/// from then on, until the pet restarts.
+static NO_TOOLS: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
 fn client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
@@ -355,6 +360,8 @@ impl Target {
 enum Fail {
     /// The chat was closed meanwhile.
     Stopped,
+    /// The model doesn't do tools, so the screenshot tool has to go.
+    NoTools,
     Status(u16, String),
     Other(String),
 }
@@ -372,6 +379,7 @@ fn net(e: reqwest::Error) -> Fail {
 fn describe(f: Fail) -> String {
     match f {
         Fail::Stopped => String::new(),
+        Fail::NoTools => "这个模型用不了工具".into(),
         Fail::Other(m) => m,
         Fail::Status(code, msg) => {
             let hint = match code {
@@ -408,6 +416,23 @@ fn error_message(body: &str) -> String {
         .map(str::to_owned)
         .unwrap_or_else(|| body.trim().to_owned());
     clip(&msg, 160)
+}
+
+/// A request turned down for what it asks, rather than for the key, the balance or the rate.
+fn turned_down(code: u16) -> bool {
+    (400..500).contains(&code) && !matches!(code, 401 | 402 | 403 | 429)
+}
+
+/// A model that doesn't do tools (many local ones) turns down any request offering
+/// them, and says so.
+fn refuses_tools(f: &Fail) -> bool {
+    match f {
+        Fail::Status(code, msg) if turned_down(*code) => {
+            let m = msg.to_lowercase();
+            m.contains("tool") || m.contains("function")
+        }
+        _ => false,
+    }
 }
 
 // ---------------------------------------------------------------- streaming
@@ -673,7 +698,18 @@ async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], tools: bool, 
 
 // ---------------------------------------------------------------- a turn of the chat
 
-fn system_prompt(nickname: &str, now: &str, eyes: bool) -> String {
+/// What the model is told about seeing the screen.
+#[derive(Clone, Copy)]
+enum Sight {
+    /// It has the screenshot tool.
+    Tool,
+    /// The user hasn't allowed it.
+    Off,
+    /// Allowed, but the model doesn't do tools.
+    NoTools,
+}
+
+fn system_prompt(nickname: &str, now: &str, sight: Sight) -> String {
     let mut s = String::from(
         "你是 Clawd，一只住在用户电脑桌面上的橙色像素小螃蟹桌宠。用户双击你，在你头顶的聊天气泡里和你说话。\n\n\
          说话方式：\n\
@@ -688,10 +724,10 @@ fn system_prompt(nickname: &str, now: &str, eyes: bool) -> String {
     if !now.is_empty() {
         s += &format!("- 现在是 {now}。\n");
     }
-    s += if eyes {
-        "- 你有一个 look_at_screen 工具，能截一张用户当前屏幕的图。只在问题和屏幕上的东西有关（比如“这个报错啥意思”“帮我看看这个”），或者不看答不上来时才用，闲聊别用。之前截的图不会留着，要再看就再截一次。\n"
-    } else {
-        "- 你看不到用户的屏幕。用户让你看屏幕时，告诉对方可以在设置的「AI 聊天」里打开「允许它看屏幕」。\n"
+    s += match sight {
+        Sight::Tool => "- 你有一个 look_at_screen 工具，能截一张用户当前屏幕的图。只在问题和屏幕上的东西有关（比如“这个报错啥意思”“帮我看看这个”），或者不看答不上来时才用，闲聊别用。之前截的图不会留着，要再看就再截一次。\n",
+        Sight::Off => "- 你看不到用户的屏幕。用户让你看屏幕时，告诉对方可以在设置的「AI 聊天」里打开「允许它看屏幕」。\n",
+        Sight::NoTools => "- 你看不到用户的屏幕：现在用的这个模型不支持工具调用，截不了图。用户让你看屏幕时，告诉对方换个支持工具调用的模型才行。\n",
     };
     s
 }
@@ -757,9 +793,9 @@ async fn send(t: &Target, system: &str, msgs: &[Value], tools: bool, out: &mut S
     }
 }
 
-async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: Vec<Turn>, eye: Option<Eye>) -> Result<(), Fail> {
+async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &[Turn], eye: Option<&Eye>) -> Result<(), Fail> {
     let mut msgs: Vec<Value> = history
-        .into_iter()
+        .iter()
         .filter(|h| !h.text.trim().is_empty())
         .map(|h| json!({ "role": if h.role == "user" { "user" } else { "assistant" }, "content": h.text }))
         .collect();
@@ -767,14 +803,15 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: V
     let mut shots = 0;
     let mut out = Speaker { app, id, newline: false, wrote: false };
     let tools = eye.is_some();
-    for _ in 0..MAX_ROUNDS {
+    for n in 0..MAX_ROUNDS {
         // Closed while a tool ran: nothing more goes out, a screenshot least of all.
         if stopped(id) {
             return Err(Fail::Stopped);
         }
         let round = match send(t, system, &msgs, tools, &mut out).await {
+            Err(f) if tools && n == 0 && refuses_tools(&f) => return Err(Fail::NoTools),
             // Most likely a model that doesn't take images: tell it so and try again.
-            Err(Fail::Status(code, _)) if (400..500).contains(&code) && !matches!(code, 401 | 402 | 403 | 429) && !slots.is_empty() => {
+            Err(Fail::Status(code, _)) if turned_down(code) && !slots.is_empty() => {
                 for (i, blind) in slots.drain(..) {
                     msgs[i] = blind;
                 }
@@ -792,7 +829,7 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: V
         msgs.push(round.assistant);
         let mut results = Vec::new();
         for (call, name) in round.calls {
-            let r = match &eye {
+            let r = match eye {
                 _ if name != TOOL => Err(format!("没有 {name} 这个工具")),
                 _ if shots >= MAX_SHOTS => Err("这一轮已经看过屏幕了，直接回答吧".into()),
                 _ if stopped(id) => return Err(Fail::Stopped),
@@ -818,8 +855,23 @@ pub fn start(app: AppHandle, ai: AiConfig, nickname: String, now: String, id: u6
     tauri::async_runtime::spawn(async move {
         let result = match target(&ai, &ai.provider, true) {
             Ok(t) => {
-                let system = system_prompt(&nickname, &now, eye.is_some());
-                converse(&app, id, &t, &system, history, eye).await.map_err(describe)
+                let model = format!("{} {}", t.base, t.model);
+                let known = NO_TOOLS.lock().is_ok_and(|m| m.contains(&model));
+                let sight = match &eye {
+                    None => Sight::Off,
+                    Some(_) if known => Sight::NoTools,
+                    Some(_) => Sight::Tool,
+                };
+                let tool_eye = if let Sight::Tool = sight { eye.as_ref() } else { None };
+                let mut r = converse(&app, id, &t, &system_prompt(&nickname, &now, sight), &history, tool_eye).await;
+                // Turned down for offering the screenshot tool: once more without it.
+                if let Err(Fail::NoTools) = r {
+                    if let Ok(mut m) = NO_TOOLS.lock() {
+                        m.insert(model);
+                    }
+                    r = converse(&app, id, &t, &system_prompt(&nickname, &now, Sight::NoTools), &history, None).await;
+                }
+                r.map_err(describe)
             }
             Err(e) => Err(e),
         };
