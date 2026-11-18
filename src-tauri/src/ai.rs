@@ -268,14 +268,45 @@ static CURRENT: AtomicU64 = AtomicU64::new(0);
 /// from then on, until the pet restarts.
 static NO_TOOLS: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 
-fn client() -> &'static reqwest::Client {
+/// Models that turned a screenshot down, same keys: asked without the screenshot
+/// tool from then on, until the pet restarts.
+static NO_IMAGES: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+/// The task answering the current chat, aborted when another starts or the chat
+/// closes, so that a reply nobody will see stops streaming (and billing).
+static TASK: Mutex<Option<tauri::async_runtime::JoinHandle<()>>> = Mutex::new(None);
+
+fn knows(set: &Mutex<BTreeSet<String>>, key: &str) -> bool {
+    set.lock().is_ok_and(|m| m.contains(key))
+}
+
+fn remember(set: &Mutex<BTreeSet<String>>, key: String) {
+    if let Ok(mut m) = set.lock() {
+        m.insert(key);
+    }
+}
+
+/// Local servers (Ollama, LM Studio) skip the system proxy: hyper-util doesn't honor
+/// its `<local>` bypass, so a proxy would get loopback requests it can't reach.
+fn loopback(url: &str) -> bool {
+    let Ok(u) = reqwest::Url::parse(url) else { return false };
+    let host = u.host_str().unwrap_or("").trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase();
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => ip.is_loopback(),
+        Err(_) => host == "localhost" || host.ends_with(".localhost"),
+    }
+}
+
+fn client(url: &str) -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .read_timeout(Duration::from_secs(120))
-            .build()
-            .expect("http client")
+    static LOCAL: OnceLock<reqwest::Client> = OnceLock::new();
+    let local = loopback(url);
+    (if local { &LOCAL } else { &CLIENT }).get_or_init(|| {
+        let mut b = reqwest::Client::builder().connect_timeout(Duration::from_secs(15)).read_timeout(Duration::from_secs(120));
+        if local {
+            b = b.no_proxy();
+        }
+        b.build().expect("http client")
     })
 }
 
@@ -348,6 +379,11 @@ impl Target {
             }
         }
         rb
+    }
+
+    /// Which model at which address, for remembering what it can't do.
+    fn key(&self) -> String {
+        format!("{} {}", self.base, self.model)
     }
 
     fn fallbacks(&self) -> bool {
@@ -448,7 +484,8 @@ fn emit(app: &AppHandle, id: u64, kind: &str, text: &str) {
 }
 
 async fn post(t: &Target, path: &str, body: &Value, beta: Option<&str>) -> Result<reqwest::Response, Fail> {
-    let mut rb = t.authed(client().post(t.url(path))).header("content-type", "application/json");
+    let url = t.url(path);
+    let mut rb = t.authed(client(&url).post(&url)).header("content-type", "application/json");
     if let Some(beta) = beta {
         rb = rb.header("anthropic-beta", beta);
     }
@@ -515,7 +552,7 @@ impl Speaker<'_> {
     }
 }
 
-async fn openai_round(t: &Target, system: &str, msgs: &[Value], tools: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
+async fn openai_round(t: &Target, system: &str, msgs: &[Value], tools: bool, last: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
     let mut all = vec![json!({ "role": "system", "content": system })];
     all.extend_from_slice(msgs);
     let mut body = json!({ "model": t.model, "stream": true, "messages": all });
@@ -524,6 +561,9 @@ async fn openai_round(t: &Target, system: &str, msgs: &[Value], tools: bool, out
             "type": "function",
             "function": { "name": TOOL, "description": TOOL_DESC, "parameters": { "type": "object", "properties": {} } },
         }]);
+        if last {
+            body["tool_choice"] = "none".into();
+        }
     }
     if let Some(Value::Object(extra)) = &t.extra {
         for (k, v) in extra {
@@ -618,7 +658,7 @@ fn append(block: &mut Value, field: &str, s: &str) {
     block[field] = all.into();
 }
 
-async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], tools: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
+async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], tools: bool, last: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
     let mut body = json!({
         "model": t.model,
         "max_tokens": if t.official { 16000 } else { 8192 },
@@ -628,6 +668,10 @@ async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], tools: bool, 
     });
     if tools {
         body["tools"] = json!([{ "name": TOOL, "description": TOOL_DESC, "input_schema": { "type": "object", "properties": {} } }]);
+        // The tools stay listed even then: the history has tool_use blocks in it.
+        if last {
+            body["tool_choice"] = json!({ "type": "none" });
+        }
     }
     if EFFORT_MODELS.iter().any(|m| t.model.starts_with(m)) {
         body["output_config"] = json!({ "effort": "low" });
@@ -707,6 +751,8 @@ enum Sight {
     Off,
     /// Allowed, but the model doesn't do tools.
     NoTools,
+    /// Allowed, but the model doesn't take images.
+    NoImages,
 }
 
 fn system_prompt(nickname: &str, now: &str, sight: Sight) -> String {
@@ -728,6 +774,7 @@ fn system_prompt(nickname: &str, now: &str, sight: Sight) -> String {
         Sight::Tool => "- 你有一个 look_at_screen 工具，能截一张用户当前屏幕的图。只在问题和屏幕上的东西有关（比如“这个报错啥意思”“帮我看看这个”），或者不看答不上来时才用，闲聊别用。之前截的图不会留着，要再看就再截一次。\n",
         Sight::Off => "- 你看不到用户的屏幕。用户让你看屏幕时，告诉对方可以在设置的「AI 聊天」里打开「允许它看屏幕」。\n",
         Sight::NoTools => "- 你看不到用户的屏幕：现在用的这个模型不支持工具调用，截不了图。用户让你看屏幕时，告诉对方换个支持工具调用的模型才行。\n",
+        Sight::NoImages => "- 你看不到用户的屏幕：现在用的这个模型不支持看图。用户让你看屏幕时，告诉对方换个能看图的模型才行。\n",
     };
     s
 }
@@ -742,17 +789,21 @@ const SHOT_SENT: &str = "截好了，图在下一条消息里。";
 const BLIND: &str = "截图发不过去：当前模型不支持看图。告诉用户你看不了屏幕，换个能看图的模型才行。";
 
 /// Adds the results of a round's tool calls. Returns where screenshots went, with
-/// what to put there instead if the model turns out not to take images.
-fn push_results(wire: Wire, msgs: &mut Vec<Value>, results: Vec<(String, Result<String, String>)>) -> Vec<(usize, Value)> {
+/// what to put there instead if the model turns out not to take images (None: drop
+/// that message).
+fn push_results(wire: Wire, msgs: &mut Vec<Value>, results: Vec<(String, Result<String, String>)>) -> Vec<(usize, Option<Value>)> {
     let mut slots = Vec::new();
     match wire {
         Wire::OpenAi => {
             // Tool messages can't carry images; the shot follows as the user's.
+            // Blind, the tool message says so itself and the image goes: some providers
+            // (Mistral's) want nothing between the tool results and the next reply.
             let mut shot = None;
             for (id, r) in results {
                 let content = match r {
                     Ok(b64) => {
                         shot = Some(b64);
+                        slots.push((msgs.len(), Some(json!({ "role": "tool", "tool_call_id": id, "content": BLIND }))));
                         SHOT_SENT.to_owned()
                     }
                     Err(e) => e,
@@ -760,7 +811,7 @@ fn push_results(wire: Wire, msgs: &mut Vec<Value>, results: Vec<(String, Result<
                 msgs.push(json!({ "role": "tool", "tool_call_id": id, "content": content }));
             }
             if let Some(b64) = shot {
-                slots.push((msgs.len(), json!({ "role": "user", "content": format!("（{BLIND}）") })));
+                slots.push((msgs.len(), None));
                 msgs.push(json!({ "role": "user", "content": [
                     { "type": "text", "text": "（刚截的屏幕）" },
                     { "type": "image_url", "image_url": { "url": format!("data:image/jpeg;base64,{b64}") } },
@@ -778,7 +829,7 @@ fn push_results(wire: Wire, msgs: &mut Vec<Value>, results: Vec<(String, Result<
             let seeing: Vec<Value> = results.iter().map(|(id, r)| result(id, r, false)).collect();
             if results.iter().any(|(_, r)| r.is_ok()) {
                 let blind: Vec<Value> = results.iter().map(|(id, r)| result(id, r, true)).collect();
-                slots.push((msgs.len(), json!({ "role": "user", "content": blind })));
+                slots.push((msgs.len(), Some(json!({ "role": "user", "content": blind }))));
             }
             msgs.push(json!({ "role": "user", "content": seeing }));
         }
@@ -786,10 +837,12 @@ fn push_results(wire: Wire, msgs: &mut Vec<Value>, results: Vec<(String, Result<
     slots
 }
 
-async fn send(t: &Target, system: &str, msgs: &[Value], tools: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
+/// On the `last` round the model may not call a tool any more, so that the turn ends
+/// with an answer instead of a call nobody will run.
+async fn send(t: &Target, system: &str, msgs: &[Value], tools: bool, last: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
     match t.wire {
-        Wire::OpenAi => openai_round(t, system, msgs, tools, out).await,
-        Wire::Anthropic => anthropic_round(t, system, msgs, tools, out).await,
+        Wire::OpenAi => openai_round(t, system, msgs, tools, last, out).await,
+        Wire::Anthropic => anthropic_round(t, system, msgs, tools, last, out).await,
     }
 }
 
@@ -799,7 +852,7 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
         .filter(|h| !h.text.trim().is_empty())
         .map(|h| json!({ "role": if h.role == "user" { "user" } else { "assistant" }, "content": h.text }))
         .collect();
-    let mut slots: Vec<(usize, Value)> = Vec::new();
+    let mut slots: Vec<(usize, Option<Value>)> = Vec::new();
     let mut shots = 0;
     let mut out = Speaker { app, id, newline: false, wrote: false };
     let tools = eye.is_some();
@@ -808,15 +861,26 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
         if stopped(id) {
             return Err(Fail::Stopped);
         }
-        let round = match send(t, system, &msgs, tools, &mut out).await {
+        let last = n + 1 == MAX_ROUNDS;
+        let round = match send(t, system, &msgs, tools, last, &mut out).await {
             Err(f) if tools && n == 0 && refuses_tools(&f) => return Err(Fail::NoTools),
             // Most likely a model that doesn't take images: tell it so and try again.
             Err(Fail::Status(code, _)) if turned_down(code) && !slots.is_empty() => {
-                for (i, blind) in slots.drain(..) {
-                    msgs[i] = blind;
+                // From the back, so that a dropped message doesn't move the rest.
+                slots.sort_by_key(|(i, _)| *i);
+                for (i, blind) in slots.drain(..).rev() {
+                    match blind {
+                        Some(v) => msgs[i] = v,
+                        None => {
+                            msgs.remove(i);
+                        }
+                    }
                 }
                 emit(app, id, "blind", "");
-                send(t, system, &msgs, tools, &mut out).await?
+                let round = send(t, system, &msgs, tools, last, &mut out).await?;
+                // That was it: no more screenshots for this model.
+                remember(&NO_IMAGES, t.key());
+                round
             }
             r => r?,
         };
@@ -852,23 +916,21 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
 /// chat `id`. Any chat still answering is dropped.
 pub fn start(app: AppHandle, ai: AiConfig, nickname: String, now: String, id: u64, history: Vec<Turn>, eye: Option<Eye>) {
     CURRENT.store(id, Ordering::SeqCst);
-    tauri::async_runtime::spawn(async move {
+    let task = tauri::async_runtime::spawn(async move {
         let result = match target(&ai, &ai.provider, true) {
             Ok(t) => {
-                let model = format!("{} {}", t.base, t.model);
-                let known = NO_TOOLS.lock().is_ok_and(|m| m.contains(&model));
+                let model = t.key();
                 let sight = match &eye {
                     None => Sight::Off,
-                    Some(_) if known => Sight::NoTools,
+                    Some(_) if knows(&NO_TOOLS, &model) => Sight::NoTools,
+                    Some(_) if knows(&NO_IMAGES, &model) => Sight::NoImages,
                     Some(_) => Sight::Tool,
                 };
                 let tool_eye = if let Sight::Tool = sight { eye.as_ref() } else { None };
                 let mut r = converse(&app, id, &t, &system_prompt(&nickname, &now, sight), &history, tool_eye).await;
                 // Turned down for offering the screenshot tool: once more without it.
                 if let Err(Fail::NoTools) = r {
-                    if let Ok(mut m) = NO_TOOLS.lock() {
-                        m.insert(model);
-                    }
+                    remember(&NO_TOOLS, model);
                     r = converse(&app, id, &t, &system_prompt(&nickname, &now, Sight::NoTools), &history, None).await;
                 }
                 r.map_err(describe)
@@ -881,11 +943,17 @@ pub fn start(app: AppHandle, ai: AiConfig, nickname: String, now: String, id: u6
             Err(_) => {}
         }
     });
+    if let Some(old) = TASK.lock().ok().and_then(|mut t| t.replace(task)) {
+        old.abort();
+    }
 }
 
 /// Drops the chat that is answering, if any.
 pub fn stop() {
     CURRENT.store(0, Ordering::SeqCst);
+    if let Some(old) = TASK.lock().ok().and_then(|mut t| t.take()) {
+        old.abort();
+    }
 }
 
 /// The models the provider offers, with the key and address in `ai` (the settings
@@ -896,7 +964,7 @@ pub async fn models(ai: AiConfig, provider: String) -> Result<Vec<String>, Strin
         Wire::OpenAi => t.url("models"),
         Wire::Anthropic => t.url("models?limit=1000"),
     };
-    let resp = t.authed(client().get(url)).send().await.map_err(|e| describe(net(e)))?;
+    let resp = t.authed(client(&url).get(&url)).send().await.map_err(|e| describe(net(e)))?;
     let status = resp.status();
     let text = resp.text().await.map_err(|e| describe(net(e)))?;
     if !status.is_success() {

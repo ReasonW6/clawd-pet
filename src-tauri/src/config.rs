@@ -118,7 +118,7 @@ pub struct AiConfig {
 
 impl Default for AiConfig {
     fn default() -> Self {
-        Self { enabled: false, provider: "deepseek".into(), profiles: BTreeMap::new(), screen: true }
+        Self { enabled: false, provider: "deepseek".into(), profiles: BTreeMap::new(), screen: false }
     }
 }
 
