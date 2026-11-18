@@ -277,6 +277,13 @@ fn refresh_tray(app: &AppHandle) {
 fn toggle_visible(app: &AppHandle) {
     if let Some(w) = main_window(app) {
         let show = !w.is_visible().unwrap_or(false);
+        // Straight to the system, as in step_aside: show() would take the keyboard focus,
+        // and keys typed after it would go to the pet without the user looking.
+        #[cfg(windows)]
+        if let Ok(hwnd) = w.hwnd() {
+            sysmon::set_shown(hwnd.0 as _, show);
+        }
+        #[cfg(not(windows))]
         let _ = if show { w.show() } else { w.hide() };
         tell_shown(app, show);
     }

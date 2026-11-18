@@ -407,7 +407,8 @@ function showIdentityNote() {
 
 let personas = [];
 let deleteTimer = 0;
-/** What a new persona starts with: the parts a character prompt needs, to fill in. */
+/** Shown in an empty persona of the user's own: the parts a character prompt needs.
+ *  Only as a placeholder, so none of it reaches the model unless they write it. */
 const NEW_PERSONA =
   "性格：（三个词，带点反差更好，比如“毒舌、可靠、怕麻烦”）\n" +
   "说话方式：（句子长短、语气词、怎么称呼人、偶尔用的口头禅）\n" +
@@ -434,8 +435,9 @@ async function initPersonas() {
   $("ai-persona-prompt").oninput = () => {
     const text = $("ai-persona-prompt").value;
     const { custom, preset } = currentPersona();
+    // As with the identity: emptied, or back to the preset, means no rewrite.
     if (custom) custom.prompt = text;
-    else if (text === preset.prompt) delete config.ai.personaPrompts[preset.id];
+    else if (!text.trim() || text.trim() === preset.prompt.trim()) delete config.ai.personaPrompts[preset.id];
     else config.ai.personaPrompts[preset.id] = text;
     showPersonaNote();
     save();
@@ -475,6 +477,7 @@ function showPersona() {
   $("ai-persona-name").hidden = !custom;
   $("ai-persona-name").value = custom?.name ?? "";
   $("ai-persona-prompt").value = custom ? custom.prompt : (config.ai.personaPrompts[preset.id] ?? preset.prompt);
+  $("ai-persona-prompt").placeholder = custom ? NEW_PERSONA : preset.prompt;
   $("ai-persona-delete").hidden = !custom;
   disarmDelete();
   showPersonaNote();
@@ -482,13 +485,20 @@ function showPersona() {
 
 function showPersonaNote() {
   const { custom, preset } = currentPersona();
+  const empty = !$("ai-persona-prompt").value.trim();
   const edited = !custom && preset.id in config.ai.personaPrompts;
-  $("ai-persona-reset").hidden = !edited;
-  $("ai-persona-note").textContent = custom ? "你自己加的人设，名字和内容都能改" : edited ? "改过了，点「恢复默认」回到原样" : "预设的人设，可以直接改";
+  $("ai-persona-reset").hidden = !!custom || (!edited && !empty);
+  $("ai-persona-note").textContent = custom
+    ? "你自己加的人设，名字和内容都能改"
+    : empty
+      ? "空着就按预设的人设"
+      : edited
+        ? "改过了，点「恢复默认」回到原样"
+        : "预设的人设，可以直接改";
 }
 
 function addPersona() {
-  const p = { id: `my-${Date.now().toString(36)}`, name: "新人设", prompt: NEW_PERSONA };
+  const p = { id: `my-${Date.now().toString(36)}`, name: "新人设", prompt: "" };
   config.ai.customPersonas.push(p);
   config.ai.persona = p.id;
   showPersona();

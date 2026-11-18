@@ -324,7 +324,12 @@ fn persona_prompt(ai: &AiConfig) -> String {
         return mine.prompt.clone();
     }
     let preset = PERSONAS.iter().find(|p| p.id == ai.persona).unwrap_or(&PERSONAS[0]);
-    ai.persona_prompts.get(preset.id).cloned().unwrap_or_else(|| preset.prompt.to_owned())
+    // A rewrite left empty means the preset as it is.
+    ai.persona_prompts
+        .get(preset.id)
+        .filter(|s| !s.trim().is_empty())
+        .cloned()
+        .unwrap_or_else(|| preset.prompt.to_owned())
 }
 
 const ANTHROPIC_VERSION: &str = "2026-10-21";

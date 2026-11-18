@@ -1396,6 +1396,8 @@ function addMsg(kind, standby = false) {
   msgs.add(m);
   if (standby) {
     node.classList.add("standby");
+    // Tab then Enter in the unseen box shouldn't land on its × and close the chat.
+    node.querySelector(".x").tabIndex = -1;
     m.standby = true;
     chat.standby = m;
   } else {
@@ -1440,6 +1442,8 @@ function openCompose(standby = false) {
       e.stopPropagation(); // not on to the page, where Esc closes the whole chat
       if (m.standby) closeChat();
       else dropCompose(m);
+    } else if (e.key === "Tab" && m.standby) {
+      e.preventDefault(); // nothing to move on to in a box nobody can see
     }
   });
   send.onclick = () => sendChat(m);
@@ -1464,12 +1468,21 @@ function placeStandby(m) {
   m.el.style.transform = `translate(${x}px, 0)`;
 }
 
+/** The unseen box goes, so that keys typed once the pet has the focus again (after
+ *  being shown from the tray, say) don't go into a box nobody can see. */
+function dropStandby() {
+  if (!chat?.standby) return;
+  leave(chat.standby, "down");
+  chat.standby = null;
+}
+
 /** The standby box comes into view, popping up like any new bubble. */
 function wakeCompose(m) {
   if (!m.standby || !chat) return;
   m.standby = false;
   chat.standby = null;
   m.el.classList.remove("standby");
+  m.el.querySelector(".x")?.removeAttribute("tabindex");
   m.el.style.opacity = 0;
   chat.stack.push(m);
   layoutChat();
@@ -1771,11 +1784,24 @@ function chatSlug() {
 document.addEventListener("keydown", (e) => {
   if (!chat || chat.stack.some((m) => m.kind === "compose")) return;
   if (e.key === "Escape") return closeChat();
-  // A key typed with the reply up but the box not focused (a click on the reply took
-  // the focus, say): into the box it goes.
-  const typed = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
-  if (typed && chat.phase === "idle") (chat.standby || openCompose(true)).input.focus();
+  // A key typed with the reply up but the box not focused: into the box it goes. Not
+  // a key meant for a focused button or link, and not while the chat is moved aside.
+  const typed = e.key.length === 1 && e.key !== " " && !e.ctrlKey && !e.metaKey && !e.altKey;
+  if (typed && e.target.closest?.("button, a")) return;
+  if (typed && chat.phase === "idle" && !chatEl.classList.contains("away")) focusStandby();
 });
+/** Focuses the unseen box for the next message, opening one if need be. */
+function focusStandby() {
+  (chat.standby || openCompose(true)).input.focus({ preventScroll: true });
+}
+// A click on a reply takes the focus from the unseen box: it goes straight back, so that
+// an input method composes in the box from the first key. Not while text is selected.
+chatEl.addEventListener("pointerup", (e) => {
+  if (!chat || chat.phase !== "idle" || chatEl.classList.contains("away") || !document.hasFocus()) return;
+  if (chat.stack.some((m) => m.kind === "compose") || e.target.closest("button, a") || !getSelection().isCollapsed) return;
+  focusStandby();
+});
+window.addEventListener("blur", dropStandby);
 window.addEventListener("resize", layoutChat);
 // The bubbles ride along when the drawing under them changes height, and a long reply
 // is fitted to the room it has then.
