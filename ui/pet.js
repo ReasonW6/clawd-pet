@@ -1289,6 +1289,8 @@ const CHAT_GAP = 10;
 const CHAT_TOP_ROOM = 12;
 /** Messages sent along as context, counting both sides. */
 const CHAT_HISTORY = 24;
+/** How soon after a box pops up from blind typing an Enter is ignored rather than sending. */
+const WOKE_ENTER_MS = 500;
 /** The chat closes itself after this long with no box open and no reply coming. */
 const CHAT_IDLE_MS = 4 * MIN;
 /** How far either side of the pet the tails are: the reply's on its left, the user's on its right. */
@@ -1433,9 +1435,21 @@ function openCompose(standby = false) {
   // An input method starting to compose brings the box into view straight away.
   input.addEventListener("compositionstart", () => wakeCompose(m));
   input.addEventListener("keydown", (e) => {
+    const composing = e.isComposing || e.keyCode === 229;
+    // An empty unseen box: a space or a new line would only bring up a blank box, and
+    // Ctrl+A selects the reply, as it would without the box.
+    if (m.standby && !input.value && !composing) {
+      if (e.key === " " || (e.key === "Enter" && e.shiftKey)) return e.preventDefault();
+      if (e.key.toLowerCase() === "a" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        return selectReply();
+      }
+    }
     // Enter while an input method is composing picks a candidate instead.
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
+    if (e.key === "Enter" && !e.shiftKey && !composing) {
       e.preventDefault();
+      // Just popped up from keys typed blind: an Enter this soon wasn't meant to send.
+      if (now() - (m.wokeAt || 0) < WOKE_ENTER_MS) return;
       sendChat(m);
     } else if (e.key === "Escape") {
       e.preventDefault();
@@ -1468,10 +1482,25 @@ function placeStandby(m) {
   m.el.style.transform = `translate(${x}px, 0)`;
 }
 
-/** The unseen box goes, so that keys typed once the pet has the focus again (after
- *  being shown from the tray, say) don't go into a box nobody can see. */
+/** Selects the text of the reply on show (for Ctrl+A in the unseen box). */
+function selectReply() {
+  const r = chat.stack.find((m) => m.kind === "ai");
+  if (!r) return;
+  chat.standby?.input.blur(); // so that Ctrl+C copies the reply, not the empty box
+  const range = document.createRange();
+  range.selectNodeContents(r.body);
+  getSelection().removeAllRanges();
+  getSelection().addRange(range);
+}
+
+/** The pet lost the focus: the unseen box goes, and keys stop being carried into the
+ *  chat, so that keys typed once Windows hands the focus back (after the settings
+ *  window closes, or the pet is shown from the tray, say) don't end up sent to the
+ *  model. A click on the pet or on a reply brings the chat back. */
 function dropStandby() {
-  if (!chat?.standby) return;
+  if (!chat) return;
+  chat.attended = false;
+  if (!chat.standby) return;
   leave(chat.standby, "down");
   chat.standby = null;
 }
@@ -1480,6 +1509,7 @@ function dropStandby() {
 function wakeCompose(m) {
   if (!m.standby || !chat) return;
   m.standby = false;
+  m.wokeAt = now();
   chat.standby = null;
   m.el.classList.remove("standby");
   m.el.querySelector(".x")?.removeAttribute("tabindex");
@@ -1515,6 +1545,9 @@ function sendChat(m) {
   if (chatEl.classList.contains("away")) return;
   const text = m.input.value.trim();
   if (!text || chat.phase === "waiting" || chat.phase === "typing") return;
+  // Sent with the pet in front: typing on after the reply carries on the chat, as long
+  // as the focus stays.
+  chat.attended = true;
   // The last reply floats off...
   for (const x of chat.stack) if (x !== m) leave(x, "up");
   chat.stack = [m];
@@ -1633,9 +1666,9 @@ function finishReply(r) {
     chat.history.push({ role: "assistant", text: r.full.trim() });
   }
   chat.phase = "idle";
-  // Typing straight away carries on the chat, unless something else took the focus
-  // meanwhile, or text in the reply is being selected.
-  if (document.hasFocus() && getSelection().isCollapsed && !chat.standby) openCompose(true);
+  // Typing straight away carries on the chat, unless the focus went elsewhere at any
+  // point since the message was sent, or text in the reply is being selected.
+  if (chat.attended && document.hasFocus() && getSelection().isCollapsed && !chat.standby) openCompose(true);
   const asked = chat.stack.find((m) => m.kind === "me");
   setTimeout(() => {
     if (!chat || !chat.stack.includes(asked)) return;
@@ -1784,11 +1817,13 @@ function chatSlug() {
 document.addEventListener("keydown", (e) => {
   if (!chat || chat.stack.some((m) => m.kind === "compose")) return;
   if (e.key === "Escape") return closeChat();
-  // A key typed with the reply up but the box not focused: into the box it goes. Not
-  // a key meant for a focused button or link, and not while the chat is moved aside.
-  const typed = e.key.length === 1 && e.key !== " " && !e.ctrlKey && !e.metaKey && !e.altKey;
-  if (typed && e.target.closest?.("button, a")) return;
-  if (typed && chat.phase === "idle" && !chatEl.classList.contains("away")) focusStandby();
+  // A key typed with the reply up but the box not focused: into the box it goes, input
+  // methods' keys included. Only while the pet has kept the focus since the message was
+  // sent; not a key meant for a focused button or link, nor while the chat is moved aside.
+  const ime = e.key === "Process" || e.keyCode === 229;
+  const typed = (ime || (e.key.length === 1 && e.key !== " ")) && !e.ctrlKey && !e.metaKey && !e.altKey;
+  if (!typed || !chat.attended || e.target.closest?.("button, a")) return;
+  if (chat.phase === "idle" && !chatEl.classList.contains("away")) focusStandby();
 });
 /** Focuses the unseen box for the next message, opening one if need be. */
 function focusStandby() {
@@ -1799,6 +1834,7 @@ function focusStandby() {
 chatEl.addEventListener("pointerup", (e) => {
   if (!chat || chat.phase !== "idle" || chatEl.classList.contains("away") || !document.hasFocus()) return;
   if (chat.stack.some((m) => m.kind === "compose") || e.target.closest("button, a") || !getSelection().isCollapsed) return;
+  chat.attended = true; // clicked on, so being looked at
   focusStandby();
 });
 window.addEventListener("blur", dropStandby);

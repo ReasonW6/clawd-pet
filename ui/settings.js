@@ -380,6 +380,7 @@ let identity = "";
 async function initIdentity() {
   identity = await invoke("ai_identity");
   const box = $("ai-identity");
+  box.placeholder = identity; // shown when emptied, which means the default
   box.value = config.ai.identity || identity;
   box.oninput = () => {
     const text = box.value.trim();
