@@ -84,12 +84,21 @@ Claude 没活给它的时候，它演完一个「场景」歇一会儿，再演�
 
 **开销**：前台窗口切换和进出全屏由系统事件通知（全屏隐藏、前台应用），文件、回收站和 Git 由文件系统通知，平时不占 CPU。需要定时看的只有两样：鼠标穿透要看光标位置（光标在小螃蟹附近时每 40 毫秒一次，离得远时每 200 毫秒一次）；键鼠空闲时间和剪贴板序号每秒读一次，网络每 5 秒、电量每 20 秒，都是只读一个数的系统调用。
 
+## AI 聊天
+
+在设置的「AI 聊天」里打开、填好服务商的 API 密钥后，双击小螃蟹，头顶会弹出输入框，和它像跟熟人发消息一样聊几句。不用登录账号，只要密钥。
+
+- **对话**：发出的消息靠右往上走，它的回复从下面弹出来把消息顶上去，回完消息就飘走，只留回复。聊天开着时单击它接着说，带着前面的上下文；`Esc` 收起输入框。气泡不会自己消失，点右上角的 × 关掉，聊天内容随之丢弃，不存任何地方。
+- **看屏幕**：打开「允许它看屏幕」后，模型多了一个截图工具，觉得需要时（「这个报错啥意思」）自己决定截一张你所在屏幕的图（截不到桌宠自己），回复上会标出「看了一眼屏幕」。截图只在那一轮有效。模型不能识图时它会直说。
+- **服务商**：Anthropic、OpenAI、Gemini、xAI、Mistral、Groq、OpenRouter，DeepSeek、Kimi、智谱、通义千问、豆包、硅基流动、MiniMax、腾讯混元、百度千帆、阶跃星辰，本地的 Ollama、LM Studio，以及任意 OpenAI / Anthropic 兼容接口。每家的密钥、地址、模型分开记，「获取模型」从服务商那里拉可用模型列表。请求走系统代理设置。
+- 密钥明文保存在 `%USERPROFILE%\.clawd-pet\config.json`。
+
 ## 交互
 
 - 单击：互动反应；连点 5 下会生气；睡着时戳它会有起床气
 - 鼠标在它身上来回蹭：摸摸
 - 按住拖动：拎着走（位置自动记住）
-- 双击：从 400 个动画里随机表演一段
+- 双击：从 400 个动画里随机表演一段；打开了 AI 聊天的话是和它聊天
 - 把文件拖到它身上：接住（不会动文件）
 - 悬停：显示它正在干什么
 - 右键小螃蟹或托盘图标：显示隐藏、随机来一段、设置、退出
@@ -138,7 +147,9 @@ python ../clawd-400-src/lint.py scenes/claude.py
 |---|---|
 | [`ui/anims.js`](ui/anims.js) | 「剧本」：所有状态、生活场景、作息、情绪、季节、节日、系统事件对应哪些动画，改这里即可换动画 |
 | [`ui/pet.js`](ui/pet.js) | 状态机：会话状态、场景调度、情绪、睡眠、互动、气泡 |
-| [`ui/settings.html`](ui/settings.html) | 设置窗口（性格 / 作息 / Claude 联动 / 系统联动 / 动画图鉴） |
+| [`ui/settings.html`](ui/settings.html) | 设置窗口（性格 / 作息 / Claude 联动 / AI 聊天 / 系统联动 / 动画图鉴） |
+| [`src-tauri/src/ai.rs`](src-tauri/src/ai.rs) | AI 聊天：服务商目录、流式请求（OpenAI / Anthropic 两种接口）、截图工具 |
+| [`src-tauri/src/screen.rs`](src-tauri/src/screen.rs) | 截取桌宠所在的屏幕（不含桌宠自己），压成 JPEG |
 | [`src-tauri/src/server.rs`](src-tauri/src/server.rs) | 接收 hook 的本地 HTTP 服务，挂起权限请求 |
 | [`src-tauri/src/desktop_sessions.rs`](src-tauri/src/desktop_sessions.rs) | 从 Desktop 的会话记录里找出一个会话是从哪个会话开出来的 |
 | [`src-tauri/src/sysmon.rs`](src-tauri/src/sysmon.rs) | 系统联动：文件夹和回收站监听、前台窗口事件、系统状态轮询 |

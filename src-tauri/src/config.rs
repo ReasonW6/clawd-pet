@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::Path;
 
 /// Browsers and video players, excluded from hiding out of the box: full-screen in
@@ -91,6 +92,36 @@ impl Default for SysConfig {
     }
 }
 
+/// One AI provider's settings, kept per provider so that switching back keeps them.
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AiProfile {
+    pub api_key: String,
+    /// Empty = the provider's own address.
+    pub base_url: String,
+    /// Empty = the provider's default model.
+    pub model: String,
+}
+
+/// Chatting with an AI model in bubbles above the pet.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AiConfig {
+    /// A double click opens the chat instead of a random act.
+    pub enabled: bool,
+    /// An id from `ai::PROVIDERS`.
+    pub provider: String,
+    pub profiles: BTreeMap<String, AiProfile>,
+    /// Give the model a tool that takes a screenshot of the pet's monitor.
+    pub screen: bool,
+}
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self { enabled: false, provider: "deepseek".into(), profiles: BTreeMap::new(), screen: true }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
@@ -122,6 +153,7 @@ pub struct Config {
     /// Programs (file names like "chrome.exe") that don't hide the pet when full-screen.
     pub fullscreen_exclude: Vec<String>,
     pub sys: SysConfig,
+    pub ai: AiConfig,
 }
 
 impl Default for Config {
@@ -146,6 +178,7 @@ impl Default for Config {
             hide_in_fullscreen: true,
             fullscreen_exclude: BROWSERS.iter().chain(VIDEO_PLAYERS).map(|p| p.to_string()).collect(),
             sys: SysConfig::default(),
+            ai: AiConfig::default(),
         }
     }
 }

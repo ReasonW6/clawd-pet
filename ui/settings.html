@@ -19,6 +19,7 @@
         <button data-tab="character" class="active">性格</button>
         <button data-tab="routine">作息</button>
         <button data-tab="claude">Claude 联动</button>
+        <button data-tab="ai">AI 聊天</button>
         <button data-tab="system">系统联动</button>
         <button data-tab="gallery">动画图鉴</button>
       </nav>
@@ -83,7 +84,7 @@
             </span>
           </div>
         </div>
-        <p class="hint">互动小贴士：单击逗它、连点 5 下会生气、双击随机表演、鼠标在它身上来回蹭是摸摸、按住可以拎着走、把文件拖到它身上它会接住。</p>
+        <p class="hint">互动小贴士：单击逗它、连点 5 下会生气、双击随机表演（开了 AI 聊天就是和它聊天）、鼠标在它身上来回蹭是摸摸、按住可以拎着走、把文件拖到它身上它会接住。</p>
       </section>
 
       <!-- ------------------------------------------------ 作息 -->
@@ -134,6 +135,49 @@
           </label>
         </div>
         <p class="hint">桌宠没运行时 hook 会立即失败，Claude Code 照常工作，不受影响。</p>
+      </section>
+
+      <!-- ------------------------------------------------ AI 聊天 -->
+      <section id="tab-ai">
+        <h2>AI 聊天</h2>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>和它聊天</b><small>开启后双击它，头顶会弹出对话框；聊天开着时单击它接着说。聊天记录不保存，关掉就没了</small></span>
+            <input type="checkbox" class="switch" data-key="ai.enabled" />
+          </label>
+        </div>
+        <div class="card">
+          <div class="row">
+            <span class="text"><b>服务商</b><small id="ai-provider-note"></small></span>
+            <select id="ai-provider"></select>
+          </div>
+          <div class="row">
+            <span class="text"><b>API 密钥</b><small><a id="ai-key-link" class="link">去申请 ↗</a></small></span>
+            <span class="secret">
+              <input type="password" id="ai-key" spellcheck="false" autocomplete="off" />
+              <button id="ai-key-show" class="icon eye" title="显示"><i class="glyph-eye"></i></button>
+            </span>
+          </div>
+          <div class="row">
+            <span class="text"><b>API 地址</b><small id="ai-base-note">留空就用官方地址</small></span>
+            <input type="text" id="ai-base" class="wide" spellcheck="false" />
+          </div>
+          <div class="row stack">
+            <span class="text"><b>模型</b><small id="ai-model-note">点「获取模型」从服务商那里拉列表，也可以直接填</small></span>
+            <span class="add">
+              <input type="text" id="ai-model" spellcheck="false" />
+              <button id="ai-fetch">获取模型</button>
+            </span>
+            <div id="ai-models" class="chips models"></div>
+          </div>
+        </div>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>允许它看屏幕</b><small>它觉得需要时，会截一张你所在屏幕的图发给模型（截不到它自己和气泡），回复上会标出「看了一眼屏幕」。关掉后它根本拿不到截图</small></span>
+            <input type="checkbox" class="switch" data-key="ai.screen" />
+          </label>
+        </div>
+        <p class="hint">聊天内容和截图只发给你选的服务商，桌宠自己不存。API 密钥明文保存在本机的 <code>~/.clawd-pet/config.json</code>。看屏幕要模型能识图，不能的话它会说看不了。走系统代理设置。</p>
       </section>
 
       <!-- ------------------------------------------------ 系统 -->

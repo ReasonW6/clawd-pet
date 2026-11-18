@@ -9,6 +9,7 @@ const bubble = $("bubble");
 const label = $("label");
 const petHit = $("pet-hit");
 const dot = $("dot");
+const chatEl = $("chat");
 
 const MIN = 60 * 1000;
 const TOAST_MS = 4500;
@@ -726,14 +727,14 @@ function tick() {
     playOnce(pick(ANIMS.longTask), { force: true, minMs: 3000 });
   }
 
-  const quiet = !lead && !perms.length && !oneShot && !dragging;
+  const quiet = !lead && !perms.length && !oneShot && !dragging && !chat;
   if (!quiet) nextSceneAt = Math.max(nextSceneAt, t + CALM_AFTER_MS);
   const win = sleepWindowAt(d);
   if (asleep && !win) {
     wakeUp(d);
   } else if (!asleep && win && quiet && t > awakeUntil) {
     fallAsleep(win);
-  } else if (!asleep && !leftAlone && config.sedentaryMinutes > 0 && t - presentSince >= config.sedentaryMinutes * MIN) {
+  } else if (!asleep && !leftAlone && !chat && config.sedentaryMinutes > 0 && t - presentSince >= config.sedentaryMinutes * MIN) {
     presentSince = t;
     playOnce(pick(ANIMS.stretch), { minMs: 3000 });
     toast(`已经坐了 ${config.sedentaryMinutes} 分钟啦，起来活动一下～`, { ms: 7000 });
@@ -868,7 +869,10 @@ function desiredSlug() {
   if (dragging) return dragAnim;
   if (perms.length) return ANIMS.permission[0];
   const lead = leader();
-  if (oneShot && (oneShot.force || !lead)) return oneShot.slug;
+  if (oneShot?.force) return oneShot.slug;
+  // Chatting, it stays at its desk with the user; the label still tells how Claude is doing.
+  if (chat) return chatSlug();
+  if (oneShot && !lead) return oneShot.slug;
   if (lead) {
     if (lead.state === "waiting") {
       return patient(lead) ? lead.waitAnim : ANIMS.waiting[0];
@@ -966,6 +970,14 @@ function suggestionText(sug) {
 
 function renderBubble() {
   renderDot();
+  // The chat gives way to a permission request, and otherwise has the space to itself.
+  chatEl.classList.toggle("away", perms.length > 0);
+  if ((chat || msgs.size) && !perms.length) {
+    bubbleKey = null;
+    bubble.hidden = true;
+    bubble.innerHTML = "";
+    return;
+  }
   bubble.classList.toggle("leaving", Boolean((speech?.leaving || folding) && !perms.length && !toastText));
   if (perms.length) {
     const req = perms[0];
@@ -1094,11 +1106,13 @@ function queueHitRects() {
   hitQueued = true;
   requestAnimationFrame(() => {
     hitQueued = false;
+    const chatParts = chatEl.classList.contains("away") ? [] : [...chatEl.querySelectorAll(".msg:not(.gone) > .card, .msg:not(.gone):not(.nox) > .x")];
     const rects = [petHit, bubble, label, dot]
       .filter((e) => !e.hidden)
+      .concat(chatParts)
       .map((e) => e.getBoundingClientRect())
       .filter((r) => r.width > 0)
-      .map((r) => [r.x, r.y, r.width, r.height]);
+      .map((r) => [r.x, r.y, r.width, r.height].map(Math.round));
     // Asked for on every render; told to the backend only when something moved.
     const key = rects.join();
     if (key === hitSent) return;
@@ -1182,6 +1196,7 @@ petHit.addEventListener("mouseleave", () => {
 });
 
 document.addEventListener("contextmenu", (e) => {
+  if (e.target.closest("#chat .msg")) return; // copy and paste in the chat
   e.preventDefault();
   invoke("show_menu");
 });
@@ -1207,6 +1222,7 @@ function onDragEnd() {
 // once, and it ignores further clicks until that tantrum has played out.
 function onPetClick() {
   const t = now();
+  if (chat) return chatPoke();
   if (followSpeech()) return;
   if (t < ignoreClicksUntil) return;
   clearTimeout(noticeTimer);
@@ -1226,6 +1242,12 @@ function onPetClick() {
     return;
   }
   burst++;
+  // With the AI chat on, a double click opens it straight away.
+  if (burst === 2 && config.ai.enabled) {
+    burst = 0;
+    clicks = [];
+    return openChat();
+  }
   clickTimer = setTimeout(() => {
     const n = burst;
     burst = 0;
@@ -1239,11 +1261,458 @@ function playRandom() {
   playOnce(pick(funSlugs), { force: true, minMs: 2500 });
 }
 
+// ---------------------------------------------------------------- AI chat
+
+// With the AI chat on, a double click opens a box above the pet for talking to a model
+// (src-tauri/src/ai.rs); while the chat is open a single click opens it again. The
+// bubbles stack up from the pet, two at most: the user's message on the right, the
+// reply on the left. A sent message floats off once its reply is in, and the last
+// reply once the next message goes out. The conversation lives here only until the
+// chat is closed.
+//
+// Every bubble moves on springs rather than CSS transitions, so that a bubble pushed
+// again mid-flight carries on smoothly from wherever it is.
+const CHAT_GAP = 10;
+/** Room above the top bubble for its close button. */
+const CHAT_TOP_ROOM = 12;
+/** Messages sent along as context, counting both sides. */
+const CHAT_HISTORY = 24;
+/** How far either side of the pet the tails are: the reply's on its left, the user's on its right. */
+const TAIL_REACH = 48;
+/** How far in from its outer end a bubble's tail sits, while the window leaves room for that. */
+const TAIL_INSET = 30;
+/** How far a bubble may reach across the pet's middle; one wider grows out on its own side. */
+const CHAT_REACH = 70;
+let chat = null; // { req, history: [{ role, text }], stack: [msg] top to bottom, phase, reply }
+let chatReq = 0;
+/** Bubbles on screen, those on their way out included: { kind, el, card, body, sp, gone, ... }. */
+const msgs = new Set();
+
+/** A damped spring (unit mass) heading for `to`. */
+class Spring {
+  constructor(v, [stiffness, damping, eps]) {
+    this.v = this.to = v;
+    this.vel = 0;
+    this.k = stiffness;
+    this.c = damping;
+    this.eps = eps;
+  }
+  step(dt) {
+    this.vel += (-this.k * (this.v - this.to) - this.c * this.vel) * dt;
+    this.v += this.vel * dt;
+  }
+  get still() {
+    return Math.abs(this.v - this.to) < this.eps && Math.abs(this.vel) < this.eps * 10;
+  }
+}
+// [stiffness, damping, rest threshold]; damping ratio = damping / (2 * sqrt(stiffness)).
+const MOVE = [380, 26, 0.2]; // 0.67: overshoots a little
+const SIZE = [520, 34, 0.2]; // 0.75
+const POP = [560, 21, 0.002]; // 0.44: bouncy
+const FADE = [300, 34, 0.002]; // 0.98: no overshoot
+
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+// Tails lean in towards the pet: the reply's, near its left end, bends right; the
+// user's, near its right end, bends left (the same drawing, mirrored by CSS). Each
+// draws its own shadow and covers the bubble's border where they join.
+const tailSvg = (side, shadowX) =>
+  `<svg class="tail ${side}" viewBox="0 0 20 18" aria-hidden="true"><path class="sh" transform="translate(${shadowX} 3)" d="M5 2C6 7 5 12 1.5 16.5C9 15 15.5 9.5 19 2Z"/><path class="f" d="M5 0V2C6 7 5 12 1.5 16.5C9 15 15.5 9.5 19 2V0Z"/><path class="s" d="M5 2C6 7 5 12 1.5 16.5C9 15 15.5 9.5 19 2"/></svg>`;
+const TAIL_LEFT = tailSvg("left", 2);
+const TAIL_RIGHT = tailSvg("right", -2);
+const SEND_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3.5M3.5 8 8 3.5 12.5 8"/></svg>';
+
+const nowText = () => new Date().toLocaleString("zh-CN", { dateStyle: "full", timeStyle: "short", hour12: false });
+
+function openChat() {
+  if (chat) return chatPoke();
+  stir(AWAKE_AFTER_POKE_MS);
+  cancelLife();
+  clearTimeout(noticeTimer);
+  chat = { req: 0, history: [], stack: [], phase: "idle", reply: null };
+  openCompose();
+}
+
+/** A click on the pet while the chat is open. */
+function chatPoke() {
+  const compose = chat.stack.find((m) => m.kind === "compose");
+  if (compose) return focusCompose(compose);
+  if (chat.phase === "waiting" || chat.phase === "typing") {
+    // Busy answering: the reply just gives a little wobble.
+    chat.reply.sp && (chat.reply.sp.s.vel += 1.6);
+    return animate();
+  }
+  openCompose();
+}
+
+function closeChat() {
+  if (!chat) return;
+  invoke("ai_cancel");
+  for (const m of chat.stack) leave(m, "down");
+  typing.clear();
+  chat = null;
+  render();
+}
+
+function addMsg(kind) {
+  const node = el("div", `msg ${kind}`);
+  const card = el("div", "card");
+  const body = el("div", "body");
+  card.append(body);
+  node.append(card);
+  node.insertAdjacentHTML("beforeend", kind === "ai" ? TAIL_RIGHT : TAIL_LEFT);
+  const m = { kind, el: node, card, body, sp: null, gone: false };
+  if (kind !== "me") {
+    const x = el("button", "x");
+    x.title = "关闭聊天（内容不保存）";
+    x.onclick = (e) => {
+      e.stopPropagation();
+      closeChat();
+    };
+    node.append(x);
+  }
+  chatEl.append(node);
+  msgs.add(m);
+  chat.stack.push(m);
+  return m;
+}
+
+function openCompose() {
+  const m = addMsg("compose");
+  const input = document.createElement("textarea");
+  input.rows = 1;
+  input.maxLength = 1000;
+  input.spellcheck = false;
+  input.placeholder = `说点什么${nick()}…（Enter 发送）`;
+  const send = el("button", "send");
+  send.title = "发送（Enter）";
+  send.disabled = true;
+  send.innerHTML = SEND_ICON;
+  m.body.append(input, send);
+  m.input = input;
+  input.addEventListener("input", () => {
+    send.disabled = !input.value.trim();
+    fitInput(m);
+    layoutChat();
+  });
+  input.addEventListener("keydown", (e) => {
+    // Enter while an input method is composing picks a candidate instead.
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
+      e.preventDefault();
+      sendChat(m);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation(); // not on to the page, where Esc closes the whole chat
+      dropCompose(m);
+    }
+  });
+  send.onclick = () => sendChat(m);
+  fitInput(m);
+  layoutChat();
+  focusCompose(m);
+  render();
+}
+
+/** The text box grows with what is typed, up to four lines. */
+function fitInput(m) {
+  m.input.style.height = "auto";
+  m.input.style.height = `${Math.min(m.input.scrollHeight, 78)}px`;
+}
+
+async function focusCompose(m) {
+  await invoke("chat_focus");
+  m.input?.focus();
+}
+
+/** Esc in the box: just the box goes, or the whole chat if nothing else is up. */
+function dropCompose(m) {
+  if (chat.stack.length <= 1) return closeChat();
+  leave(m, "down");
+  chat.stack = chat.stack.filter((x) => x !== m);
+  layoutChat();
+  render();
+}
+
+function sendChat(m) {
+  const text = m.input.value.trim();
+  if (!text || chat.phase === "waiting" || chat.phase === "typing") return;
+  // The last reply floats off...
+  for (const x of chat.stack) if (x !== m) leave(x, "up");
+  chat.stack = [m];
+  // ...the box turns into the message, moving over to the right...
+  m.kind = "me";
+  m.el.className = "msg me";
+  m.el.querySelector(".x")?.remove();
+  m.input = null;
+  m.body.replaceChildren(el("div", "text", text));
+  // ...and the reply comes up from below, pushing it up.
+  const r = addMsg("ai");
+  Object.assign(r, { full: "", shown: "", buffer: "", chip: null, text: null, looked: false, ended: false, error: null });
+  r.body.append(dots());
+  chat.reply = r;
+  chat.history.push({ role: "user", text });
+  chat.history = chat.history.slice(-CHAT_HISTORY);
+  while (chat.history[0]?.role !== "user") chat.history.shift();
+  chat.phase = "waiting";
+  chat.req = ++chatReq;
+  invoke("ai_chat", { id: chat.req, history: chat.history, now: nowText() });
+  layoutChat();
+  render();
+}
+
+function dots() {
+  const d = el("div", "dots");
+  d.append(el("i"), el("i"), el("i"));
+  return d;
+}
+
+/** A small note above the reply: that it looked at the screen, or couldn't. */
+function setChip(r, text) {
+  if (!r.chip) {
+    r.chip = el("div", "chip");
+    r.body.prepend(r.chip);
+  }
+  r.chip.textContent = text;
+  layoutChat();
+}
+
+function onAi({ id, kind, text }) {
+  if (!chat || id !== chat.req) return; // from a chat closed since, or an earlier message
+  const r = chat.reply;
+  if (kind === "text") {
+    if (!r.text) {
+      r.text = el("div", "text");
+      r.body.querySelector(".dots")?.remove();
+      r.body.append(r.text);
+      chat.phase = "typing";
+      render();
+    }
+    if (r.looked) setChip(r, "👀 看了一眼屏幕");
+    r.full += text;
+    r.buffer += text;
+    typing.add(r);
+    typeOn();
+  } else if (kind === "look") {
+    r.looked = true;
+    setChip(r, "👀 瞄一眼屏幕…");
+    playOnce(ANIMS.chatSnap[0], { force: true, minMs: 0 });
+  } else if (kind === "blind") {
+    r.looked = false;
+    setChip(r, "🙈 这个模型看不了图");
+  } else if (kind === "done" || kind === "error") {
+    r.ended = true;
+    r.error = kind === "error" ? text : null;
+    finishReply(r);
+  }
+}
+
+// The reply is typed out at a steady pace, however the text arrives: faster when it
+// has fallen behind.
+const typing = new Set();
+let typeFrame = 0;
+
+function typeOn() {
+  if (!typeFrame) typeFrame = requestAnimationFrame(typeStep);
+}
+
+function typeStep() {
+  typeFrame = 0;
+  for (const r of typing) {
+    if (!r.buffer) {
+      typing.delete(r);
+      finishReply(r);
+      continue;
+    }
+    let n = Math.max(1, Math.ceil(r.buffer.length / 12));
+    if (/[\uD800-\uDBFF]/.test(r.buffer[n - 1] || "")) n++; // never half an emoji
+    r.shown += r.buffer.slice(0, n);
+    r.buffer = r.buffer.slice(n);
+    r.text.textContent = r.shown;
+  }
+  layoutChat();
+  if (typing.size) typeOn();
+}
+
+/** Once the reply has come in and been typed out: the message it answers floats off. */
+function finishReply(r) {
+  if (!r.ended || r.buffer || r.finished || chat?.reply !== r) return;
+  r.finished = true;
+  if (r.error || !r.full.trim()) {
+    chat.history.pop(); // the question goes unanswered
+    const err = el("div", "err", r.error || "唔…一时不知道说啥了");
+    if (r.error) {
+      const fix = el("a", "", "去设置看看");
+      fix.onclick = () => invoke("open_settings");
+      err.append(fix);
+      playOnce(pick(ANIMS.toolError), { force: true, minMs: 1500 });
+    }
+    r.body.replaceChildren(err);
+  } else {
+    chat.history.push({ role: "assistant", text: r.full.trim() });
+  }
+  chat.phase = "idle";
+  const asked = chat.stack.find((m) => m.kind === "me");
+  setTimeout(() => {
+    if (!chat || !chat.stack.includes(asked)) return;
+    leave(asked, "up");
+    chat.stack = chat.stack.filter((m) => m !== asked);
+    layoutChat();
+  }, 450);
+  render();
+}
+
+/** Off it goes: floating up, or back down into the pet. */
+function leave(m, way) {
+  m.gone = true;
+  m.el.classList.add("gone");
+  if (!m.sp) {
+    m.el.remove();
+    msgs.delete(m);
+    return;
+  }
+  if (way === "up") {
+    m.sp.y.to += 24;
+    m.sp.s.to = 0.92;
+  } else {
+    m.sp.y.to = -20;
+    m.sp.s.to = 0.4;
+  }
+  m.sp.o.to = 0;
+  animate();
+}
+
+/** Where each bubble should be, from the bottom up, given what is in it now. */
+function layoutChat() {
+  if (!chat) return;
+  const width = chatEl.clientWidth;
+  const height = chatEl.clientHeight;
+  chatWidth = width;
+  for (const m of chat.stack) {
+    m.nw = Math.ceil(m.body.offsetWidth);
+    m.nh = Math.ceil(m.body.offsetHeight);
+  }
+  const total = chat.stack.reduce((sum, m) => sum + m.nh + CHAT_GAP, -CHAT_GAP);
+  // One close button, on the top bubble that has one; one tail, on the bubble next to the pet.
+  const closer = chat.stack.find((m) => m.kind !== "me");
+  for (const m of chat.stack) {
+    m.el.classList.toggle("nox", m !== closer);
+    m.el.classList.toggle("tailless", m !== chat.stack.at(-1));
+  }
+  let y = 0;
+  for (const m of [...chat.stack].reverse()) {
+    // A long reply scrolls rather than pushing the rest out of the window.
+    const h = m.kind === "ai" ? clamp(height - CHAT_TOP_ROOM - (total - m.nh), 56, m.nh) : m.nh;
+    const scroll = h < m.nh;
+    m.card.classList.toggle("scroll", scroll);
+    const w = m.nw + (scroll ? 8 : 0);
+    const to = { y, w, h, s: 1, o: 1 };
+    // A new bubble pops up from just below where it belongs.
+    if (!m.sp) m.sp = { y: new Spring(y - 18, MOVE), w: new Spring(w, SIZE), h: new Spring(h, SIZE), s: new Spring(0.5, POP), o: new Spring(0, FADE) };
+    for (const k in to) m.sp[k].to = to[k];
+    if (scroll && m === chat.reply && chat.phase === "typing") m.card.scrollTop = m.card.scrollHeight;
+    y += h + CHAT_GAP;
+  }
+  animate();
+}
+
+/**
+ * A bubble's left edge, and its tail's place across from that. A short bubble grows from
+ * its tail beside the pet across towards the other side, the reply rightwards and the
+ * user's side leftwards; once it reaches CHAT_REACH past the middle it grows out on its
+ * own side instead, so long replies stay on the left and long messages on the right.
+ * The tail stays put, sliding along the bubble (clear of the rounded corners) only
+ * when the bubble can't move any further.
+ */
+function placeX(m, w) {
+  const mid = chatWidth / 2;
+  const room = Math.max(0, chatWidth - w);
+  if (m.kind === "ai") {
+    const tail = mid - TAIL_REACH;
+    const x = clamp(Math.min(tail - TAIL_INSET, mid + CHAT_REACH - w), 0, room);
+    return [x, clamp(tail - x, 21, Math.max(21, w - 17))];
+  }
+  const tail = mid + TAIL_REACH;
+  const x = clamp(Math.max(tail + TAIL_INSET - w, mid - CHAT_REACH), 0, room);
+  return [x, clamp(tail - x, 17, Math.max(17, w - 21))];
+}
+
+let animating = false;
+let lastFrame = 0;
+let chatWidth = 0;
+let lastHits = 0;
+
+function animate() {
+  if (animating) return;
+  animating = true;
+  lastFrame = performance.now();
+  requestAnimationFrame(frame);
+}
+
+function frame(t) {
+  const dt = Math.min(0.05, (t - lastFrame) / 1000);
+  lastFrame = t;
+  let moving = false;
+  for (const m of msgs) {
+    if (!m.sp) continue; // not laid out yet
+    const sp = Object.values(m.sp);
+    // Small fixed steps keep the stiff springs stable whatever the frame rate.
+    for (let left = dt; left > 1e-6; left -= 1 / 240) for (const s of sp) s.step(Math.min(left, 1 / 240));
+    for (const s of sp) {
+      if (s.still) {
+        s.v = s.to;
+        s.vel = 0;
+      } else moving = true;
+    }
+    if (m.gone && m.sp.o.v < 0.03) {
+      m.el.remove();
+      msgs.delete(m);
+      if (!msgs.size) renderBubble(); // whatever the chat kept out of the way comes back
+      continue;
+    }
+    const { y, w, h, s, o } = m.sp;
+    const [width, height] = [Math.max(0, w.v), Math.max(0, h.v)];
+    const [x, tail] = placeX(m, width);
+    m.el.style.width = `${width}px`;
+    m.el.style.height = `${height}px`;
+    m.el.style.setProperty("--tail-x", `${tail}px`);
+    // Grows out of, and shrinks back into, the tip of its tail.
+    m.el.style.transformOrigin = `${tail}px ${height + 14}px`;
+    m.el.style.transform = `translate(${x}px, ${-y.v}px) scale(${s.v})`;
+    m.el.style.opacity = clamp(o.v, 0, 1);
+  }
+  if (t - lastHits > 120 || !moving) {
+    lastHits = t;
+    queueHitRects();
+  }
+  animating = moving;
+  if (moving) requestAnimationFrame(frame);
+}
+
+/** What the pet does while chatting, all at one desk. */
+function chatSlug() {
+  if (chat.stack.some((m) => m.kind === "compose")) return ANIMS.chatListen[0];
+  if (chat.phase === "waiting") return ANIMS.chatPonder[0];
+  if (chat.phase === "typing") return ANIMS.chatTyping[0];
+  return ANIMS.chatIdle[0];
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && chat && !chat.stack.some((m) => m.kind === "compose")) closeChat();
+});
+window.addEventListener("resize", layoutChat);
+// The bubbles ride along when the drawing under them changes height, and a long reply
+// is fitted to the room it has then.
+chatEl.addEventListener("transitionend", (e) => {
+  if (e.target === chatEl) layoutChat();
+  queueHitRects();
+});
+
 // ---------------------------------------------------------------- boot
 
 function applyConfig(c) {
   const livelinessChanged = !config || config.liveliness !== c.liveliness;
   config = c;
+  if (chat && !c.ai.enabled) closeChat();
   document.documentElement.style.setProperty("--size", `${c.size}px`);
   if (livelinessChanged) rest();
   queueHitRects();
@@ -1274,6 +1743,7 @@ async function boot() {
     render();
   });
   await listen("user-event", (e) => onUserEvent(e.payload));
+  await listen("ai", (e) => onAi(e.payload));
   await listen("drag-end", onDragEnd);
   await listen("config", (e) => applyConfig(e.payload));
   await listen("play-random", () => playRandom());

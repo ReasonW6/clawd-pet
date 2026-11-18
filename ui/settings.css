@@ -299,6 +299,7 @@ code {
 /* ---------------------------------------------------------------- controls */
 
 input[type="text"],
+input[type="password"],
 input[type="number"],
 input[type="time"],
 input[type="search"],
@@ -716,4 +717,101 @@ button.icon:hover {
 
 #grid button:hover {
   background: var(--clawd-soft);
+}
+
+/* ---------------------------------------------------------------- AI chat */
+
+input.wide,
+.secret input {
+  width: 260px;
+}
+
+/* A password box with a button to show what is in it. */
+.secret {
+  flex: none;
+  position: relative;
+  display: flex;
+}
+
+.secret input {
+  padding-right: 34px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.secret button.icon {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 24px;
+}
+
+.secret button.icon:hover {
+  background: var(--clawd-soft);
+  color: var(--ink);
+}
+
+.secret button.icon:active {
+  transform: translateY(-50%);
+}
+
+/* An eye: an almond outline with a pupil; crossed out while the key shows. */
+.glyph-eye {
+  position: relative;
+  width: 14px;
+  height: 9px;
+  border: 2px solid currentColor;
+  border-radius: 70% 10%;
+  transform: rotate(45deg) scale(0.8);
+}
+
+.glyph-eye::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 1px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.eye.on .glyph-eye {
+  color: var(--clawd);
+}
+
+a.link {
+  color: var(--clawd);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+a.link[hidden] {
+  display: none;
+}
+
+#ai-provider {
+  width: 260px;
+}
+
+.models {
+  max-height: 132px;
+  overflow-y: auto;
+}
+
+.models:empty {
+  display: none;
+}
+
+.models button.active {
+  background: var(--clawd);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+.bad {
+  color: #c0392b;
 }

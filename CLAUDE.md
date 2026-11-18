@@ -36,7 +36,7 @@ cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得�
 
 Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
-- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），以及 `config`、`drag-end`、`play`、`play-random`、`shown`。
+- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`。
 - 前端调用的命令都在 `main.rs` 的 `generate_handler!` 里注册；`window.__TAURI__` 是全局对象（`withGlobalTauri`），前端没有打包器和 import。
 
 ### Claude Code 联动

@@ -1,11 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ai;
 mod autostart;
 mod claude_app;
 mod config;
 mod desktop_sessions;
 mod git;
 mod hooks;
+mod screen;
 mod server;
 mod sysmon;
 mod transcript;
@@ -27,6 +29,8 @@ use tauri::{
 const SIZE_RANGE: (u32, u32) = (120, 360);
 /// Space above the pet reserved for speech / permission bubbles.
 const BUBBLE_SPACE: f64 = 210.0;
+/// More room above the pet while the AI chat is on, for a reply with a message on it.
+const CHAT_SPACE: f64 = 110.0;
 /// Space below the pet for the session status line.
 const LABEL_SPACE: f64 = 44.0;
 const MIN_WIDTH: f64 = 340.0;
@@ -62,9 +66,10 @@ impl AppState {
     }
 }
 
-fn window_size(size: u32) -> LogicalSize<f64> {
-    let s = size as f64;
-    LogicalSize::new(MIN_WIDTH.max(s + 40.0), BUBBLE_SPACE + s + LABEL_SPACE)
+fn window_size(cfg: &Config) -> LogicalSize<f64> {
+    let s = cfg.size as f64;
+    let chat = if cfg.ai.enabled { CHAT_SPACE } else { 0.0 };
+    LogicalSize::new(MIN_WIDTH.max(s + 40.0), BUBBLE_SPACE + chat + s + LABEL_SPACE)
 }
 
 fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
@@ -90,9 +95,9 @@ fn set_config(mut config: Config, app: AppHandle, state: State<AppState>) {
     };
     state.shared.bubbles.store(config.bubbles, Ordering::SeqCst);
     transcript::show_replies(config.replies);
-    if old.size != config.size {
+    if old.size != config.size || old.ai.enabled != config.ai.enabled {
         if let Some(w) = main_window(&app) {
-            resize_anchored(&w, old.size, config.size);
+            resize_anchored(&w, window_size(&old), window_size(&config));
         }
     }
     if old.sys != config.sys {
@@ -189,6 +194,52 @@ fn git_watch_set(on: bool, state: State<AppState>) -> Result<bool, String> {
         git::uninstall(&state.git_trace)?;
     }
     Ok(git::is_installed(&state.git_trace))
+}
+
+// ---------- AI chat ----------
+
+#[tauri::command]
+fn ai_providers() -> &'static [ai::Provider] {
+    ai::PROVIDERS
+}
+
+/// Answers the chat `history` (ending with the user's message) as chat `id`, in `ai`
+/// events. `now` is the local date and time, in words.
+#[tauri::command]
+fn ai_chat(id: u64, history: Vec<ai::Turn>, now: String, app: AppHandle, state: State<AppState>) {
+    let cfg = state.config.lock().unwrap().clone();
+    // Where the pet is, if the model may look at the screen it is on.
+    let eye = main_window(&app).filter(|_| cfg.ai.screen).and_then(|w| {
+        let (p, s) = (w.outer_position().ok()?, w.outer_size().ok()?);
+        #[cfg(windows)]
+        let hwnd = w.hwnd().ok()?.0 as isize;
+        #[cfg(not(windows))]
+        let hwnd = 0;
+        Some(ai::Eye { hwnd, x: p.x + s.width as i32 / 2, y: p.y + s.height as i32 - 80 })
+    });
+    ai::start(app, cfg.ai, cfg.nickname, now, id, history, eye);
+}
+
+#[tauri::command]
+fn ai_cancel() {
+    ai::stop();
+}
+
+/// The models a provider offers, going by `ai` as edited in the settings.
+#[tauri::command]
+async fn ai_models(ai: config::AiConfig, provider: String) -> Result<Vec<String>, String> {
+    ai::models(ai, provider).await
+}
+
+#[tauri::command]
+fn ai_key_page(provider: String) {
+    ai::open_key_page(&provider);
+}
+
+/// Lets the chat's text box take the keyboard.
+#[tauri::command]
+fn chat_focus(window: WebviewWindow) {
+    let _ = window.set_focus();
 }
 
 // ---------- menu & windows ----------
@@ -306,21 +357,21 @@ fn on_tray_event(app: &AppHandle, event: TrayIconEvent) {
 }
 
 /// Resize while keeping the pet's bottom-center where it was.
-fn resize_anchored(w: &WebviewWindow, old: u32, new: u32) {
+fn resize_anchored(w: &WebviewWindow, old: LogicalSize<f64>, new: LogicalSize<f64>) {
     let scale = w.scale_factor().unwrap_or(1.0);
-    let (a, b) = (window_size(old).to_physical::<f64>(scale), window_size(new).to_physical::<f64>(scale));
+    let (a, b) = (old.to_physical::<f64>(scale), new.to_physical::<f64>(scale));
     if let Ok(pos) = w.outer_position() {
         let x = pos.x as f64 + (a.width - b.width) / 2.0;
         let y = pos.y as f64 + (a.height - b.height);
-        let _ = w.set_size(window_size(new));
+        let _ = w.set_size(new);
         let _ = w.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
     }
 }
 
 fn place_initially(w: &WebviewWindow, cfg: &Config) {
-    let _ = w.set_size(window_size(cfg.size));
+    let _ = w.set_size(window_size(cfg));
     if let (Some(x), Some(y)) = (cfg.x, cfg.y) {
-        let size = window_size(cfg.size).to_physical::<i32>(w.scale_factor().unwrap_or(1.0));
+        let size = window_size(cfg).to_physical::<i32>(w.scale_factor().unwrap_or(1.0));
         // The pet itself sits at the bottom center of the window.
         let (px, py) = (x + size.width / 2, y + size.height - 80);
         let on_screen = w.available_monitors().unwrap_or_default().iter().any(|m| {
@@ -334,7 +385,7 @@ fn place_initially(w: &WebviewWindow, cfg: &Config) {
     }
     if let Ok(Some(m)) = w.primary_monitor() {
         let area = m.work_area();
-        let size = window_size(cfg.size).to_physical::<i32>(m.scale_factor());
+        let size = window_size(cfg).to_physical::<i32>(m.scale_factor());
         let x = area.position.x + area.size.width as i32 - size.width - 24;
         let y = area.position.y + area.size.height as i32 - size.height;
         let _ = w.set_position(PhysicalPosition::new(x, y));
@@ -466,7 +517,13 @@ fn main() {
             pick_folder,
             pick_program,
             git_watch_get,
-            git_watch_set
+            git_watch_set,
+            ai_providers,
+            ai_chat,
+            ai_cancel,
+            ai_models,
+            ai_key_page,
+            chat_focus
         ])
         .setup(|app| {
             // The port doubles as a single-instance lock.
