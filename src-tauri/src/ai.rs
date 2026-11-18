@@ -2,7 +2,8 @@
 //! conversation, as plain text, only while the chat is open, and sends all of it with
 //! each message; nothing is written anywhere. Replies stream back as `ai` events
 //! `{ id, kind, text }`: kind is "text" (more of the reply), "look" (taking a
-//! screenshot), "blind" (the model can't take images), "done" or "error".
+//! screenshot), "blind" (the model can't take images), "done" (text "refused" when the
+//! model declined) or "error".
 //!
 //! Two wire formats cover the providers: OpenAI's chat completions, which most of them
 //! speak, and Anthropic's messages. When the user allows it, the model gets a tool that
@@ -297,17 +298,56 @@ fn loopback(url: &str) -> bool {
     }
 }
 
-fn client(url: &str) -> &'static reqwest::Client {
-    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+fn builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder().connect_timeout(Duration::from_secs(15)).read_timeout(Duration::from_secs(120))
+}
+
+/// A client reads the system proxy once, when it is built, so it is built again
+/// whenever the proxy settings have changed since.
+fn client(url: &str) -> reqwest::Client {
     static LOCAL: OnceLock<reqwest::Client> = OnceLock::new();
-    let local = loopback(url);
-    (if local { &LOCAL } else { &CLIENT }).get_or_init(|| {
-        let mut b = reqwest::Client::builder().connect_timeout(Duration::from_secs(15)).read_timeout(Duration::from_secs(120));
-        if local {
-            b = b.no_proxy();
+    static CLIENT: Mutex<Option<(Vec<u16>, reqwest::Client)>> = Mutex::new(None);
+    if loopback(url) {
+        return LOCAL.get_or_init(|| builder().no_proxy().build().expect("http client")).clone();
+    }
+    let proxy = proxy_settings();
+    let mut cached = CLIENT.lock().unwrap_or_else(|e| e.into_inner());
+    match &*cached {
+        Some((p, c)) if *p == proxy => c.clone(),
+        _ => {
+            let c = builder().build().expect("http client");
+            *cached = Some((proxy, c.clone()));
+            c
         }
-        b.build().expect("http client")
-    })
+    }
+}
+
+/// The system proxy settings as reqwest reads them (WinINet's, in the registry), only
+/// to tell when they change.
+#[cfg(windows)]
+fn proxy_settings() -> Vec<u16> {
+    use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_ANY};
+    let wide = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
+    let key = wide(r"Software\Microsoft\Windows\CurrentVersion\Internet Settings");
+    let mut all = Vec::new();
+    for name in ["ProxyEnable", "ProxyServer", "ProxyOverride"] {
+        let name = wide(name);
+        let mut buf = [0u16; 1024];
+        let mut bytes = (buf.len() * 2) as u32;
+        let rc = unsafe {
+            RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr(), RRF_RT_ANY, std::ptr::null_mut(), buf.as_mut_ptr().cast(), &mut bytes)
+        };
+        if rc == 0 {
+            all.extend_from_slice(&buf[..(bytes as usize).div_ceil(2)]);
+        }
+        all.push(0xFFFF);
+    }
+    all
+}
+
+#[cfg(not(windows))]
+fn proxy_settings() -> Vec<u16> {
+    Vec::new()
 }
 
 // ---------------------------------------------------------------- where to send it
@@ -368,7 +408,8 @@ impl Target {
             Wire::OpenAi if !self.key.is_empty() => rb = rb.bearer_auth(&self.key),
             Wire::OpenAi => {}
             Wire::Anthropic => {
-                rb = rb.header("anthropic-version", ANTHROPIC_VERSION);
+                // Compatible services may not know a version newer than the first.
+                rb = rb.header("anthropic-version", if self.official { ANTHROPIC_VERSION } else { "2023-06-01" });
                 if !self.key.is_empty() {
                     rb = rb.header("x-api-key", &self.key);
                     // Compatible services differ on which one they read.
@@ -870,7 +911,9 @@ async fn send(t: &Target, system: &str, msgs: &[Value], tools: bool, last: bool,
     }
 }
 
-async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &[Turn], eye: Option<&Eye>) -> Result<(), Fail> {
+/// Answers one turn. Ok(true): the model declined, and what it said shouldn't go back
+/// as context.
+async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &[Turn], eye: Option<&Eye>) -> Result<bool, Fail> {
     let mut msgs: Vec<Value> = history
         .iter()
         .filter(|h| !h.text.trim().is_empty())
@@ -918,7 +961,7 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
             if round.refused && !round.wrote {
                 out.say("这个我不太方便聊～");
             }
-            return Ok(());
+            return Ok(round.refused);
         }
         msgs.push(round.assistant);
         let mut results = Vec::new();
@@ -940,7 +983,7 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
         slots.extend(push_results(t.wire, &mut msgs, results));
         out.newline = out.wrote;
     }
-    Ok(())
+    Ok(false)
 }
 
 /// Starts answering the conversation `history` (ending with the user's message) as
@@ -969,7 +1012,7 @@ pub fn start(app: AppHandle, ai: AiConfig, nickname: String, now: String, id: u6
             Err(e) => Err(e),
         };
         match result {
-            Ok(()) => emit(&app, id, "done", ""),
+            Ok(refused) => emit(&app, id, "done", if refused { "refused" } else { "" }),
             Err(e) if !e.is_empty() => emit(&app, id, "error", &e),
             Err(_) => {}
         }

@@ -730,7 +730,10 @@ function tick() {
   // Left open with nothing going on, the chat would keep bubbles and reminders away
   // for good.
   if (chat) {
-    if (chat.phase !== "idle" || chat.stack.some((m) => m.kind === "compose")) chat.quietSince = t;
+    // An open box counts only while something is typed in it or the pet has focus:
+    // opened and then clicked away from, it would hold the chat open forever.
+    const composing = chat.stack.some((m) => m.kind === "compose" && (m.input?.value.trim() || document.hasFocus()));
+    if (chat.phase !== "idle" || composing) chat.quietSince = t;
     else if (t - chat.quietSince >= CHAT_IDLE_MS) closeChat();
   }
 
@@ -1514,6 +1517,7 @@ function onAi({ id, kind, text }) {
   } else if (kind === "done" || kind === "error") {
     r.ended = true;
     r.error = kind === "error" ? text : null;
+    r.refused = kind === "done" && text === "refused";
     finishReply(r);
   }
 }
@@ -1559,6 +1563,8 @@ function finishReply(r) {
       playOnce(pick(ANIMS.toolError), { force: true, minMs: 1500 });
     }
     r.body.replaceChildren(err);
+  } else if (r.refused) {
+    chat.history.pop(); // declined: neither the question nor what it said goes on as context
   } else {
     chat.history.push({ role: "assistant", text: r.full.trim() });
   }

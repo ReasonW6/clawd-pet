@@ -297,7 +297,7 @@ const touch = section(
   "直接对小螃蟹做的动作。这些都会打断 Claude 的状态动画，播完再回去。",
   [
     row({ when: "单击", how: "点一下，等 0.3 秒确认不是双击后播放。三连击、四连击也算这个。AI 聊天开着时，单击是打开输入框。", play: ["force", 1200], code: "ANIMS.click", slugs: ANIMS.click }),
-    row({ when: "2.5 秒内点满 5 下", how: "第 5 下立刻生气，播完之前不理会更多点击。之后闹 30 秒脾气。", play: ["force", 1500], code: "ANIMS.clickSpam", slugs: ANIMS.clickSpam }),
+    row({ when: "2.5 秒内点满 5 下", how: "第 5 下立刻生气，播完之前不理会更多点击。之后闹 30 秒脾气。开了 AI 聊天时不会发生：点第 2 下就打开聊天了。", play: ["force", 1500], code: "ANIMS.clickSpam", slugs: ANIMS.clickSpam }),
     row({ when: "摸摸", how: "不按键，鼠标在它身上左右来回蹭（1.2 秒内连续变向 4 次）。4 秒内不重复触发，睡着时无效。之后 30 秒钟它是「被宠着」的心情。", play: ["force", 1800], code: "ANIMS.petted", slugs: ANIMS.petted }),
     row({ when: "鼠标停在它身上", how: "悬停 2.5 秒且 Claude 没在忙（它自己的场景会被打断）。30 秒内不重复。", play: ["polite", 1500], code: "ANIMS.noticed", slugs: ANIMS.noticed }),
     row({ when: "被拎起来", how: "按住左键拖动超过 4 像素，直到松手。优先级最高。", play: ["loop"], code: "ANIMS.dragged", slugs: ANIMS.dragged }),
@@ -308,7 +308,7 @@ const touch = section(
     row({ when: "聊天：输入框开着", how: "双击它弹出输入框，聊天开着时单击它也会。框开着时它坐在书桌前转过身来听你说。聊天开着的整段时间里它不睡觉，也不演自己的场景；Claude 干活的动画也让给聊天（会话状态照样写在标签里），只有权限请求和必播的反应（比如瞄屏幕、出错）会盖过它。", play: ["loop"], code: "ANIMS.chatListen", slugs: ANIMS.chatListen }),
     row({ when: "聊天：等回复", how: "消息发出去以后、回复的第一个字到来之前。", play: ["loop"], code: "ANIMS.chatPonder", slugs: ANIMS.chatPonder }),
     row({ when: "聊天：回复中", how: "回复一个字一个字打出来的时候。", play: ["loop"], code: "ANIMS.chatTyping", slugs: ANIMS.chatTyping }),
-    row({ when: "聊天：回复留在头顶", how: "回完了、输入框没开着，直到关掉聊天。这样闲着 4 分钟，聊天会自己关掉。", play: ["loop"], code: "ANIMS.chatIdle", slugs: ANIMS.chatIdle }),
+    row({ when: "聊天：回复留在头顶", how: "回完了、输入框没开着，直到关掉聊天。没在回复、输入框也没开着（或者开着但空着、你点去了别处）满 4 分钟，聊天会自己关掉。", play: ["loop"], code: "ANIMS.chatIdle", slugs: ANIMS.chatIdle }),
     row({ when: "聊天：看一眼屏幕", how: "模型觉得要看你的屏幕、调用截图工具时（设置里允许看屏幕才有）。回复上会标出「看了一眼屏幕」。", play: ["force", 0], code: "ANIMS.chatSnap", slugs: ANIMS.chatSnap }),
     `<div class="note">不走固定动画的操作：<b>双击</b>（没开 AI 聊天时）和右键菜单的<b>「随机来一段」</b>从随机惊喜的范围里抽一个播 2.5 秒以上；设置里的<b>动画图鉴</b>点哪个播哪个；<b>右键</b>弹菜单；<b>托盘图标</b>单击显示/隐藏、双击打开设置。</div>`,
   ],
