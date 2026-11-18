@@ -1434,6 +1434,9 @@ function dropCompose(m) {
 }
 
 function sendChat(m) {
+  // Moved aside for a permission request: the box may still have focus, but Enter
+  // shouldn't send what nobody can see.
+  if (chatEl.classList.contains("away")) return;
   const text = m.input.value.trim();
   if (!text || chat.phase === "waiting" || chat.phase === "typing") return;
   // The last reply floats off...
