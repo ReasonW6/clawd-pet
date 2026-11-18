@@ -172,6 +172,29 @@
           </div>
         </div>
         <div class="card">
+          <div class="row stack">
+            <span class="text"><b>身份</b><small>它觉得自己是谁：叫什么、是什么、住在哪儿。下面的人设管它怎么说话</small></span>
+            <textarea id="ai-identity" rows="2" spellcheck="false" placeholder="比如：你是 Clawd，一只住在用户电脑桌面上的橙色像素小螃蟹桌宠。"></textarea>
+            <div class="persona-foot">
+              <small id="ai-identity-note"></small>
+              <button id="ai-identity-reset" class="ghost">恢复默认</button>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row stack">
+            <span class="text"><b>人设</b><small>它聊天时的性格和说话风格。每种都能改，也能自己加；不管哪种，回复都会保持简短</small></span>
+            <div id="ai-personas" class="chips personas"></div>
+            <input type="text" id="ai-persona-name" class="wide" maxlength="12" placeholder="给这个人设起个名字" spellcheck="false" />
+            <textarea id="ai-persona-prompt" rows="7" spellcheck="false" placeholder="写下它的性格、说话方式、回应方式，还有它绝不会做的事"></textarea>
+            <div class="persona-foot">
+              <small id="ai-persona-note"></small>
+              <button id="ai-persona-reset" class="ghost">恢复默认</button>
+              <button id="ai-persona-delete" class="ghost">删除</button>
+            </div>
+          </div>
+        </div>
+        <div class="card">
           <label class="row">
             <span class="text"><b>允许它看屏幕</b><small>它觉得需要时，会截一张你所在屏幕的图发给模型（截不到它自己和气泡），回复上会标出「看了一眼屏幕」。关掉后它根本拿不到截图</small></span>
             <input type="checkbox" class="switch" data-key="ai.screen" />

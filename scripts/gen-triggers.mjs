@@ -305,7 +305,7 @@ const touch = section(
     row({ when: "文件拖到它上方", how: "从资源管理器拖着文件进入桌宠窗口。", play: ["force", 1500], code: "ANIMS.fileHover", slugs: ANIMS.fileHover }),
     row({ when: "文件丢给它", how: "在它身上松手。文件本身不会被动。", play: ["force", 2500], say: "接住啦～（只是抱一下，文件原封不动）", code: "ANIMS.fileDrop", slugs: ANIMS.fileDrop }),
     sub("AI 聊天（设置里打开后）"),
-    row({ when: "聊天：输入框开着", how: "双击它弹出输入框，聊天开着时单击它也会。框开着时它坐在书桌前转过身来听你说。聊天开着的整段时间里它不睡觉，也不演自己的场景；Claude 干活的动画也让给聊天（会话状态照样写在标签里），只有权限请求和必播的反应（比如瞄屏幕、出错）会盖过它。", play: ["loop"], code: "ANIMS.chatListen", slugs: ANIMS.chatListen }),
+    row({ when: "聊天：输入框开着", how: "双击它弹出输入框，聊天开着时单击它也会；回复完以后焦点没被别处拿走的话，直接打字也会。框开着时它坐在书桌前转过身来听你说。聊天开着的整段时间里它不睡觉，也不演自己的场景；Claude 干活的动画也让给聊天（会话状态照样写在标签里），只有权限请求和必播的反应（比如瞄屏幕、出错）会盖过它。", play: ["loop"], code: "ANIMS.chatListen", slugs: ANIMS.chatListen }),
     row({ when: "聊天：等回复", how: "消息发出去以后、回复的第一个字到来之前。", play: ["loop"], code: "ANIMS.chatPonder", slugs: ANIMS.chatPonder }),
     row({ when: "聊天：回复中", how: "回复一个字一个字打出来的时候。", play: ["loop"], code: "ANIMS.chatTyping", slugs: ANIMS.chatTyping }),
     row({ when: "聊天：回复留在头顶", how: "回完了、输入框没开着，直到关掉聊天。没在回复、输入框也没开着（或者开着但空着、你点去了别处）满 4 分钟，聊天会自己关掉。", play: ["loop"], code: "ANIMS.chatIdle", slugs: ANIMS.chatIdle }),

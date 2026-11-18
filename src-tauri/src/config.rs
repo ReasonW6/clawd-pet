@@ -103,6 +103,15 @@ pub struct AiProfile {
     pub model: String,
 }
 
+/// A persona the user added for the chat.
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CustomPersona {
+    pub id: String,
+    pub name: String,
+    pub prompt: String,
+}
+
 /// Chatting with an AI model in bubbles above the pet.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -114,11 +123,27 @@ pub struct AiConfig {
     pub profiles: BTreeMap<String, AiProfile>,
     /// Give the model a tool that takes a screenshot of the pet's monitor.
     pub screen: bool,
+    /// Who the pet believes it is, as the user rewrote it; empty for `ai::IDENTITY`.
+    pub identity: String,
+    /// Who the pet chats as: an id from `ai::PERSONAS`, or of one in `custom_personas`.
+    pub persona: String,
+    /// Preset personas' prompts as the user rewrote them, by id.
+    pub persona_prompts: BTreeMap<String, String>,
+    pub custom_personas: Vec<CustomPersona>,
 }
 
 impl Default for AiConfig {
     fn default() -> Self {
-        Self { enabled: false, provider: "deepseek".into(), profiles: BTreeMap::new(), screen: false }
+        Self {
+            enabled: false,
+            provider: "deepseek".into(),
+            profiles: BTreeMap::new(),
+            screen: false,
+            identity: String::new(),
+            persona: "default".into(),
+            persona_prompts: BTreeMap::new(),
+            custom_personas: Vec::new(),
+        }
     }
 }
 

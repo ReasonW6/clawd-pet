@@ -1116,7 +1116,9 @@ function queueHitRects() {
   hitQueued = true;
   requestAnimationFrame(() => {
     hitQueued = false;
-    const chatParts = chatEl.classList.contains("away") ? [] : [...chatEl.querySelectorAll(".msg:not(.gone) > .card, .msg:not(.gone):not(.nox) > .x")];
+    const chatParts = chatEl.classList.contains("away")
+      ? []
+      : [...chatEl.querySelectorAll(".msg:not(.gone):not(.standby) > .card, .msg:not(.gone):not(.nox):not(.standby) > .x")];
     const rects = [petHit, bubble, label, dot]
       .filter((e) => !e.hidden)
       .concat(chatParts)
@@ -1354,6 +1356,11 @@ function chatPoke() {
     chat.reply.sp && (chat.reply.sp.s.vel += 1.6);
     return animate();
   }
+  if (chat.standby) {
+    const m = chat.standby;
+    wakeCompose(m);
+    return focusCompose(m);
+  }
   openCompose();
 }
 
@@ -1361,12 +1368,14 @@ function closeChat() {
   if (!chat) return;
   invoke("ai_cancel");
   for (const m of chat.stack) leave(m, "down");
+  if (chat.standby) leave(chat.standby, "down");
   typing.clear();
   chat = null;
   render();
 }
 
-function addMsg(kind) {
+/** A bubble, laid out from the next frame on; a standby one stays unseen until woken. */
+function addMsg(kind, standby = false) {
   const node = el("div", `msg ${kind}`);
   const card = el("div", "card");
   const body = el("div", "body");
@@ -1385,12 +1394,23 @@ function addMsg(kind) {
   }
   chatEl.append(node);
   msgs.add(m);
-  chat.stack.push(m);
+  if (standby) {
+    node.classList.add("standby");
+    m.standby = true;
+    chat.standby = m;
+  } else {
+    chat.stack.push(m);
+  }
   return m;
 }
 
-function openCompose() {
-  const m = addMsg("compose");
+/**
+ * The box for the next message. A standby one waits unseen, focused, for the first key
+ * typed after a reply, so that typing straight away carries on the chat; it is already
+ * the box being typed into, so an input method composes in it from the first key.
+ */
+function openCompose(standby = false) {
+  const m = addMsg("compose", standby);
   const input = document.createElement("textarea");
   input.rows = 1;
   input.maxLength = 1000;
@@ -1403,10 +1423,13 @@ function openCompose() {
   m.body.append(input, send);
   m.input = input;
   input.addEventListener("input", () => {
+    wakeCompose(m);
     send.disabled = !input.value.trim();
     fitInput(m);
     layoutChat();
   });
+  // An input method starting to compose brings the box into view straight away.
+  input.addEventListener("compositionstart", () => wakeCompose(m));
   input.addEventListener("keydown", (e) => {
     // Enter while an input method is composing picks a candidate instead.
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
@@ -1415,13 +1438,41 @@ function openCompose() {
     } else if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation(); // not on to the page, where Esc closes the whole chat
-      dropCompose(m);
+      if (m.standby) closeChat();
+      else dropCompose(m);
     }
   });
   send.onclick = () => sendChat(m);
   fitInput(m);
+  if (standby) {
+    placeStandby(m);
+    input.focus({ preventScroll: true });
+    return m;
+  }
   layoutChat();
   focusCompose(m);
+  render();
+  return m;
+}
+
+/** Puts a standby box where it will pop up, so an input method's candidates show beside it. */
+function placeStandby(m) {
+  const w = m.body.offsetWidth;
+  const [x] = placeX(m, w);
+  m.el.style.width = `${w}px`;
+  m.el.style.height = `${m.body.offsetHeight}px`;
+  m.el.style.transform = `translate(${x}px, 0)`;
+}
+
+/** The standby box comes into view, popping up like any new bubble. */
+function wakeCompose(m) {
+  if (!m.standby || !chat) return;
+  m.standby = false;
+  chat.standby = null;
+  m.el.classList.remove("standby");
+  m.el.style.opacity = 0;
+  chat.stack.push(m);
+  layoutChat();
   render();
 }
 
@@ -1569,6 +1620,9 @@ function finishReply(r) {
     chat.history.push({ role: "assistant", text: r.full.trim() });
   }
   chat.phase = "idle";
+  // Typing straight away carries on the chat, unless something else took the focus
+  // meanwhile, or text in the reply is being selected.
+  if (document.hasFocus() && getSelection().isCollapsed && !chat.standby) openCompose(true);
   const asked = chat.stack.find((m) => m.kind === "me");
   setTimeout(() => {
     if (!chat || !chat.stack.includes(asked)) return;
@@ -1715,7 +1769,12 @@ function chatSlug() {
 }
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && chat && !chat.stack.some((m) => m.kind === "compose")) closeChat();
+  if (!chat || chat.stack.some((m) => m.kind === "compose")) return;
+  if (e.key === "Escape") return closeChat();
+  // A key typed with the reply up but the box not focused (a click on the reply took
+  // the focus, say): into the box it goes.
+  const typed = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+  if (typed && chat.phase === "idle") (chat.standby || openCompose(true)).input.focus();
 });
 window.addEventListener("resize", layoutChat);
 // The bubbles ride along when the drawing under them changes height, and a long reply

@@ -203,6 +203,16 @@ fn ai_providers() -> &'static [ai::Provider] {
     ai::PROVIDERS
 }
 
+#[tauri::command]
+fn ai_personas() -> &'static [ai::Persona] {
+    ai::PERSONAS
+}
+
+#[tauri::command]
+fn ai_identity() -> &'static str {
+    ai::IDENTITY
+}
+
 /// Answers the chat `history` (ending with the user's message) as chat `id`, in `ai`
 /// events. `now` is the local date and time, in words.
 #[tauri::command]
@@ -519,6 +529,8 @@ fn main() {
             git_watch_get,
             git_watch_set,
             ai_providers,
+            ai_personas,
+            ai_identity,
             ai_chat,
             ai_cancel,
             ai_models,

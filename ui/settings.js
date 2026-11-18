@@ -312,6 +312,8 @@ async function initAi() {
   $("ai-key-link").onclick = () => invoke("ai_key_page", { provider: provider().id });
   $("ai-fetch").onclick = fetchModels;
   showAi();
+  await initIdentity();
+  await initPersonas();
 }
 
 function showAi() {
@@ -368,6 +370,153 @@ async function fetchModels() {
     button.disabled = false;
   }
   renderModels();
+}
+
+// Who the pet is: ai.rs has the default, config.ai.identity the user's rewrite (empty
+// for the default).
+
+let identity = "";
+
+async function initIdentity() {
+  identity = await invoke("ai_identity");
+  const box = $("ai-identity");
+  box.value = config.ai.identity || identity;
+  box.oninput = () => {
+    const text = box.value.trim();
+    config.ai.identity = text === identity ? "" : text;
+    showIdentityNote();
+    save();
+  };
+  $("ai-identity-reset").onclick = () => {
+    config.ai.identity = "";
+    box.value = identity;
+    showIdentityNote();
+    save();
+  };
+  showIdentityNote();
+}
+
+function showIdentityNote() {
+  const empty = !$("ai-identity").value.trim();
+  $("ai-identity-reset").hidden = !config.ai.identity && !empty;
+  $("ai-identity-note").textContent = empty ? "空着就按默认的身份" : config.ai.identity ? "改过了，点「恢复默认」回到原样" : "默认的身份，可以直接改";
+}
+
+// Personas: the presets come from ai.rs, and the user may rewrite any of them (kept
+// in personaPrompts, so "恢复默认" can drop the rewrite) or add their own.
+
+let personas = [];
+let deleteTimer = 0;
+/** What a new persona starts with: the parts a character prompt needs, to fill in. */
+const NEW_PERSONA =
+  "性格：（三个词，带点反差更好，比如“毒舌、可靠、怕麻烦”）\n" +
+  "说话方式：（句子长短、语气词、怎么称呼人、偶尔用的口头禅）\n" +
+  "回应方式：（先做什么再做什么，比如先吐槽一句再认真帮忙）\n" +
+  "不会：（它绝不会做的事，比如“不说教”“不拿别人的外貌开玩笑”）";
+
+const customPersona = (id) => config.ai.customPersonas.find((p) => p.id === id);
+
+/** The persona chatted as: one of the user's, or a preset (the first if the id is unknown). */
+function currentPersona() {
+  const custom = customPersona(config.ai.persona);
+  return custom ? { custom } : { preset: personas.find((p) => p.id === config.ai.persona) || personas[0] };
+}
+
+async function initPersonas() {
+  personas = await invoke("ai_personas");
+  $("ai-persona-name").oninput = () => {
+    const { custom } = currentPersona();
+    if (!custom) return;
+    custom.name = $("ai-persona-name").value.trim();
+    renderPersonas();
+    save();
+  };
+  $("ai-persona-prompt").oninput = () => {
+    const text = $("ai-persona-prompt").value;
+    const { custom, preset } = currentPersona();
+    if (custom) custom.prompt = text;
+    else if (text === preset.prompt) delete config.ai.personaPrompts[preset.id];
+    else config.ai.personaPrompts[preset.id] = text;
+    showPersonaNote();
+    save();
+  };
+  $("ai-persona-reset").onclick = () => {
+    delete config.ai.personaPrompts[currentPersona().preset.id];
+    showPersona();
+    save();
+  };
+  $("ai-persona-delete").onclick = deletePersona;
+  showPersona();
+}
+
+function renderPersonas() {
+  const box = $("ai-personas");
+  const { custom, preset } = currentPersona();
+  const active = (custom || preset).id;
+  box.innerHTML = "";
+  for (const p of [...personas, ...config.ai.customPersonas]) {
+    const chip = el("button", p.id === active ? "active" : "", p.name || "未命名");
+    chip.onclick = () => {
+      config.ai.persona = p.id;
+      showPersona();
+      save();
+    };
+    box.append(chip);
+  }
+  const add = el("button", "new", "＋ 新建");
+  add.title = "自己加一个人设";
+  add.onclick = addPersona;
+  box.append(add);
+}
+
+function showPersona() {
+  const { custom, preset } = currentPersona();
+  renderPersonas();
+  $("ai-persona-name").hidden = !custom;
+  $("ai-persona-name").value = custom?.name ?? "";
+  $("ai-persona-prompt").value = custom ? custom.prompt : (config.ai.personaPrompts[preset.id] ?? preset.prompt);
+  $("ai-persona-delete").hidden = !custom;
+  disarmDelete();
+  showPersonaNote();
+}
+
+function showPersonaNote() {
+  const { custom, preset } = currentPersona();
+  const edited = !custom && preset.id in config.ai.personaPrompts;
+  $("ai-persona-reset").hidden = !edited;
+  $("ai-persona-note").textContent = custom ? "你自己加的人设，名字和内容都能改" : edited ? "改过了，点「恢复默认」回到原样" : "预设的人设，可以直接改";
+}
+
+function addPersona() {
+  const p = { id: `my-${Date.now().toString(36)}`, name: "新人设", prompt: NEW_PERSONA };
+  config.ai.customPersonas.push(p);
+  config.ai.persona = p.id;
+  showPersona();
+  save();
+  $("ai-persona-name").focus();
+  $("ai-persona-name").select();
+}
+
+/** Deleting takes a second click within a moment. */
+function deletePersona() {
+  const button = $("ai-persona-delete");
+  if (!button.classList.contains("armed")) {
+    button.classList.add("armed");
+    button.textContent = "再点一次删除";
+    clearTimeout(deleteTimer);
+    deleteTimer = setTimeout(disarmDelete, 2500);
+    return;
+  }
+  config.ai.customPersonas = config.ai.customPersonas.filter((p) => p.id !== config.ai.persona);
+  config.ai.persona = personas[0].id;
+  showPersona();
+  save();
+}
+
+function disarmDelete() {
+  clearTimeout(deleteTimer);
+  $("ai-persona-delete").classList.remove("armed");
+  $("ai-persona-delete").textContent = "删除";
 }
 
 // ---------------------------------------------------------------- autostart

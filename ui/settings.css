@@ -815,3 +815,79 @@ a.link[hidden] {
 .bad {
   color: #c0392b;
 }
+
+/* ---- personas */
+
+.personas button.active {
+  background: var(--clawd);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+.personas button.new {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+#ai-persona-name {
+  align-self: flex-start;
+}
+
+#ai-persona-name[hidden] {
+  display: none;
+}
+
+#ai-identity,
+#ai-persona-prompt {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 52px;
+  padding: 7px 9px;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.65;
+  outline: none;
+  resize: vertical;
+}
+
+#ai-persona-prompt {
+  min-height: 120px;
+}
+
+#ai-identity:focus,
+#ai-persona-prompt:focus {
+  border-color: var(--clawd);
+}
+
+.persona-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.persona-foot small {
+  flex: 1;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.persona-foot button {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+.persona-foot button[hidden] {
+  display: none;
+}
+
+/* Asks for a second click before deleting. */
+#ai-persona-delete.armed {
+  border-style: solid;
+  border-color: #c0392b;
+  background: #c0392b;
+  color: #fff;
+}
