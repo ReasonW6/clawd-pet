@@ -54,6 +54,9 @@ pub struct Provider {
     /// The provider's own web search, told to the settings page as whether there is one.
     #[serde(serialize_with = "has_search")]
     pub search: Search,
+    /// JSON merged over `extra` when the screenshot tool goes along with the search.
+    #[serde(skip)]
+    pub search_with_tools: &'static str,
 }
 
 /// How a provider's own web search is turned on: one the model uses when it wants and
@@ -85,6 +88,7 @@ const BASE: Provider = Provider {
     needs_key: true,
     extra: "",
     search: Search::None,
+    search_with_tools: "",
 };
 
 pub const PROVIDERS: &[Provider] = &[
@@ -168,6 +172,9 @@ pub const PROVIDERS: &[Provider] = &[
         extra: r#"{"thinking":{"type":"disabled"}}"#,
         // With thinking off, a plain search; reading links the user sends comes along.
         search: Search::Tools(r#"[{"type":"deepseek_web_search"},{"type":"deepseek_read_url"}]"#),
+        // Tools of the caller's own go beside the search only while thinking (400
+        // otherwise). It searches more thoroughly then, and without one it barely thinks.
+        search_with_tools: r#"{"thinking":{"type":"enabled"}}"#,
         ..BASE
     },
     Provider {
@@ -497,6 +504,7 @@ struct Target {
     official: bool,
     extra: Option<Value>,
     search: Search,
+    search_with_tools: &'static str,
 }
 
 fn target(ai: &AiConfig, provider: &str, need_model: bool) -> Result<Target, String> {
@@ -529,6 +537,7 @@ fn target(ai: &AiConfig, provider: &str, need_model: bool) -> Result<Target, Str
         official: p.id == "anthropic" && base == p.base_url,
         extra: serde_json::from_str(p.extra).ok(),
         search: p.search,
+        search_with_tools: p.search_with_tools,
     })
 }
 
@@ -744,7 +753,8 @@ struct Speaker<'a> {
     id: u64,
     newline: bool,
     wrote: bool,
-    searched: bool,
+    /// What `searched` last told: "", "link" or "search".
+    searched: &'static str,
 }
 
 impl Speaker<'_> {
@@ -759,10 +769,11 @@ impl Speaker<'_> {
         emit(self.app, self.id, "text", s);
     }
 
-    /// That it went online, once a turn: "search", or "link" for only reading one.
-    fn searched(&mut self, how: &str) {
-        if !self.searched {
-            self.searched = true;
+    /// That it went online: "search", or "link" for only reading one. Told once a turn,
+    /// and again if a search follows the link.
+    fn searched(&mut self, how: &'static str) {
+        if self.searched != "search" && self.searched != how {
+            self.searched = how;
             emit(self.app, self.id, "search", how);
         }
     }
@@ -806,6 +817,9 @@ async fn openai_round(t: &Target, system: &str, msgs: &[Value], tools: bool, sea
             body[k] = v.clone();
         }
     }
+    if search && tools {
+        merge(&mut body, t.search_with_tools);
+    }
     let resp = post(t, "chat/completions", &body, None).await?;
 
     let mut text = String::new();
@@ -831,6 +845,11 @@ async fn openai_round(t: &Target, system: &str, msgs: &[Value], tools: bool, sea
         }
         for tc in delta["tool_calls"].as_array().into_iter().flatten() {
             merge_call(&mut calls, tc);
+        }
+        // DeepSeek tells of each search as it starts; the full steps come at the end.
+        let event = &v["choices"][0]["server_tool_event"];
+        if event["type"] == "call_started" {
+            out.searched(if event["call"]["kind"] == "read_link" { "link" } else { "search" });
         }
         // What a search left behind, whichever way the provider tells it: DeepSeek's
         // steps, the sources Zhipu adds, citations.
@@ -1172,7 +1191,7 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
     let mut blind = false;
     // A request with a screenshot in it went through: the model does take images.
     let mut seen = false;
-    let mut out = Speaker { app, id, newline: false, wrote: false, searched: false };
+    let mut out = Speaker { app, id, newline: false, wrote: false, searched: "" };
     let tools = eye.is_some();
     for n in 0..MAX_ROUNDS {
         // Closed while a tool ran: nothing more goes out, a screenshot least of all.
