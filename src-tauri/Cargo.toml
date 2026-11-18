@@ -13,6 +13,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 notify = "8"
 rfd = "0.15"
+# The version tauri already builds, plus TLS through the system (schannel) and the
+# system proxy settings, for the AI chat.
+reqwest = { version = "0.13", default-features = false, features = ["native-tls", "system-proxy"] }
+base64 = "0.23"
+jpeg-encoder = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 # The same version tauri already builds; only for UI Automation, which is COM.

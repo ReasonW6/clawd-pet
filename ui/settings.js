@@ -269,6 +269,107 @@ function showHooks(installed) {
   };
 }
 
+// ---------------------------------------------------------------- AI chat
+
+let providers = [];
+/** The provider's own model list once fetched; until then a few suggestions. */
+let fetchedModels = null;
+
+const provider = () => providers.find((p) => p.id === config.ai.provider) || providers[0];
+const profile = () => (config.ai.profiles[provider().id] ??= { apiKey: "", baseUrl: "", model: "" });
+
+async function initAi() {
+  providers = await invoke("ai_providers");
+  const select = $("ai-provider");
+  for (const group of new Set(providers.map((p) => p.group))) {
+    const optgroup = document.createElement("optgroup");
+    optgroup.label = group;
+    for (const p of providers.filter((p) => p.group === group)) optgroup.append(new Option(p.name, p.id));
+    select.append(optgroup);
+  }
+  select.onchange = () => {
+    config.ai.provider = select.value;
+    fetchedModels = null;
+    showAi();
+    save();
+  };
+  const field = (id, key) => {
+    $(id).oninput = () => {
+      profile()[key] = $(id).value.trim();
+      if (key === "model") renderModels();
+      save();
+    };
+  };
+  field("ai-key", "apiKey");
+  field("ai-base", "baseUrl");
+  field("ai-model", "model");
+  $("ai-key-show").onclick = () => {
+    const show = $("ai-key").type === "password";
+    $("ai-key").type = show ? "text" : "password";
+    $("ai-key-show").classList.toggle("on", show);
+    $("ai-key-show").title = show ? "隐藏" : "显示";
+  };
+  $("ai-key-link").onclick = () => invoke("ai_key_page", { provider: provider().id });
+  $("ai-fetch").onclick = fetchModels;
+  showAi();
+}
+
+function showAi() {
+  const [p, mine] = [provider(), profile()];
+  $("ai-provider").value = p.id;
+  $("ai-provider-note").textContent = p.wire === "anthropic" ? "Anthropic Messages 接口" : "OpenAI 兼容接口";
+  $("ai-key").value = mine.apiKey;
+  $("ai-key").placeholder = p.needsKey ? "必填" : "不需要就留空";
+  $("ai-key-link").hidden = !p.keyUrl;
+  $("ai-base").value = mine.baseUrl;
+  $("ai-base").placeholder = p.baseUrl || "必填，如 https://example.com/v1";
+  $("ai-base-note").textContent = p.baseUrl ? "留空就用官方地址" : "服务的接口地址";
+  $("ai-model").value = mine.model;
+  $("ai-model").placeholder = p.model || "选一个，或直接填";
+  $("ai-model-note").textContent = "点「获取模型」从服务商那里拉列表，也可以直接填";
+  $("ai-model-note").classList.remove("bad");
+  renderModels();
+}
+
+/** The models to pick from, narrowed down by what is typed in the box. */
+function renderModels() {
+  const list = fetchedModels || provider().models;
+  const current = profile().model || provider().model;
+  const typed = $("ai-model").value.trim().toLowerCase();
+  const shown = typed && !list.some((m) => m.toLowerCase() === typed) ? list.filter((m) => m.toLowerCase().includes(typed)) : list;
+  $("ai-models").innerHTML = "";
+  for (const m of shown) {
+    const chip = el("button", m === current ? "active" : "", m);
+    chip.onclick = () => {
+      profile().model = m;
+      $("ai-model").value = m;
+      renderModels();
+      save();
+    };
+    $("ai-models").append(chip);
+  }
+}
+
+async function fetchModels() {
+  const [button, note] = [$("ai-fetch"), $("ai-model-note")];
+  const p = provider();
+  button.disabled = true;
+  note.classList.remove("bad");
+  note.textContent = "正在问服务商要列表…";
+  try {
+    const list = await invoke("ai_models", { ai: config.ai, provider: p.id });
+    if (provider() !== p) return; // switched away meanwhile
+    fetchedModels = list;
+    note.textContent = list.length ? `找到 ${list.length} 个模型，点一个用它` : "服务商没给出模型列表，直接填名字吧";
+  } catch (e) {
+    note.textContent = String(e);
+    note.classList.add("bad");
+  } finally {
+    button.disabled = false;
+  }
+  renderModels();
+}
+
 // ---------------------------------------------------------------- autostart
 
 async function initAutostart() {
@@ -339,6 +440,7 @@ async function boot() {
   initGitWatch();
   showHooks(await invoke("hooks_installed"));
   initAutostart();
+  initAi();
   initGallery();
 }
 

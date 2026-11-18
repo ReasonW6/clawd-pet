@@ -63,10 +63,10 @@
   <h1>Clawd Pet 动画触发一览</h1>
   <p>每个动画什么时候播、怎么触发、播多久。动画列表直接取自 <code>ui/anims.js</code>，改完后运行 <code>npm run triggers</code> 重新生成本页。</p>
   <div class="stats">
-    <div class="stat"><b>164</b>个触发时机</div>
-    <div class="stat"><b>420</b>个动画有固定戏份</div>
+    <div class="stat"><b>169</b>个触发时机</div>
+    <div class="stat"><b>423</b>个动画有固定戏份</div>
     <div class="stat"><b>9</b>个只随机出现</div>
-    <div class="stat"><b>429</b>个动画总数</div>
+    <div class="stat"><b>432</b>个动画总数</div>
   </div>
   <div class="legend">
     <div>
@@ -90,7 +90,7 @@
   <div class="info">
     <h4>执行 /clear</h4>
     <p><code>SessionStart</code>，来源是 clear。新开、恢复、退出会话都不播动画。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.5 秒</span></p>
     <code>ANIMS.cleared</code>
   </div>
   <div class="thumbs"><figure title="life_sweep_floor · 1.8s"><img loading="lazy" src="../ui/assets/clawd/life_sweep_floor.gif" alt=""><figcaption>扫地</figcaption></figure></div>
@@ -99,7 +99,7 @@
   <div class="info">
     <h4>Claude 桌面版启动</h4>
     <p>桌面版的窗口第一次到前台（桌宠启动时它已经开着的不算）。只是关掉窗口、它还在托盘里的，再打开也不算。30 秒内只反应一次。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.3 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">4.3 秒</span></p>
     <code>SYS_EVENTS[&quot;claude-open&quot;]</code>
   </div>
   <div class="thumbs"><figure title="cc_app_open · 4.3s"><img loading="lazy" src="../ui/assets/clawd/cc_app_open.gif" alt=""><figcaption>Claude 启动</figcaption></figure></div>
@@ -108,7 +108,7 @@
   <div class="info">
     <h4>Claude 桌面版退出</h4>
     <p>桌面版的主进程结束（桌宠等着这个进程，不轮询）。它的会话一并清掉，不用等会话自己超时。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.6 秒</span><span class="say">💬 Claude 下班啦，辛苦～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">4.6 秒</span><span class="say">💬 Claude 下班啦，辛苦～</span></p>
     <code>SYS_EVENTS[&quot;claude-quit&quot;]</code>
   </div>
   <div class="thumbs"><figure title="cc_app_close · 4.6s"><img loading="lazy" src="../ui/assets/clawd/cc_app_close.gif" alt=""><figcaption>Claude 退出</figcaption></figure></div>
@@ -442,7 +442,7 @@
 <div class="row">
   <div class="info">
     <h4>Claude 请求权限（开着审批气泡）</h4>
-    <p><code>PermissionRequest</code>。头顶弹出「拒绝 / 总是允许 / 允许」，直到你作答，或你在原界面答了。优先级仅次于被拎起来。</p>
+    <p><code>PermissionRequest</code>。头顶弹出「拒绝 / 总是允许 / 允许」，直到你作答，或你在原界面答了：终端里答完马上收起；桌面版不告诉钩子，允许了要等那次调用跑完，拒绝了要等会话记录里出现它的结果，这一轮结束或被叫停时也收起。等满约 10 分钟气泡自己放弃，这时仍算等你确认。优先级仅次于被拎起来。</p>
     <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
     <code>ANIMS.permission</code>
   </div>
@@ -553,7 +553,7 @@
   <div class="info">
     <h4>Claude 答完了</h4>
     <p><code>Stop</code>，耗时不到 5 分钟。开着「头顶显示对话进度」时，气泡换成 Claude 最后一句话的第一行加一个勾，动画和气泡一起留 15 秒，这期间点气泡或小螃蟹会切到桌面版里的这个会话，然后气泡缩回去；关着时弹「搞定啦」，动画播 2.6 秒。动画只在没有别的会话在忙时播。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.8–4 秒</span><span class="say">💬 项目名 搞定啦～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.8–4 秒</span><span class="say">💬 项目名 搞定啦～</span></p>
     <code>ANIMS.done</code>
   </div>
   <div class="thumbs"><figure title="dev_ship_it · 2.8s"><img loading="lazy" src="../ui/assets/clawd/dev_ship_it.gif" alt=""><figcaption>打包发货</figcaption></figure><figure title="emo_victory_dance · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_victory_dance.gif" alt=""><figcaption>胜利之舞</figcaption></figure><figure title="dev_lgtm · 1.9s"><img loading="lazy" src="../ui/assets/clawd/dev_lgtm.gif" alt=""><figcaption>盖章通过</figcaption></figure><figure title="emo_thumbs_up · 1.6s"><img loading="lazy" src="../ui/assets/clawd/emo_thumbs_up.gif" alt=""><figcaption>点个赞</figcaption></figure><figure title="cc_task_tower · 4.0s"><img loading="lazy" src="../ui/assets/clawd/cc_task_tower.gif" alt=""><figcaption>收工：塔顶放星星</figcaption></figure></div>
@@ -562,7 +562,7 @@
   <div class="info">
     <h4>长任务完成</h4>
     <p><code>Stop</code>，耗时 5 分钟以上。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4–6.4 秒</span><span class="say">💬 项目名 跑了 N 分钟，终于搞定啦！</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">4–6.4 秒</span><span class="say">💬 项目名 跑了 N 分钟，终于搞定啦！</span></p>
     <code>ANIMS.bigDone</code>
   </div>
   <div class="thumbs"><figure title="dev_deploy_rocket · 3.2s"><img loading="lazy" src="../ui/assets/clawd/dev_deploy_rocket.gif" alt=""><figcaption>发射上线</figcaption></figure><figure title="emo_joy_burst · 2.0s"><img loading="lazy" src="../ui/assets/clawd/emo_joy_burst.gif" alt=""><figcaption>开心炸裂</figcaption></figure><figure title="sport_podium · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sport_podium.gif" alt=""><figcaption>领奖台</figcaption></figure></div>
@@ -571,7 +571,7 @@
   <div class="info">
     <h4>睡眠时段里完成</h4>
     <p><code>Stop</code> 时正处在睡眠时段。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4 秒</span><span class="say">💬 项目名 搞定…困了 💤</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">4 秒</span><span class="say">💬 项目名 搞定…困了 💤</span></p>
     <code>ANIMS.sleepyDone</code>
   </div>
   <div class="thumbs"><figure title="emo_yawn · 4.0s"><img loading="lazy" src="../ui/assets/clawd/emo_yawn.gif" alt=""><figcaption>打哈欠</figcaption></figure></div>
@@ -579,14 +579,15 @@
 <div class="row">
   <div class="info">
     <h4>你中途叫停</h4>
-    <p>按 Esc 或 Desktop 的停止按钮。中断不触发 <code>Stop</code>，桌宠从会话记录（transcript）里读到中断标记后回到待命；动画只在没有别的会话在忙时播。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.1–2.9 秒</span></p>
+    <p>按 Esc 或 Desktop 的停止按钮。中断不触发 <code>Stop</code>，桌宠从会话记录（transcript）里读到中断标记后回到待命，挂着的审批气泡一起收起。不是你发消息开始的那一轮（后台任务回来、桌面版唤醒会话）也算；之后后台子代理的动静不会再让它忙起来。动画只在没有别的会话在忙时播。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.1–2.9 秒</span></p>
     <code>ANIMS.interrupted</code>
   </div>
   <div class="thumbs"><figure title="cos_crossing_guard · 2.1s"><img loading="lazy" src="../ui/assets/clawd/cos_crossing_guard.gif" alt=""><figcaption>导护员举牌</figcaption></figure><figure title="desk_flail · 1.4s"><img loading="lazy" src="../ui/assets/clawd/desk_flail.gif" alt=""><figcaption>从椅子上蹦起</figcaption></figure></div>
 </div>
-<div class="note">干活时的头顶气泡：开着「头顶显示对话进度」时，Claude 每说完一段话（会话记录里多一条），气泡就换成那段话的第一行；几个会话同时在忙时，上面加一行会话名。点气泡右上角的「－」收起，小螃蟹下方的状态标签右边多一个圆点，数字是在忙或刚说完话的会话数，点它再展开；收起状态一直保持到你点圆点。长任务完成和睡眠时段里完成也一样走完成气泡（各自的动画留 15 秒）。</div>
+<div class="note">干活时的头顶气泡：开着「头顶显示对话进度」时，Claude 每说完一段话（会话记录里多一条），气泡就换成那段话的第一行；几个会话同时在忙时，上面加一行会话名。点气泡右上角的「－」收起，小螃蟹下方的状态标签右边多一个圆点，数字是在忙或刚说完话的会话数（开出去的会话和它的来源算一个），点它再展开；收起状态一直保持到你点圆点。长任务完成和睡眠时段里完成也一样走完成气泡（各自的动画留 15 秒）。</div>
 <div class="note">完成之后的余韵：任务跑了 1 分钟以上，它会开心 3 分钟；长任务完成会得意 5 分钟（见「它自己的生活 → 情绪」）。如果完成时键鼠已经一阵没动静，「搞定啦」的气泡会一直留着（开着对话进度时则是完成气泡照常 15 秒后收起），等你碰了电脑它再提醒一次「已经搞定啦，快去看看～」。</div>
+<div class="note">从一个会话开出去的会话（桌面版的 /btw 分支、另开的侧会话）算作同一件事：桌宠从桌面版自己的会话记录里认出它们的来源。标签用最上面那个会话的名字，后面加「分支 ×N」表示有几个开出去的会话在忙；一家子都停下才算完成，在那之前先停下的只显示它最后一句话，不庆祝。刚开出会话的那一轮停下时，先等 8 秒让新会话报到再决定。</div>
 <div class="note">没有动画的情况：会话超过 30 分钟没有任何事件，会当作已结束，直接回到待命。</div></section>
 <section id="life"><h2>二、它自己的生活</h2><p class="intro">Claude 没活给它的时候，它过自己的日子：演完一个<b>场景</b>，歇一会儿，再演下一个。一个场景由一到几个动画按顺序接成（图里的箭头就是顺序），循环的那几步平分 20–50 秒，标了 ×N 的只播 N 遍；只有一个动画的场景播 20–30 秒。歇多久由「活跃度」决定：悠闲 30–70 秒（约三分之一时间在活动），活泼 10–25 秒（约六成），闹腾 3–8 秒（约八成），安静则只待着不演场景。任何别的事（Claude 开工、你逗它、系统事件）都会打断当前场景，之后至少安静 6 秒再接着过日子。</p><h3>下一个场景怎么抽</h3>
 <div class="note">按下表的权重抽一个种类，再从这个种类里挑一个最近没演过的场景。两行权重分别对应<b>你在用电脑</b>和<b>键鼠一阵没动静</b>（你可能走开了，也可能在看视频）：后一种情况下它更爱运动和变装，同时会无聊、想你。小字是平常时段里的占比。<table class="weights">
@@ -773,7 +774,7 @@
   </div>
   <div class="scenes"><div class="scene"><figure title="sport_roller_skates · 2.1s"><img loading="lazy" src="../ui/assets/clawd/sport_roller_skates.gif" alt=""><figcaption>溜冰鞋摇晃</figcaption></figure><span class="arrow">→</span><figure title="sport_banana_slip · 3.6s"><img loading="lazy" src="../ui/assets/clawd/sport_banana_slip.gif" alt=""><figcaption>踩香蕉皮滑倒 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="emo_dizzy · 1.3s"><img loading="lazy" src="../ui/assets/clawd/emo_dizzy.gif" alt=""><figcaption>晕头转向 <b>×3</b></figcaption></figure></div><div class="scene"><figure title="sport_parkour · 2.0s"><img loading="lazy" src="../ui/assets/clawd/sport_parkour.gif" alt=""><figcaption>跑酷翻越</figcaption></figure><span class="arrow">→</span><figure title="sport_wall_bonk · 3.7s"><img loading="lazy" src="../ui/assets/clawd/sport_wall_bonk.gif" alt=""><figcaption>撞墙眼冒金星 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="emo_dizzy · 1.3s"><img loading="lazy" src="../ui/assets/clawd/emo_dizzy.gif" alt=""><figcaption>晕头转向 <b>×3</b></figcaption></figure></div><div class="scene"><figure title="dev_task_topple · 3.2s"><img loading="lazy" src="../ui/assets/clawd/dev_task_topple.gif" alt=""><figcaption>任务堆倒塌 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="emo_awkward · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_awkward.gif" alt=""><figcaption>尴尬沉默 <b>×2</b></figcaption></figure></div><div class="scene"><figure title="sea_windy · 1.1s"><img loading="lazy" src="../ui/assets/clawd/sea_windy.gif" alt=""><figcaption>被大风吹</figcaption></figure><span class="arrow">→</span><figure title="sea_tornado · 1.3s"><img loading="lazy" src="../ui/assets/clawd/sea_tornado.gif" alt=""><figcaption>龙卷风 <b>×4</b></figcaption></figure><span class="arrow">→</span><figure title="emo_dizzy · 1.3s"><img loading="lazy" src="../ui/assets/clawd/emo_dizzy.gif" alt=""><figcaption>晕头转向 <b>×3</b></figcaption></figure></div><div class="scene"><figure title="life_lemon_sour · 1.7s"><img loading="lazy" src="../ui/assets/clawd/life_lemon_sour.gif" alt=""><figcaption>酸柠檬 <b>×2</b></figcaption></figure><span class="arrow">→</span><figure title="emo_cringe · 1.7s"><img loading="lazy" src="../ui/assets/clawd/emo_cringe.gif" alt=""><figcaption>嫌弃 <b>×2</b></figcaption></figure></div><div class="scene"><figure title="emo_nervous_sweat · 1.8s"><img loading="lazy" src="../ui/assets/clawd/emo_nervous_sweat.gif" alt=""><figcaption>紧张冒汗</figcaption></figure><span class="arrow">→</span><figure title="emo_panic_circles · 1.1s"><img loading="lazy" src="../ui/assets/clawd/emo_panic_circles.gif" alt=""><figcaption>慌得团团转</figcaption></figure><span class="arrow">→</span><figure title="emo_relieved · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_relieved.gif" alt=""><figcaption>松了口气 <b>×2</b></figcaption></figure></div><div class="scene"><figure title="dev_404 · 3.5s"><img loading="lazy" src="../ui/assets/clawd/dev_404.gif" alt=""><figcaption>找不到页面 <b>×1</b></figcaption></figure><span class="arrow">→</span><figure title="emo_confused · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_confused.gif" alt=""><figcaption>一脸问号 <b>×2</b></figcaption></figure></div><div class="scene"><figure title="emo_sneeze · 2.4s"><img loading="lazy" src="../ui/assets/clawd/emo_sneeze.gif" alt=""><figcaption>打喷嚏 <b>×2</b></figcaption></figure><span class="arrow">→</span><figure title="emo_embarrassed · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_embarrassed.gif" alt=""><figcaption>羞到冒烟 <b>×2</b></figcaption></figure></div></div>
 </div>
-<div class="note">随机惊喜：从全部 429 个动画里随便抽一个演 20–30 秒，只排除会被误认成真实状态的 7 个（盖被子睡觉、看书打瞌睡、蓝屏了、可怜巴巴、不耐烦、开门离开、思考中）。双击和菜单里的「随机来一段」用的也是这个范围。</div>
+<div class="note">随机惊喜：从全部 432 个动画里随便抽一个演 20–30 秒，只排除会被误认成真实状态的 7 个（盖被子睡觉、看书打瞌睡、蓝屏了、可怜巴巴、不耐烦、开门离开、思考中）。双击和菜单里的「随机来一段」用的也是这个范围。</div>
 <h3>当季</h3>
 <div class="row">
   <div class="info">
@@ -962,7 +963,7 @@
   <div class="info">
     <h4>睡前刷牙</h4>
     <p>进入夜间睡眠时段（超过 3 小时的时段）且手头的场景演完后，先刷牙。每晚只刷一次，半夜被吵醒后再睡不刷。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">5.3 秒</span><span class="say">💬 我先睡啦，你也早点休息哦～ 💤</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">5.3 秒</span><span class="say">💬 我先睡啦，你也早点休息哦～ 💤</span></p>
     <code>ANIMS.bedtime</code>
   </div>
   <div class="thumbs"><figure title="life_brush_teeth · 1.3s"><img loading="lazy" src="../ui/assets/clawd/life_brush_teeth.gif" alt=""><figcaption>刷牙</figcaption></figure></div>
@@ -971,7 +972,7 @@
   <div class="info">
     <h4>打哈欠</h4>
     <p>刷完牙之后；午休这类短时段则直接从这里开始。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4 秒</span><span class="say">💬 午休时间，我眯一会儿～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">4 秒</span><span class="say">💬 午休时间，我眯一会儿～</span></p>
     <code>ANIMS.yawn</code>
   </div>
   <div class="thumbs"><figure title="emo_yawn · 4.0s"><img loading="lazy" src="../ui/assets/clawd/emo_yawn.gif" alt=""><figcaption>打哈欠</figcaption></figure></div>
@@ -1016,7 +1017,7 @@
   <div class="info">
     <h4>时段结束，起床</h4>
     <p>先拍闹钟，紧接着做下一行的伸展，然后接上早晨的作息。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.4 秒</span><span class="say">💬 早上好！新的一天开始啦～ / 睡醒啦，继续开工～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">4.4 秒</span><span class="say">💬 早上好！新的一天开始啦～ / 睡醒啦，继续开工～</span></p>
     <code>ANIMS.wakeAlarm</code>
   </div>
   <div class="thumbs"><figure title="life_alarm_snooze · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_alarm_snooze.gif" alt=""><figcaption>拍闹钟</figcaption></figure></div>
@@ -1025,7 +1026,7 @@
   <div class="info">
     <h4>伸展</h4>
     <p>起床拍完闹钟之后；以及久坐提醒时（连续在用电脑超过设定的分钟数，默认 60）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.5–2.6 秒</span><span class="say">💬 已经坐了 N 分钟啦，起来活动一下～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.5–2.6 秒</span><span class="say">💬 已经坐了 N 分钟啦，起来活动一下～</span></p>
     <code>ANIMS.stretch</code>
   </div>
   <div class="thumbs"><figure title="stretch_tall · 1.3s"><img loading="lazy" src="../ui/assets/clawd/stretch_tall.gif" alt=""><figcaption>拉长跳</figcaption></figure><figure title="sport_warmup · 2.5s"><img loading="lazy" src="../ui/assets/clawd/sport_warmup.gif" alt=""><figcaption>热身拉伸</figcaption></figure><figure title="sport_jumping_jacks · 0.9s"><img loading="lazy" src="../ui/assets/clawd/sport_jumping_jacks.gif" alt=""><figcaption>开合跳</figcaption></figure></div>
@@ -1035,7 +1036,7 @@
   <div class="info">
     <h4>桌宠启动</h4>
     <p>按钟点说早上好 / 中午好 / 下午好 / 晚上好；当天是节日则改播节日动画。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.2 秒</span><span class="say">💬 下午好～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.2 秒</span><span class="say">💬 下午好～</span></p>
     <code>ANIMS.hello</code>
   </div>
   <div class="thumbs"><figure title="emo_nihao · 2.2s"><img loading="lazy" src="../ui/assets/clawd/emo_nihao.gif" alt=""><figcaption>你好呀</figcaption></figure></div>
@@ -1044,7 +1045,7 @@
   <div class="info">
     <h4>12:00 提醒</h4>
     <p>到点后 10 分钟内、它手头的场景演完时说一次，每天一次。关掉「爱说话」则不提醒。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.1–4.8 秒</span><span class="say">💬 到饭点啦，先去吃饭吧～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.1–4.8 秒</span><span class="say">💬 到饭点啦，先去吃饭吧～</span></p>
     <code>NUDGES[0]</code>
   </div>
   <div class="thumbs"><figure title="life_noodle_slurp · 1.6s"><img loading="lazy" src="../ui/assets/clawd/life_noodle_slurp.gif" alt=""><figcaption>吸溜面条</figcaption></figure><figure title="life_burger_stack · 2.4s"><img loading="lazy" src="../ui/assets/clawd/life_burger_stack.gif" alt=""><figcaption>叠汉堡</figcaption></figure><figure title="life_dumpling_steam · 2.0s"><img loading="lazy" src="../ui/assets/clawd/life_dumpling_steam.gif" alt=""><figcaption>揭笼屉</figcaption></figure></div>
@@ -1053,7 +1054,7 @@
   <div class="info">
     <h4>15:30 提醒</h4>
     <p>到点后 10 分钟内、它手头的场景演完时说一次，每天一次。关掉「爱说话」则不提醒。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5–4.1 秒</span><span class="say">💬 下午茶时间，喝口水歇一歇～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.5–4.1 秒</span><span class="say">💬 下午茶时间，喝口水歇一歇～</span></p>
     <code>NUDGES[1]</code>
   </div>
   <div class="thumbs"><figure title="life_boba_straw · 1.8s"><img loading="lazy" src="../ui/assets/clawd/life_boba_straw.gif" alt=""><figcaption>珍珠奶茶</figcaption></figure><figure title="tea_sip · 2.0s"><img loading="lazy" src="../ui/assets/clawd/tea_sip.gif" alt=""><figcaption>抿一口茶</figcaption></figure></div>
@@ -1062,7 +1063,7 @@
   <div class="info">
     <h4>18:30 提醒</h4>
     <p>到点后 10 分钟内、它手头的场景演完时说一次，每天一次。关掉「爱说话」则不提醒。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.1–4.8 秒</span><span class="say">💬 该吃晚饭啦～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.1–4.8 秒</span><span class="say">💬 该吃晚饭啦～</span></p>
     <code>NUDGES[2]</code>
   </div>
   <div class="thumbs"><figure title="cook_veggies · 1.6s"><img loading="lazy" src="../ui/assets/clawd/cook_veggies.gif" alt=""><figcaption>颠锅炒青菜</figcaption></figure><figure title="life_sushi_belt · 2.4s"><img loading="lazy" src="../ui/assets/clawd/life_sushi_belt.gif" alt=""><figcaption>回转寿司</figcaption></figure></div>
@@ -1071,7 +1072,7 @@
   <div class="info">
     <h4>你的生日</h4>
     <p>设置里填的日期。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5–5.3 秒</span><span class="say">💬 生日快乐！🎂</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.5–5.3 秒</span><span class="say">💬 生日快乐！🎂</span></p>
     <code>holidaysOn() · 生日</code>
   </div>
   <div class="thumbs"><figure title="sea_birthday_candles · 2.7s"><img loading="lazy" src="../ui/assets/clawd/sea_birthday_candles.gif" alt=""><figcaption>吹生日蜡烛</figcaption></figure><figure title="sea_party_popper · 1.8s"><img loading="lazy" src="../ui/assets/clawd/sea_party_popper.gif" alt=""><figcaption>拉礼花筒</figcaption></figure><figure title="sea_gift_unwrap · 2.1s"><img loading="lazy" src="../ui/assets/clawd/sea_gift_unwrap.gif" alt=""><figcaption>拆圣诞礼物</figcaption></figure></div>
@@ -1080,7 +1081,7 @@
   <div class="info">
     <h4>元旦 · 1 月 1 日</h4>
     <p>公历固定日期。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5–6.3 秒</span><span class="say">💬 新年快乐！</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.5–6.3 秒</span><span class="say">💬 新年快乐！</span></p>
     <code>holidaysOn() · 元旦</code>
   </div>
   <div class="thumbs"><figure title="sea_fireworks_watch · 2.9s"><img loading="lazy" src="../ui/assets/clawd/sea_fireworks_watch.gif" alt=""><figcaption>看烟花</figcaption></figure><figure title="sea_party_popper · 1.8s"><img loading="lazy" src="../ui/assets/clawd/sea_party_popper.gif" alt=""><figcaption>拉礼花筒</figcaption></figure><figure title="sea_countdown · 3.1s"><img loading="lazy" src="../ui/assets/clawd/sea_countdown.gif" alt=""><figcaption>新年倒计时</figcaption></figure></div>
@@ -1089,7 +1090,7 @@
   <div class="info">
     <h4>情人节 · 2 月 14 日</h4>
     <p>公历固定日期。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5–4.2 秒</span><span class="say">💬 情人节快乐～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.5–4.2 秒</span><span class="say">💬 情人节快乐～</span></p>
     <code>holidaysOn() · 情人节</code>
   </div>
   <div class="thumbs"><figure title="sea_valentine_balloon · 1.9s"><img loading="lazy" src="../ui/assets/clawd/sea_valentine_balloon.gif" alt=""><figcaption>爱心气球</figcaption></figure><figure title="emo_blow_kiss · 1.8s"><img loading="lazy" src="../ui/assets/clawd/emo_blow_kiss.gif" alt=""><figcaption>飞吻</figcaption></figure><figure title="life_window_wipe · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_window_wipe.gif" alt=""><figcaption>擦窗画爱心</figcaption></figure></div>
@@ -1098,7 +1099,7 @@
   <div class="info">
     <h4>除夕 · 2 月 16 日</h4>
     <p>农历节日。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.9–4.8 秒</span><span class="say">💬 除夕快乐，年夜饭吃起来！</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.9–4.8 秒</span><span class="say">💬 除夕快乐，年夜饭吃起来！</span></p>
     <code>holidaysOn() · 除夕</code>
   </div>
   <div class="thumbs"><figure title="life_dumpling_steam · 2.0s"><img loading="lazy" src="../ui/assets/clawd/life_dumpling_steam.gif" alt=""><figcaption>揭笼屉</figcaption></figure><figure title="sea_fu_upside · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_fu_upside.gif" alt=""><figcaption>福倒了</figcaption></figure><figure title="sea_firecracker · 1.4s"><img loading="lazy" src="../ui/assets/clawd/sea_firecracker.gif" alt=""><figcaption>放鞭炮</figcaption></figure></div>
@@ -1107,7 +1108,7 @@
   <div class="info">
     <h4>春节 · 2 月 17 日 起 7 天</h4>
     <p>农历节日。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.3–5.8 秒</span><span class="say">💬 新春快乐，恭喜发财！🧧</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">4.3–5.8 秒</span><span class="say">💬 新春快乐，恭喜发财！🧧</span></p>
     <code>holidaysOn() · 春节</code>
   </div>
   <div class="thumbs"><figure title="sea_red_envelope · 2.7s"><img loading="lazy" src="../ui/assets/clawd/sea_red_envelope.gif" alt=""><figcaption>收红包</figcaption></figure><figure title="sea_lion_dance · 1.4s"><img loading="lazy" src="../ui/assets/clawd/sea_lion_dance.gif" alt=""><figcaption>舞狮</figcaption></figure><figure title="sea_firecracker · 1.4s"><img loading="lazy" src="../ui/assets/clawd/sea_firecracker.gif" alt=""><figcaption>放鞭炮</figcaption></figure><figure title="sea_fu_upside · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_fu_upside.gif" alt=""><figcaption>福倒了</figcaption></figure><figure title="sea_fireworks_watch · 2.9s"><img loading="lazy" src="../ui/assets/clawd/sea_fireworks_watch.gif" alt=""><figcaption>看烟花</figcaption></figure></div>
@@ -1116,7 +1117,7 @@
   <div class="info">
     <h4>元宵节 · 3 月 3 日</h4>
     <p>农历节日。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">5.8–6.3 秒</span><span class="say">💬 元宵节快乐，吃汤圆了吗？</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">5.8–6.3 秒</span><span class="say">💬 元宵节快乐，吃汤圆了吗？</span></p>
     <code>holidaysOn() · 元宵节</code>
   </div>
   <div class="thumbs"><figure title="sea_sky_lantern · 3.1s"><img loading="lazy" src="../ui/assets/clawd/sea_sky_lantern.gif" alt=""><figcaption>放孔明灯</figcaption></figure><figure title="sea_fireworks_watch · 2.9s"><img loading="lazy" src="../ui/assets/clawd/sea_fireworks_watch.gif" alt=""><figcaption>看烟花</figcaption></figure></div>
@@ -1125,7 +1126,7 @@
   <div class="info">
     <h4>愚人节 · 4 月 1 日</h4>
     <p>公历固定日期。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.3–5.1 秒</span><span class="say">💬 今天说的话可不能全信哦～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">4.3–5.1 秒</span><span class="say">💬 今天说的话可不能全信哦～</span></p>
     <code>holidaysOn() · 愚人节</code>
   </div>
   <div class="thumbs"><figure title="emo_mischief · 1.4s"><img loading="lazy" src="../ui/assets/clawd/emo_mischief.gif" alt=""><figcaption>坏笑搓手</figcaption></figure><figure title="cos_jester_ball · 1.6s"><img loading="lazy" src="../ui/assets/clawd/cos_jester_ball.gif" alt=""><figcaption>小丑踩球</figcaption></figure><figure title="cos_magician_hat · 2.5s"><img loading="lazy" src="../ui/assets/clawd/cos_magician_hat.gif" alt=""><figcaption>帽子变出小Clawd</figcaption></figure></div>
@@ -1134,7 +1135,7 @@
   <div class="info">
     <h4>儿童节 · 6 月 1 日</h4>
     <p>公历固定日期。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.3–4.8 秒</span><span class="say">💬 儿童节快乐，大朋友！</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">4.3–4.8 秒</span><span class="say">💬 儿童节快乐，大朋友！</span></p>
     <code>holidaysOn() · 儿童节</code>
   </div>
   <div class="thumbs"><figure title="bubble_big · 1.6s"><img loading="lazy" src="../ui/assets/clawd/bubble_big.gif" alt=""><figcaption>吹大泡泡</figcaption></figure><figure title="life_yoyo · 1.6s"><img loading="lazy" src="../ui/assets/clawd/life_yoyo.gif" alt=""><figcaption>玩溜溜球</figcaption></figure><figure title="cos_bunny_hop · 1.4s"><img loading="lazy" src="../ui/assets/clawd/cos_bunny_hop.gif" alt=""><figcaption>兔耳蹦跳</figcaption></figure><figure title="life_kite · 2.2s"><img loading="lazy" src="../ui/assets/clawd/life_kite.gif" alt=""><figcaption>放风筝</figcaption></figure></div>
@@ -1143,7 +1144,7 @@
   <div class="info">
     <h4>端午节 · 6 月 19 日</h4>
     <p>农历节日。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.8 秒</span><span class="say">💬 端午安康！</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.8 秒</span><span class="say">💬 端午安康！</span></p>
     <code>holidaysOn() · 端午节</code>
   </div>
   <div class="thumbs"><figure title="sea_dragon_boat · 1.0s"><img loading="lazy" src="../ui/assets/clawd/sea_dragon_boat.gif" alt=""><figcaption>划龙舟</figcaption></figure></div>
@@ -1152,7 +1153,7 @@
   <div class="info">
     <h4>七夕 · 8 月 19 日</h4>
     <p>农历节日。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5–4.3 秒</span><span class="say">💬 七夕快乐～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.5–4.3 秒</span><span class="say">💬 七夕快乐～</span></p>
     <code>holidaysOn() · 七夕</code>
   </div>
   <div class="thumbs"><figure title="sea_sparkler_heart · 1.8s"><img loading="lazy" src="../ui/assets/clawd/sea_sparkler_heart.gif" alt=""><figcaption>仙女棒画心</figcaption></figure><figure title="sea_valentine_balloon · 1.9s"><img loading="lazy" src="../ui/assets/clawd/sea_valentine_balloon.gif" alt=""><figcaption>爱心气球</figcaption></figure><figure title="emo_lovestruck · 1.4s"><img loading="lazy" src="../ui/assets/clawd/emo_lovestruck.gif" alt=""><figcaption>花痴心动</figcaption></figure></div>
@@ -1161,7 +1162,7 @@
   <div class="info">
     <h4>中秋节 · 9 月 25 日</h4>
     <p>农历节日。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">5.4–6.3 秒</span><span class="say">💬 中秋快乐，记得吃月饼～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">5.4–6.3 秒</span><span class="say">💬 中秋快乐，记得吃月饼～</span></p>
     <code>holidaysOn() · 中秋节</code>
   </div>
   <div class="thumbs"><figure title="sea_mooncake_moon · 2.7s"><img loading="lazy" src="../ui/assets/clawd/sea_mooncake_moon.gif" alt=""><figcaption>中秋赏月</figcaption></figure><figure title="sea_sky_lantern · 3.1s"><img loading="lazy" src="../ui/assets/clawd/sea_sky_lantern.gif" alt=""><figcaption>放孔明灯</figcaption></figure></div>
@@ -1170,7 +1171,7 @@
   <div class="info">
     <h4>程序员节 · 10 月 24 日</h4>
     <p>公历固定日期。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.3–5.8 秒</span><span class="say">💬 1024 程序员节快乐！</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">4.3–5.8 秒</span><span class="say">💬 1024 程序员节快乐！</span></p>
     <code>holidaysOn() · 程序员节</code>
   </div>
   <div class="thumbs"><figure title="dev_hello_world · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_hello_world.gif" alt=""><figcaption>你好世界</figcaption></figure><figure title="dev_matrix · 1.4s"><img loading="lazy" src="../ui/assets/clawd/dev_matrix.gif" alt=""><figcaption>黑客帝国</figcaption></figure><figure title="dev_contrib_graph · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_contrib_graph.gif" alt=""><figcaption>提交格子变绿</figcaption></figure></div>
@@ -1179,7 +1180,7 @@
   <div class="info">
     <h4>万圣节 · 10 月 31 日</h4>
     <p>公历固定日期。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.8–4.8 秒</span><span class="say">💬 不给糖就捣蛋！</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.8–4.8 秒</span><span class="say">💬 不给糖就捣蛋！</span></p>
     <code>holidaysOn() · 万圣节</code>
   </div>
   <div class="thumbs"><figure title="sea_pumpkin_carve · 2.3s"><img loading="lazy" src="../ui/assets/clawd/sea_pumpkin_carve.gif" alt=""><figcaption>雕南瓜灯</figcaption></figure><figure title="sea_ghost_sheet · 2.3s"><img loading="lazy" src="../ui/assets/clawd/sea_ghost_sheet.gif" alt=""><figcaption>床单幽灵</figcaption></figure><figure title="sea_trick_treat · 1.9s"><img loading="lazy" src="../ui/assets/clawd/sea_trick_treat.gif" alt=""><figcaption>不给糖就捣蛋</figcaption></figure><figure title="sea_witch_broom · 2.2s"><img loading="lazy" src="../ui/assets/clawd/sea_witch_broom.gif" alt=""><figcaption>骑扫帚飞</figcaption></figure><figure title="sea_mummy_wrap · 1.9s"><img loading="lazy" src="../ui/assets/clawd/sea_mummy_wrap.gif" alt=""><figcaption>木乃伊缠绷带</figcaption></figure><figure title="sea_vampire_cape · 1.9s"><img loading="lazy" src="../ui/assets/clawd/sea_vampire_cape.gif" alt=""><figcaption>吸血鬼披风</figcaption></figure><figure title="sea_skeleton_dance · 1.6s"><img loading="lazy" src="../ui/assets/clawd/sea_skeleton_dance.gif" alt=""><figcaption>和骷髅跳舞</figcaption></figure><figure title="sea_bats_circle · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_bats_circle.gif" alt=""><figcaption>蝙蝠绕飞</figcaption></figure></div>
@@ -1188,7 +1189,7 @@
   <div class="info">
     <h4>平安夜 · 12 月 24 日</h4>
     <p>公历固定日期。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.1–5.4 秒</span><span class="say">💬 平安夜快乐～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">4.1–5.4 秒</span><span class="say">💬 平安夜快乐～</span></p>
     <code>holidaysOn() · 平安夜</code>
   </div>
   <div class="thumbs"><figure title="sea_tree_star · 2.6s"><img loading="lazy" src="../ui/assets/clawd/sea_tree_star.gif" alt=""><figcaption>圣诞树放星星</figcaption></figure><figure title="sea_santa_sack · 2.7s"><img loading="lazy" src="../ui/assets/clawd/sea_santa_sack.gif" alt=""><figcaption>圣诞老人背礼物</figcaption></figure><figure title="sea_reindeer_bells · 1.0s"><img loading="lazy" src="../ui/assets/clawd/sea_reindeer_bells.gif" alt=""><figcaption>驯鹿摇铃铛</figcaption></figure><figure title="sea_fireplace · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_fireplace.gif" alt=""><figcaption>壁炉挂袜子</figcaption></figure><figure title="sea_gingerbread_chase · 1.6s"><img loading="lazy" src="../ui/assets/clawd/sea_gingerbread_chase.gif" alt=""><figcaption>追姜饼人</figcaption></figure><figure title="sea_gift_unwrap · 2.1s"><img loading="lazy" src="../ui/assets/clawd/sea_gift_unwrap.gif" alt=""><figcaption>拆圣诞礼物</figcaption></figure><figure title="sea_snow_globe · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_snow_globe.gif" alt=""><figcaption>水晶球摇雪</figcaption></figure></div>
@@ -1197,7 +1198,7 @@
   <div class="info">
     <h4>圣诞节 · 12 月 25 日</h4>
     <p>公历固定日期。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.1–5.4 秒</span><span class="say">💬 圣诞快乐！</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">4.1–5.4 秒</span><span class="say">💬 圣诞快乐！</span></p>
     <code>holidaysOn() · 圣诞节</code>
   </div>
   <div class="thumbs"><figure title="sea_tree_star · 2.6s"><img loading="lazy" src="../ui/assets/clawd/sea_tree_star.gif" alt=""><figcaption>圣诞树放星星</figcaption></figure><figure title="sea_santa_sack · 2.7s"><img loading="lazy" src="../ui/assets/clawd/sea_santa_sack.gif" alt=""><figcaption>圣诞老人背礼物</figcaption></figure><figure title="sea_reindeer_bells · 1.0s"><img loading="lazy" src="../ui/assets/clawd/sea_reindeer_bells.gif" alt=""><figcaption>驯鹿摇铃铛</figcaption></figure><figure title="sea_fireplace · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_fireplace.gif" alt=""><figcaption>壁炉挂袜子</figcaption></figure><figure title="sea_gingerbread_chase · 1.6s"><img loading="lazy" src="../ui/assets/clawd/sea_gingerbread_chase.gif" alt=""><figcaption>追姜饼人</figcaption></figure><figure title="sea_gift_unwrap · 2.1s"><img loading="lazy" src="../ui/assets/clawd/sea_gift_unwrap.gif" alt=""><figcaption>拆圣诞礼物</figcaption></figure><figure title="sea_snow_globe · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sea_snow_globe.gif" alt=""><figcaption>水晶球摇雪</figcaption></figure></div>
@@ -1206,7 +1207,7 @@
   <div class="info">
     <h4>跨年夜 · 12 月 31 日</h4>
     <p>公历固定日期。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5–6.3 秒</span><span class="say">💬 今年最后一天啦，辛苦了！</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.5–6.3 秒</span><span class="say">💬 今年最后一天啦，辛苦了！</span></p>
     <code>holidaysOn() · 跨年夜</code>
   </div>
   <div class="thumbs"><figure title="sea_countdown · 3.1s"><img loading="lazy" src="../ui/assets/clawd/sea_countdown.gif" alt=""><figcaption>新年倒计时</figcaption></figure><figure title="sea_fireworks_watch · 2.9s"><img loading="lazy" src="../ui/assets/clawd/sea_fireworks_watch.gif" alt=""><figcaption>看烟花</figcaption></figure><figure title="sea_party_popper · 1.8s"><img loading="lazy" src="../ui/assets/clawd/sea_party_popper.gif" alt=""><figcaption>拉礼花筒</figcaption></figure></div>
@@ -1214,7 +1215,7 @@
 <section id="touch"><h2>四、你和它的互动</h2><p class="intro">直接对小螃蟹做的动作。这些都会打断 Claude 的状态动画，播完再回去。</p><div class="row">
   <div class="info">
     <h4>单击</h4>
-    <p>点一下，等 0.3 秒确认不是双击后播放。三连击、四连击也算这个。</p>
+    <p>点一下，等 0.3 秒确认不是双击后播放。三连击、四连击也算这个。AI 聊天开着时，单击是打开输入框。</p>
     <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">1.4–2.2 秒</span></p>
     <code>ANIMS.click</code>
   </div>
@@ -1223,7 +1224,7 @@
 <div class="row">
   <div class="info">
     <h4>2.5 秒内点满 5 下</h4>
-    <p>第 5 下立刻生气，播完之前不理会更多点击。之后闹 30 秒脾气。</p>
+    <p>第 5 下立刻生气，播完之前不理会更多点击。之后闹 30 秒脾气。开了 AI 聊天时不会发生：点第 2 下就打开聊天了。</p>
     <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">1.9–2.6 秒</span></p>
     <code>ANIMS.clickSpam</code>
   </div>
@@ -1242,7 +1243,7 @@
   <div class="info">
     <h4>鼠标停在它身上</h4>
     <p>悬停 2.5 秒且 Claude 没在忙（它自己的场景会被打断）。30 秒内不重复。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2–3.2 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2–3.2 秒</span></p>
     <code>ANIMS.noticed</code>
   </div>
   <div class="thumbs"><figure title="turn_around · 2.0s"><img loading="lazy" src="../ui/assets/clawd/turn_around.gif" alt=""><figcaption>转身看看</figcaption></figure><figure title="emo_wink · 1.4s"><img loading="lazy" src="../ui/assets/clawd/emo_wink.gif" alt=""><figcaption>眨眼放电</figcaption></figure><figure title="dev_cursor_chase · 3.2s"><img loading="lazy" src="../ui/assets/clawd/dev_cursor_chase.gif" alt=""><figcaption>追鼠标</figcaption></figure></div>
@@ -1283,12 +1284,58 @@
   </div>
   <div class="thumbs"><figure title="dev_drag_drop · 3.8s"><img loading="lazy" src="../ui/assets/clawd/dev_drag_drop.gif" alt=""><figcaption>拖进文件夹</figcaption></figure></div>
 </div>
-<div class="note">不走固定动画的操作：<b>双击</b>和右键菜单的<b>「随机来一段」</b>从随机惊喜的范围里抽一个播 2.5 秒以上；设置里的<b>动画图鉴</b>点哪个播哪个；<b>右键</b>弹菜单；<b>托盘图标</b>单击显示/隐藏、双击打开设置。</div></section>
+<h3>AI 聊天（设置里打开后）</h3>
+<div class="row">
+  <div class="info">
+    <h4>聊天：输入框开着</h4>
+    <p>双击它弹出输入框，聊天开着时单击它也会。框开着时它坐在书桌前转过身来听你说。聊天开着的整段时间里它不睡觉，也不演自己的场景；Claude 干活的动画也让给聊天（会话状态照样写在标签里），只有权限请求和必播的反应（比如瞄屏幕、出错）会盖过它。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.chatListen</code>
+  </div>
+  <div class="thumbs"><figure title="chat_listen · 2.6s"><img loading="lazy" src="../ui/assets/clawd/chat_listen.gif" alt=""><figcaption>听你说</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>聊天：等回复</h4>
+    <p>消息发出去以后、回复的第一个字到来之前。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.chatPonder</code>
+  </div>
+  <div class="thumbs"><figure title="chat_ponder · 2.4s"><img loading="lazy" src="../ui/assets/clawd/chat_ponder.gif" alt=""><figcaption>琢磨怎么回</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>聊天：回复中</h4>
+    <p>回复一个字一个字打出来的时候。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.chatTyping</code>
+  </div>
+  <div class="thumbs"><figure title="desk_typing · 0.9s"><img loading="lazy" src="../ui/assets/clawd/desk_typing.gif" alt=""><figcaption>书桌打字</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>聊天：回复留在头顶</h4>
+    <p>回完了、输入框没开着，直到关掉聊天。没在回复、输入框也没开着（或者开着但空着、你点去了别处）满 4 分钟，聊天会自己关掉。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.chatIdle</code>
+  </div>
+  <div class="thumbs"><figure title="desk_coffee · 1.6s"><img loading="lazy" src="../ui/assets/clawd/desk_coffee.gif" alt=""><figcaption>书桌喝咖啡</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>聊天：看一眼屏幕</h4>
+    <p>模型觉得要看你的屏幕、调用截图工具时（设置里允许看屏幕才有）。回复上会标出「看了一眼屏幕」。</p>
+    <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">2.7 秒</span></p>
+    <code>ANIMS.chatSnap</code>
+  </div>
+  <div class="thumbs"><figure title="chat_snap · 2.7s"><img loading="lazy" src="../ui/assets/clawd/chat_snap.gif" alt=""><figcaption>看一眼屏幕</figcaption></figure></div>
+</div>
+<div class="note">不走固定动画的操作：<b>双击</b>（没开 AI 聊天时）和右键菜单的<b>「随机来一段」</b>从随机惊喜的范围里抽一个播 2.5 秒以上；设置里的<b>动画图鉴</b>点哪个播哪个；<b>右键</b>弹菜单；<b>托盘图标</b>单击显示/隐藏、双击打开设置。</div></section>
 <section id="system"><h2>五、系统联动</h2><p class="intro">对你在 Claude Code 之外的操作做反应。全部是「一次性 · 让路」：Claude 正忙时不显示，它睡着时不理会。同一种事件默认 20 秒内只反应一次。每项都能在设置的「系统联动」里单独关掉。status、fetch、log 这类编辑器在后台反复执行的 git 命令，以及别的 git 命令派生出来的子命令，都不触发。</p><div class="row">
   <div class="info">
     <h4>文件进了文件夹</h4>
     <p>监听的文件夹里出现新文件或新文件夹：拖入、移入、新建、另存都算。开关：文件动静。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.8 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.8 秒</span></p>
     <code>SYS_EVENTS[&quot;file-in&quot;]</code>
   </div>
   <div class="thumbs"><figure title="dev_drag_drop · 3.8s"><img loading="lazy" src="../ui/assets/clawd/dev_drag_drop.gif" alt=""><figcaption>拖进文件夹</figcaption></figure></div>
@@ -1297,7 +1344,7 @@
   <div class="info">
     <h4>压缩打包</h4>
     <p>监听的文件夹里出现 .zip / .7z / .rar / .tar / .gz 等压缩包（下载文件夹里的算下载）。开关：文件动静。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.6 秒</span><span class="say">💬 压缩打包，搞定～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.6 秒</span><span class="say">💬 压缩打包，搞定～</span></p>
     <code>SYS_EVENTS[&quot;zip&quot;]</code>
   </div>
   <div class="thumbs"><figure title="dev_zip · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_zip.gif" alt=""><figcaption>压缩打包</figcaption></figure></div>
@@ -1306,7 +1353,7 @@
   <div class="info">
     <h4>下载完成</h4>
     <p>下载文件夹里出现新文件，或浏览器的临时文件被改名为正式文件。开关：文件动静。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.6–4.1 秒</span><span class="say">💬 有新文件到货啦～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.6–4.1 秒</span><span class="say">💬 有新文件到货啦～</span></p>
     <code>SYS_EVENTS[&quot;download&quot;]</code>
   </div>
   <div class="thumbs"><figure title="cos_mail_delivery · 2.6s"><img loading="lazy" src="../ui/assets/clawd/cos_mail_delivery.gif" alt=""><figcaption>邮递员送信</figcaption></figure><figure title="sea_gift_unwrap · 2.1s"><img loading="lazy" src="../ui/assets/clawd/sea_gift_unwrap.gif" alt=""><figcaption>拆圣诞礼物</figcaption></figure></div>
@@ -1315,7 +1362,7 @@
   <div class="info">
     <h4>截图</h4>
     <p>名字含 Screenshots 或「截图」的文件夹里出现新图片。开关：文件动静。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.6–4.2 秒</span><span class="say">💬 咔嚓！</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.6–4.2 秒</span><span class="say">💬 咔嚓！</span></p>
     <code>SYS_EVENTS[&quot;screenshot&quot;]</code>
   </div>
   <div class="thumbs"><figure title="life_photo_polaroid · 2.1s"><img loading="lazy" src="../ui/assets/clawd/life_photo_polaroid.gif" alt=""><figcaption>拍立得</figcaption></figure><figure title="life_selfie · 1.8s"><img loading="lazy" src="../ui/assets/clawd/life_selfie.gif" alt=""><figcaption>自拍</figcaption></figure></div>
@@ -1324,7 +1371,7 @@
   <div class="info">
     <h4>删除文件</h4>
     <p>回收站文件夹里多了一条记录（文件系统通知，不轮询）。开关：回收站。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.4 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.4 秒</span></p>
     <code>SYS_EVENTS[&quot;trash&quot;]</code>
   </div>
   <div class="thumbs"><figure title="life_trash_out · 3.4s"><img loading="lazy" src="../ui/assets/clawd/life_trash_out.gif" alt=""><figcaption>倒垃圾</figcaption></figure></div>
@@ -1333,7 +1380,7 @@
   <div class="info">
     <h4>清空回收站</h4>
     <p>回收站里最后一条记录被移除。开关：回收站。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.2–3.5 秒</span><span class="say">💬 回收站清空，一身轻松～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.2–3.5 秒</span><span class="say">💬 回收站清空，一身轻松～</span></p>
     <code>SYS_EVENTS[&quot;trash-empty&quot;]</code>
   </div>
   <div class="thumbs"><figure title="life_sweep_floor · 1.8s"><img loading="lazy" src="../ui/assets/clawd/life_sweep_floor.gif" alt=""><figcaption>扫地</figcaption></figure><figure title="life_vacuum · 1.6s"><img loading="lazy" src="../ui/assets/clawd/life_vacuum.gif" alt=""><figcaption>吸尘器</figcaption></figure></div>
@@ -1342,7 +1389,7 @@
   <div class="info">
     <h4>复制或剪切</h4>
     <p>剪贴板的序号变了（每秒查一次，不读内容）。开关：复制粘贴；1 分钟内只反应一次。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.9 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.9 秒</span></p>
     <code>SYS_EVENTS[&quot;clipboard&quot;]</code>
   </div>
   <div class="thumbs"><figure title="dev_copy_paste · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_copy_paste.gif" alt=""><figcaption>复制粘贴</figcaption></figure></div>
@@ -1351,7 +1398,7 @@
   <div class="info">
     <h4>电量低</h4>
     <p>用电池供电且电量降到 20% 以下（每 20 秒查一次）。开关：电量；10 分钟内只反应一次。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.2 秒</span><span class="say">💬 快没电啦，插上电源吧！</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.2 秒</span><span class="say">💬 快没电啦，插上电源吧！</span></p>
     <code>SYS_EVENTS[&quot;battery-low&quot;]</code>
   </div>
   <div class="thumbs"><figure title="dev_battery · 3.2s"><img loading="lazy" src="../ui/assets/clawd/dev_battery.gif" alt=""><figcaption>没电充电</figcaption></figure></div>
@@ -1360,7 +1407,7 @@
   <div class="info">
     <h4>插上电源</h4>
     <p>从电池供电变成接通电源。开关：电量。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.2 秒</span><span class="say">💬 充上电啦～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.2 秒</span><span class="say">💬 充上电啦～</span></p>
     <code>SYS_EVENTS[&quot;power-plug&quot;]</code>
   </div>
   <div class="thumbs"><figure title="dev_cable_plug · 3.2s"><img loading="lazy" src="../ui/assets/clawd/dev_cable_plug.gif" alt=""><figcaption>插网线</figcaption></figure></div>
@@ -1369,7 +1416,7 @@
   <div class="info">
     <h4>断网</h4>
     <p>系统报告的联网状态变为断开（每 5 秒查一次）。开关：网络。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.9–3.5 秒</span><span class="say">💬 网断了…我找找信号</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.9–3.5 秒</span><span class="say">💬 网断了…我找找信号</span></p>
     <code>SYS_EVENTS[&quot;offline&quot;]</code>
   </div>
   <div class="thumbs"><figure title="dev_wifi_search · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_wifi_search.gif" alt=""><figcaption>找信号</figcaption></figure><figure title="dev_404 · 3.5s"><img loading="lazy" src="../ui/assets/clawd/dev_404.gif" alt=""><figcaption>找不到页面</figcaption></figure></div>
@@ -1378,7 +1425,7 @@
   <div class="info">
     <h4>网络恢复</h4>
     <p>联网状态从断开变回连接。开关：网络。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.8–4.8 秒</span><span class="say">💬 网回来啦～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.8–4.8 秒</span><span class="say">💬 网回来啦～</span></p>
     <code>SYS_EVENTS[&quot;online&quot;]</code>
   </div>
   <div class="thumbs"><figure title="dev_packet_ping · 2.4s"><img loading="lazy" src="../ui/assets/clawd/dev_packet_ping.gif" alt=""><figcaption>ping一下</figcaption></figure><figure title="emo_relieved · 1.9s"><img loading="lazy" src="../ui/assets/clawd/emo_relieved.gif" alt=""><figcaption>松了口气</figcaption></figure></div>
@@ -1387,7 +1434,7 @@
   <div class="info">
     <h4>切到深色模式</h4>
     <p>系统主题变为深色。开关：深色 / 浅色模式。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.9 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.9 秒</span></p>
     <code>SYS_EVENTS[&quot;dark&quot;]</code>
   </div>
   <div class="thumbs"><figure title="dev_dark_mode · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_dark_mode.gif" alt=""><figcaption>深色模式</figcaption></figure></div>
@@ -1396,7 +1443,7 @@
   <div class="info">
     <h4>切到浅色模式</h4>
     <p>系统主题变为浅色。开关：深色 / 浅色模式。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.9 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.9 秒</span></p>
     <code>SYS_EVENTS[&quot;light&quot;]</code>
   </div>
   <div class="thumbs"><figure title="sea_day_night · 3.9s"><img loading="lazy" src="../ui/assets/clawd/sea_day_night.gif" alt=""><figcaption>日出日落</figcaption></figure></div>
@@ -1405,7 +1452,7 @@
   <div class="info">
     <h4>Git：新建仓库</h4>
     <p>任何仓库里成功执行 init。git 自己把命令名告诉桌宠，不用添加仓库。开关：Git 操作（默认关闭）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5 秒</span><span class="say">💬 新仓库，开张啦～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.5 秒</span><span class="say">💬 新仓库，开张啦～</span></p>
     <code>SYS_EVENTS[&quot;git-init&quot;]</code>
   </div>
   <div class="thumbs"><figure title="git_init · 3.5s"><img loading="lazy" src="../ui/assets/clawd/git_init.gif" alt=""><figcaption>git init：插旗开新仓库</figcaption></figure></div>
@@ -1414,7 +1461,7 @@
   <div class="info">
     <h4>Git：克隆</h4>
     <p>成功执行 clone。开关：Git 操作（默认关闭）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.3 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.3 秒</span></p>
     <code>SYS_EVENTS[&quot;git-clone&quot;]</code>
   </div>
   <div class="thumbs"><figure title="git_clone · 3.3s"><img loading="lazy" src="../ui/assets/clawd/git_clone.gif" alt=""><figcaption>git clone：把远程仓库复印下来</figcaption></figure></div>
@@ -1423,7 +1470,7 @@
   <div class="info">
     <h4>Git：暂存</h4>
     <p>成功执行 add（编辑器里点暂存也算）。开关：Git 操作（默认关闭）；1 分钟内只反应一次。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.3 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.3 秒</span></p>
     <code>SYS_EVENTS[&quot;git-add&quot;]</code>
   </div>
   <div class="thumbs"><figure title="git_add · 3.3s"><img loading="lazy" src="../ui/assets/clawd/git_add.gif" alt=""><figcaption>git add：文件一张张装进箱</figcaption></figure></div>
@@ -1432,7 +1479,7 @@
   <div class="info">
     <h4>Git：提交</h4>
     <p>成功执行 commit / tag。开关：Git 操作（默认关闭）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.2 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">4.2 秒</span></p>
     <code>SYS_EVENTS[&quot;git-commit&quot;]</code>
   </div>
   <div class="thumbs"><figure title="git_commit · 4.2s"><img loading="lazy" src="../ui/assets/clawd/git_commit.gif" alt=""><figcaption>git commit：封箱盖章入历史</figcaption></figure></div>
@@ -1441,7 +1488,7 @@
   <div class="info">
     <h4>Git：推送</h4>
     <p>成功执行 push。开关：Git 操作（默认关闭）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5 秒</span><span class="say">💬 推上去啦～</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.5 秒</span><span class="say">💬 推上去啦～</span></p>
     <code>SYS_EVENTS[&quot;git-push&quot;]</code>
   </div>
   <div class="thumbs"><figure title="git_push · 3.5s"><img loading="lazy" src="../ui/assets/clawd/git_push.gif" alt=""><figcaption>git push：抛上云端</figcaption></figure></div>
@@ -1450,7 +1497,7 @@
   <div class="info">
     <h4>Git：拉取</h4>
     <p>成功执行 pull。开关：Git 操作（默认关闭）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.5 秒</span></p>
     <code>SYS_EVENTS[&quot;git-pull&quot;]</code>
   </div>
   <div class="thumbs"><figure title="git_pull · 3.5s"><img loading="lazy" src="../ui/assets/clawd/git_pull.gif" alt=""><figcaption>git pull：拽绳子拉下来</figcaption></figure></div>
@@ -1459,7 +1506,7 @@
   <div class="info">
     <h4>Git：切分支</h4>
     <p>成功执行 checkout / switch。开关：Git 操作（默认关闭）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.8 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.8 秒</span></p>
     <code>SYS_EVENTS[&quot;git-switch&quot;]</code>
   </div>
   <div class="thumbs"><figure title="git_switch · 3.8s"><img loading="lazy" src="../ui/assets/clawd/git_switch.gif" alt=""><figcaption>git switch：跳到另一条分支</figcaption></figure></div>
@@ -1468,7 +1515,7 @@
   <div class="info">
     <h4>Git：合并</h4>
     <p>成功执行 merge。开关：Git 操作（默认关闭）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.4 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.4 秒</span></p>
     <code>SYS_EVENTS[&quot;git-merge&quot;]</code>
   </div>
   <div class="thumbs"><figure title="git_merge · 3.4s"><img loading="lazy" src="../ui/assets/clawd/git_merge.gif" alt=""><figcaption>git merge：拉拉链合二为一</figcaption></figure></div>
@@ -1477,7 +1524,7 @@
   <div class="info">
     <h4>Git：变基</h4>
     <p>成功执行 rebase。开关：Git 操作（默认关闭）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.5 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.5 秒</span></p>
     <code>SYS_EVENTS[&quot;git-rebase&quot;]</code>
   </div>
   <div class="thumbs"><figure title="git_rebase · 3.5s"><img loading="lazy" src="../ui/assets/clawd/git_rebase.gif" alt=""><figcaption>git rebase：把提交搬到最新处</figcaption></figure></div>
@@ -1486,7 +1533,7 @@
   <div class="info">
     <h4>Git：藏起改动</h4>
     <p>成功执行 stash。开关：Git 操作（默认关闭）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">4 秒</span></p>
     <code>SYS_EVENTS[&quot;git-stash&quot;]</code>
   </div>
   <div class="thumbs"><figure title="git_stash · 4.0s"><img loading="lazy" src="../ui/assets/clawd/git_stash.gif" alt=""><figcaption>git stash：先藏抽屉再拿回</figcaption></figure></div>
@@ -1495,7 +1542,7 @@
   <div class="info">
     <h4>Git：撤销</h4>
     <p>成功执行 reset / restore / revert。开关：Git 操作（默认关闭）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3.7 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3.7 秒</span></p>
     <code>SYS_EVENTS[&quot;git-reset&quot;]</code>
   </div>
   <div class="thumbs"><figure title="git_reset · 3.7s"><img loading="lazy" src="../ui/assets/clawd/git_reset.gif" alt=""><figcaption>git reset：倒带回到旧提交</figcaption></figure></div>
@@ -1504,7 +1551,7 @@
   <div class="info">
     <h4>Git：摘提交</h4>
     <p>成功执行 cherry-pick。开关：Git 操作（默认关闭）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">4.3 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">4.3 秒</span></p>
     <code>SYS_EVENTS[&quot;git-cherry-pick&quot;]</code>
   </div>
   <div class="thumbs"><figure title="git_cherry_pick · 4.3s"><img loading="lazy" src="../ui/assets/clawd/git_cherry_pick.gif" alt=""><figcaption>git cherry-pick：摘一颗挂到别处</figcaption></figure></div>
@@ -1514,7 +1561,7 @@
   <div class="info">
     <h4>切到音乐软件</h4>
     <p>系统通知前台窗口换了，且它的进程名是：<code>cloudmusic.exe</code> <code>qqmusic.exe</code> <code>spotify.exe</code> <code>kugou.exe</code> <code>kwmusic.exe</code> <code>foobar2000.exe</code> <code>applemusic.exe</code>。同一类 2 分钟内只反应一次。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.9–3.4 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.9–3.4 秒</span></p>
     <code>APP_ANIMS.music</code>
   </div>
   <div class="thumbs"><figure title="phones_on · 2.9s"><img loading="lazy" src="../ui/assets/clawd/phones_on.gif" alt=""><figcaption>戴上耳机</figcaption></figure><figure title="vibe_headphones · 1.7s"><img loading="lazy" src="../ui/assets/clawd/vibe_headphones.gif" alt=""><figcaption>戴耳机摇摆</figcaption></figure><figure title="dj_deck · 1.0s"><img loading="lazy" src="../ui/assets/clawd/dj_deck.gif" alt=""><figcaption>打碟</figcaption></figure></div>
@@ -1523,7 +1570,7 @@
   <div class="info">
     <h4>切到视频软件</h4>
     <p>系统通知前台窗口换了，且它的进程名是：<code>potplayermini64.exe</code> <code>potplayer.exe</code> <code>vlc.exe</code> <code>mpv.exe</code> <code>哔哩哔哩.exe</code> <code>bilibili.exe</code> <code>qqlive.exe</code> <code>qyclient.exe</code>。同一类 2 分钟内只反应一次。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.6–5.1 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.6–5.1 秒</span></p>
     <code>APP_ANIMS.video</code>
   </div>
   <div class="thumbs"><figure title="life_popcorn_catch · 1.3s"><img loading="lazy" src="../ui/assets/clawd/life_popcorn_catch.gif" alt=""><figcaption>接爆米花</figcaption></figure><figure title="life_tv_remote · 2.6s"><img loading="lazy" src="../ui/assets/clawd/life_tv_remote.gif" alt=""><figcaption>换台</figcaption></figure></div>
@@ -1532,7 +1579,7 @@
   <div class="info">
     <h4>切到游戏软件</h4>
     <p>系统通知前台窗口换了，且它的进程名是：<code>steam.exe</code> <code>steamwebhelper.exe</code> <code>wegame.exe</code> <code>yuanshen.exe</code> <code>genshinimpact.exe</code> <code>starrail.exe</code> <code>leagueclientux.exe</code> <code>minecraft.exe</code>。同一类 2 分钟内只反应一次。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.6 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.6 秒</span></p>
     <code>APP_ANIMS.game</code>
   </div>
   <div class="thumbs"><figure title="life_video_game · 1.3s"><img loading="lazy" src="../ui/assets/clawd/life_video_game.gif" alt=""><figcaption>打游戏</figcaption></figure></div>
@@ -1541,7 +1588,7 @@
   <div class="info">
     <h4>切到编辑器 / IDE软件</h4>
     <p>系统通知前台窗口换了，且它的进程名是：<code>code.exe</code> <code>cursor.exe</code> <code>idea64.exe</code> <code>pycharm64.exe</code> <code>webstorm64.exe</code> <code>devenv.exe</code> <code>studio64.exe</code> <code>zed.exe</code>。同一类 2 分钟内只反应一次。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.9–3.2 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.9–3.2 秒</span></p>
     <code>APP_ANIMS.code</code>
   </div>
   <div class="thumbs"><figure title="dev_laptop_front · 0.8s"><img loading="lazy" src="../ui/assets/clawd/dev_laptop_front.gif" alt=""><figcaption>笔记本打字</figcaption></figure><figure title="dev_hello_world · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_hello_world.gif" alt=""><figcaption>你好世界</figcaption></figure></div>
@@ -1550,7 +1597,7 @@
   <div class="info">
     <h4>切到终端软件</h4>
     <p>系统通知前台窗口换了，且它的进程名是：<code>windowsterminal.exe</code> <code>wezterm-gui.exe</code> <code>alacritty.exe</code>。同一类 2 分钟内只反应一次。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.6–2.9 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.6–2.9 秒</span></p>
     <code>APP_ANIMS.terminal</code>
   </div>
   <div class="thumbs"><figure title="dev_terminal · 2.6s"><img loading="lazy" src="../ui/assets/clawd/dev_terminal.gif" alt=""><figcaption>终端敲命令</figcaption></figure><figure title="dev_matrix · 1.4s"><img loading="lazy" src="../ui/assets/clawd/dev_matrix.gif" alt=""><figcaption>黑客帝国</figcaption></figure></div>
@@ -1559,7 +1606,7 @@
   <div class="info">
     <h4>切到聊天软件</h4>
     <p>系统通知前台窗口换了，且它的进程名是：<code>wechat.exe</code> <code>weixin.exe</code> <code>qq.exe</code> <code>telegram.exe</code> <code>discord.exe</code> <code>dingtalk.exe</code> <code>feishu.exe</code> <code>lark.exe</code> <code>slack.exe</code>。同一类 2 分钟内只反应一次。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.9–5.1 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.9–5.1 秒</span></p>
     <code>APP_ANIMS.chat</code>
   </div>
   <div class="thumbs"><figure title="life_phone_call · 2.5s"><img loading="lazy" src="../ui/assets/clawd/life_phone_call.gif" alt=""><figcaption>打电话</figcaption></figure><figure title="dev_ai_chat · 3.1s"><img loading="lazy" src="../ui/assets/clawd/dev_ai_chat.gif" alt=""><figcaption>对话中</figcaption></figure><figure title="tea_talk · 2.9s"><img loading="lazy" src="../ui/assets/clawd/tea_talk.gif" alt=""><figcaption>喝茶聊天</figcaption></figure></div>
@@ -1568,7 +1615,7 @@
   <div class="info">
     <h4>切到设计软件</h4>
     <p>系统通知前台窗口换了，且它的进程名是：<code>figma.exe</code> <code>photoshop.exe</code> <code>illustrator.exe</code> <code>blender.exe</code> <code>aseprite.exe</code> <code>mspaint.exe</code>。同一类 2 分钟内只反应一次。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.9–3.1 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.9–3.1 秒</span></p>
     <code>APP_ANIMS.design</code>
   </div>
   <div class="thumbs"><figure title="dev_pixel_editor · 2.9s"><img loading="lazy" src="../ui/assets/clawd/dev_pixel_editor.gif" alt=""><figcaption>画像素图</figcaption></figure><figure title="life_paint_easel · 3.1s"><img loading="lazy" src="../ui/assets/clawd/life_paint_easel.gif" alt=""><figcaption>画画</figcaption></figure></div>
@@ -1577,7 +1624,7 @@
   <div class="info">
     <h4>切到办公与笔记软件</h4>
     <p>系统通知前台窗口换了，且它的进程名是：<code>winword.exe</code> <code>excel.exe</code> <code>powerpnt.exe</code> <code>wps.exe</code> <code>et.exe</code> <code>wpp.exe</code> <code>obsidian.exe</code> <code>notion.exe</code> <code>typora.exe</code>。同一类 2 分钟内只反应一次。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">2.8–3.1 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.8–3.1 秒</span></p>
     <code>APP_ANIMS.office</code>
   </div>
   <div class="thumbs"><figure title="dev_slide_chart · 3.1s"><img loading="lazy" src="../ui/assets/clawd/dev_slide_chart.gif" alt=""><figcaption>汇报图表</figcaption></figure><figure title="cos_teacher_chalk · 2.8s"><img loading="lazy" src="../ui/assets/clawd/cos_teacher_chalk.gif" alt=""><figcaption>老师写黑板</figcaption></figure></div>
@@ -1586,7 +1633,7 @@
   <div class="info">
     <h4>切到邮件软件</h4>
     <p>系统通知前台窗口换了，且它的进程名是：<code>outlook.exe</code> <code>olk.exe</code> <code>thunderbird.exe</code> <code>foxmail.exe</code>。同一类 2 分钟内只反应一次。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙时不显示">一次性 · 让路</span><span class="dur">3–3.3 秒</span></p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">3–3.3 秒</span></p>
     <code>APP_ANIMS.mail</code>
   </div>
   <div class="thumbs"><figure title="dev_inbox_zero · 3.3s"><img loading="lazy" src="../ui/assets/clawd/dev_inbox_zero.gif" alt=""><figcaption>清空收件箱</figcaption></figure><figure title="life_post_letter · 3.0s"><img loading="lazy" src="../ui/assets/clawd/life_post_letter.gif" alt=""><figcaption>寄信</figcaption></figure></div>

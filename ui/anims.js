@@ -73,6 +73,13 @@ window.ANIMS = {
   dropped: ["emo_dizzy", "emo_relieved"],
   fileHover: ["emo_awe"],
   fileDrop: ["dev_drag_drop"],
+
+  // ---------------------------------------------------------- AI chat (all at one desk)
+  chatListen: ["chat_listen"], // the input box is open
+  chatPonder: ["chat_ponder"], // waiting for the first word of the reply
+  chatTyping: ["desk_typing"], // the reply coming in
+  chatIdle: ["desk_coffee"], // the reply is up
+  chatSnap: ["chat_snap"], // the model takes a screenshot
 };
 
 // Human readable status for each tool category.
