@@ -1461,15 +1461,6 @@ function openCompose(standby = false) {
     }
   });
   send.onclick = () => sendChat(m);
-  // The pet's window is often not the one in front (it doesn't take the focus when it is
-  // shown), and a click on the text then puts the caret in it without the keyboard
-  // coming along. A press anywhere on the box asks for the keyboard, as a click on the
-  // pet does; on the padding around the text it keeps the caret where it was.
-  m.card.addEventListener("mousedown", (e) => {
-    if (e.button !== 0 || m.kind !== "compose" || e.target.closest(".send")) return;
-    if (e.target !== input) e.preventDefault();
-    focusCompose(m);
-  });
   fitInput(m);
   if (standby) {
     placeStandby(m);
