@@ -854,6 +854,8 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
         .collect();
     let mut slots: Vec<(usize, Option<Value>)> = Vec::new();
     let mut shots = 0;
+    // Turned a screenshot down earlier in this turn: no more of them.
+    let mut blind = false;
     let mut out = Speaker { app, id, newline: false, wrote: false };
     let tools = eye.is_some();
     for n in 0..MAX_ROUNDS {
@@ -880,6 +882,7 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
                 let round = send(t, system, &msgs, tools, last, &mut out).await?;
                 // That was it: no more screenshots for this model.
                 remember(&NO_IMAGES, t.key());
+                blind = true;
                 round
             }
             r => r?,
@@ -895,6 +898,7 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
         for (call, name) in round.calls {
             let r = match eye {
                 _ if name != TOOL => Err(format!("没有 {name} 这个工具")),
+                _ if blind => Err(BLIND.into()),
                 _ if shots >= MAX_SHOTS => Err("这一轮已经看过屏幕了，直接回答吧".into()),
                 _ if stopped(id) => return Err(Fail::Stopped),
                 Some(eye) => {
