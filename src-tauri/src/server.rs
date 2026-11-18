@@ -155,10 +155,12 @@ pub fn answered(call: &str) {
     }
 }
 
-/// From the session's transcript: the main thread's turn was interrupted.
+/// From the session's transcript: the main thread's turn was interrupted. Subagents'
+/// requests go too: they stop with it, and how they were answered shows in their own
+/// transcripts, which aren't watched.
 pub fn interrupted(session: &str) {
     if let Some(shared) = SHARED.get() {
-        shared.release(|p| p.session == session && p.agent.is_none());
+        shared.release(|p| p.session == session);
     }
 }
 

@@ -47,7 +47,7 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
   - `/clawd-pet/permission` 一直挂着连接，直到前端调用 `resolve_permission`，或者用户在原界面先作答了，这时发 `permission-closed`。`permission-request` 带的是完整的请求内容，气泡要显示 `tool_input`。
   - 终端里在原界面作答，Claude Code 会断开连接。桌面版不会：它让钩子和应用内的弹窗同时跑，用户在应用里答完也不取消钩子，连接要挂到超时。所以要从后面发生的事看出请求已经答过了：
     - 对应到具体调用：PermissionRequest 不带 `tool_use_id`，紧挨在它前面的 `PreToolUse` 带。`Shared::observe` 记下最近的 `PreToolUse`，请求到来时按会话、子代理 `agent_id`、工具名和输入认领一个（`claim`）。之后同一个 `tool_use_id` 的 `PostToolUse` / `PostToolUseFailure` 到了，就放掉请求。
-    - 在应用里拒绝并留言时，这一轮接着跑，没有任何 hook；`transcript.rs` 看到那次调用的 `tool_result`（`"tool_use_id":"…"`）就调 `server::answered`。中断时调 `server::interrupted`。
+    - 在应用里拒绝并留言时，这一轮接着跑，没有任何 hook；`transcript.rs` 看到用户消息里那次调用的 `tool_result`（按 JSON 认，不只是字符串里出现 id）就调 `server::answered`。中断时调 `server::interrupted`，放掉整个会话的请求，子代理的也算（子代理的 transcript 不监听）。
     - 这一轮结束也放掉（`Stop`、`SubagentStop`、`UserPromptSubmit`，只放同一个线程的；`SessionEnd` 放掉整个会话的）。
     - `/event` 先 `observe` 再回包：Claude Code 等着这个回包，所以下一个请求不会抢在这个事件之前。
     - `permission-closed` 带 `answered`：只是等满超时放弃的为 false，这时 Claude Code 还在原界面等着，前端保持「等你确认」。
