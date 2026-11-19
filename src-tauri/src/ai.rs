@@ -818,6 +818,9 @@ fn explain(f: Fail, t: &Target) -> String {
     s
 }
 
+/// A reply cut off at the output limit, usually by long thinking.
+const TRUNCATED: &str = "回复到了输出长度上限，被截断了（多半是想得太久）。在设置的「AI 聊天」里把推理调低一档再试";
+
 fn clip(s: &str, n: usize) -> String {
     if s.chars().count() > n {
         s.chars().take(n).collect::<String>() + "…"
@@ -1065,6 +1068,14 @@ struct Kit {
     links: bool,
 }
 
+/// Whether the provider's search may open pages by itself, beyond searching: DeepSeek's
+/// (with thinking on), and OpenRouter's, whose default engine may be the model's own
+/// search with page fetching. Such a search could open a page carrying what the screen
+/// showed, so it goes once the chat has looked (see `Kit::links`).
+fn opens_pages(search: Search) -> bool {
+    matches!(search, Search::Tools(s) if s.contains("read_url") || s.contains("openrouter:web_search"))
+}
+
 /// One of the provider's search tools that opens a link it's given.
 fn reads_links(tool: &Value) -> bool {
     tool["type"].as_str().is_some_and(|s| s.ends_with("read_url"))
@@ -1126,11 +1137,15 @@ async fn openai_round(t: &Target, system: &str, msgs: &[Value], kit: Kit, last: 
     let mut calls: Vec<Value> = Vec::new();
     // DeepSeek's searches, sent once at the end: they go back with a tool call.
     let mut server_calls = Value::Null;
+    let mut truncated = false;
     each_event(out.id, resp, |data| {
         if data == "[DONE]" {
             return Ok(true);
         }
         let Ok(v) = serde_json::from_str::<Value>(data) else { return Ok(false) };
+        if v["choices"][0]["finish_reason"] == "length" {
+            truncated = true;
+        }
         if let Some(e) = v.get("error") {
             return Err(Fail::Other(clip(e["message"].as_str().unwrap_or(&e.to_string()), 160)));
         }
@@ -1164,6 +1179,9 @@ async fn openai_round(t: &Target, system: &str, msgs: &[Value], kit: Kit, last: 
         Ok(false)
     })
     .await?;
+    if truncated {
+        return Err(Fail::Other(TRUNCATED.into()));
+    }
 
     for (i, c) in calls.iter_mut().enumerate() {
         if c["id"].as_str().unwrap_or("").is_empty() {
@@ -1236,7 +1254,10 @@ fn append(block: &mut Value, field: &str, s: &str) {
 async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], kit: Kit, last: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
     let mut body = json!({
         "model": t.model,
-        "max_tokens": if t.official { 16000 } else { 8192 },
+        // Thinking counts toward it, and a high reasoning level can think long before a
+        // short reply. 32000 is as much as Opus 4 / 4.1 take; others' Claude models may
+        // take less, so they keep a common limit.
+        "max_tokens": if t.official { 32000 } else { 8192 },
         "stream": true,
         "system": system,
         "messages": msgs,
@@ -1272,7 +1293,14 @@ async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], kit: Kit, las
         // wherever it's served (proxies may put a vendor prefix or a date on it).
         "off" if t.model.to_ascii_lowercase().contains("claude-sonnet-5-5") => body["thinking"] = json!({ "type": "between_tools" }),
         "off" => body["thinking"] = json!({ "type": "disabled" }),
-        level => body["output_config"] = json!({ "effort": level }),
+        level => {
+            body["output_config"] = json!({ "effort": level });
+            // These think only when asked to: effort alone leaves thinking off.
+            let model = t.model.to_ascii_lowercase();
+            if ["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6"].iter().any(|m| model.contains(m)) {
+                body["thinking"] = json!({ "type": "adaptive" });
+            }
+        }
     }
     let beta = t.fallbacks().then(|| {
         body["fallbacks"] = "default".into();
@@ -1334,6 +1362,9 @@ async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], kit: Kit, las
     })
     .await?;
 
+    if stop == "max_tokens" {
+        return Err(Fail::Other(TRUNCATED.into()));
+    }
     blocks.retain(|b| !b.is_null());
     let refused = stop == "refusal";
     if let Some(at) = blocks.iter().rposition(|b| b["type"] == "fallback") {
@@ -1682,7 +1713,7 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
     // A provider search that opens pages by itself (DeepSeek's, with thinking on) could
     // open one carrying what a screenshot showed, so it goes for the rest of the turn
     // once the model has looked.
-    let search_opens_pages = matches!(t.search, Search::Tools(s) if s.contains("read_url"));
+    let search_opens_pages = opens_pages(t.search);
     for n in 0..MAX_ROUNDS {
         // Closed while a tool ran: nothing more goes out, a screenshot least of all.
         if stopped(id) {
@@ -1693,6 +1724,21 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
             // Turned down with the search on: that goes first, the screenshot tool after.
             Err(f) if search && n == 0 && !knows(&SEARCHED, &t.key()) && (rejects_search(&f, &t.model) || (!kit.own() && search_is_tool && refuses_tools(&f, &t.model))) => {
                 return Err(Fail::NoSearch)
+            }
+            // Tools turned down, with both ours and the provider's search (a tool) in the
+            // request: the search may be what it can't take, so once more without it
+            // before blaming ours. Through, it was the search; turned down again, ours.
+            Err(f) if search && kit.search && n == 0 && kit.own() && search_is_tool && !knows(&SEARCHED, &t.key()) && refuses_tools(&f, &t.model) => {
+                let without = Kit { search: false, links: false, ..kit };
+                match send(t, system, &msgs, without, last, &mut out).await {
+                    Ok(round) => {
+                        remember(&NO_SEARCH, t.key());
+                        kit = without;
+                        round
+                    }
+                    Err(f) if refuses_tools(&f, &t.model) => return Err(Fail::NoTools),
+                    Err(f) => return Err(f),
+                }
             }
             Err(f) if kit.own() && n == 0 && refuses_tools(&f, &t.model) => return Err(Fail::NoTools),
             // A model that doesn't take images, by what it says: tell it so and try again.
@@ -1747,8 +1793,15 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
                     shots += 1;
                     // Nothing opens a link after this in the turn.
                     kit.links = false;
-                    if search_opens_pages {
+                    if search_opens_pages && kit.search {
                         kit.search = false;
+                        // Without the search, its earlier steps in this turn go too: they
+                        // name tools the request no longer has.
+                        for m in msgs.iter_mut() {
+                            if let Some(o) = m.as_object_mut() {
+                                o.remove("server_tool_calls");
+                            }
+                        }
                     }
                     emit(app, id, "look", "");
                     look(eye).await.map(Output::Shot)
@@ -1795,8 +1848,8 @@ pub fn start(app: AppHandle, ai: AiConfig, nickname: String, now: String, id: u6
                 // Opening links only for a link the user just sent, in a chat that hasn't
                 // looked at the screen (see `Kit::links`).
                 let asked = history.iter().rev().find(|h| h.role == "user").is_some_and(|h| has_link(&h.text));
-                let opens_pages = matches!(t.search, Search::Tools(s) if s.contains("read_url"));
-                let links = asked && !looked && opens_pages;
+                let reads_urls = matches!(t.search, Search::Tools(s) if s.contains("read_url"));
+                let links = asked && !looked && reads_urls;
                 // Exa and the provider's own search don't go together; the settings page
                 // turns one off as the other goes on.
                 let mut web = match t.search {
@@ -1805,7 +1858,7 @@ pub fn start(app: AppHandle, ai: AiConfig, nickname: String, now: String, id: u6
                     _ if !ai.search => Web::Off,
                     Search::None => Web::None,
                     _ if knows(&NO_SEARCH, &model) => Web::None,
-                    _ if looked && opens_pages => Web::Locked,
+                    _ if looked && opens_pages(t.search) => Web::Locked,
                     _ => Web::On { links },
                 };
                 let persona = persona_prompt(&ai);

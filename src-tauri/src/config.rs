@@ -130,7 +130,8 @@ pub struct AiConfig {
     /// configs from before it too: most providers bill each search.
     pub search: bool,
     /// Search through Exa instead, with a tool the pet runs itself. The settings page
-    /// keeps it and `search` from both being on.
+    /// turns `search` off as this goes on and the other way round (unless the provider has
+    /// no search of its own); with both on, the chat uses Exa.
     pub exa: bool,
     /// Empty for Exa's free way, without a key.
     pub exa_key: String,
