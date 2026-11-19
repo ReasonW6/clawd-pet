@@ -808,12 +808,18 @@ a.link[hidden] {
   margin-left: 8px;
 }
 
-#ai-base-row[hidden] {
+#ai-base-row[hidden],
+#ai-exa-key-row[hidden],
+#ai-reasoning[hidden] {
   display: none;
 }
 
 #ai-reasoning {
   align-self: flex-start;
+}
+
+#ai-exa-link {
+  margin-left: 4px;
 }
 
 .models {

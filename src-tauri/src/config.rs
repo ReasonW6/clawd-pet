@@ -101,6 +101,9 @@ pub struct AiProfile {
     pub base_url: String,
     /// Empty = the provider's default model.
     pub model: String,
+    /// How hard the model thinks: "off" or one of the levels `ai::PROVIDERS` lists for
+    /// the model; empty leaves it to the model, and nothing about it is sent.
+    pub reasoning: String,
 }
 
 /// A persona the user added for the chat.
@@ -125,9 +128,11 @@ pub struct AiConfig {
     pub screen: bool,
     /// Turn on the provider's own web search, where it has one.
     pub search: bool,
-    /// How hard the model thinks: "off", "low", "medium" or "high"; empty leaves it to
-    /// the model, and nothing about it is sent.
-    pub reasoning: String,
+    /// Search through Exa instead, with a tool the pet runs itself. The settings page
+    /// keeps it and `search` from both being on.
+    pub exa: bool,
+    /// Empty for Exa's free way, without a key.
+    pub exa_key: String,
     /// Who the pet believes it is, as the user rewrote it; empty for `ai::IDENTITY`.
     pub identity: String,
     /// Who the pet chats as: an id from `ai::PERSONAS`, or of one in `custom_personas`.
@@ -145,7 +150,8 @@ impl Default for AiConfig {
             profiles: BTreeMap::new(),
             screen: false,
             search: true,
-            reasoning: String::new(),
+            exa: false,
+            exa_key: String::new(),
             identity: String::new(),
             persona: "default".into(),
             persona_prompts: BTreeMap::new(),

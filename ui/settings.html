@@ -172,6 +172,11 @@
             </span>
             <div id="ai-models" class="chips models"></div>
           </div>
+          <div class="row stack">
+            <span class="text"><b>推理</b><small id="ai-reasoning-note"></small></span>
+            <span class="segmented" id="ai-reasoning"></span>
+          </div>
+          <div id="ai-reasoning-warn" class="error" hidden></div>
         </div>
 
         <h3>能做什么</h3>
@@ -181,20 +186,20 @@
             <input type="checkbox" class="switch" data-key="ai.screen" />
           </label>
           <label class="row">
-            <span class="text"><b>允许它上网搜索</b><small id="ai-search-note"></small></span>
+            <span class="text"><b>上网搜索：服务商自带</b><small id="ai-search-note"></small></span>
             <input type="checkbox" class="switch" data-key="ai.search" />
           </label>
-          <div class="row stack">
-            <span class="text"><b>推理</b><small id="ai-reasoning-note"></small></span>
-            <span class="segmented" id="ai-reasoning">
-              <label><input type="radio" name="ai-reasoning" value="" /><span>交给模型</span></label>
-              <label><input type="radio" name="ai-reasoning" value="off" /><span>关</span></label>
-              <label><input type="radio" name="ai-reasoning" value="low" /><span>低</span></label>
-              <label><input type="radio" name="ai-reasoning" value="medium" /><span>中</span></label>
-              <label><input type="radio" name="ai-reasoning" value="high" /><span>高</span></label>
+          <label class="row">
+            <span class="text"><b>上网搜索：Exa</b><small>桌宠自己给模型一个搜索工具，用 Exa 去搜，哪家模型都能用，只要它会调用工具。搜索词会发给 Exa（exa.ai）。和上一种只能开一个</small></span>
+            <input type="checkbox" class="switch" data-key="ai.exa" />
+          </label>
+          <div class="row" id="ai-exa-key-row">
+            <span class="text"><b>Exa API 密钥</b><small>不填就用免费额度，每个 IP 每天大约 50 次；填了按次计费，每月有 10 美元免费额度 <a id="ai-exa-link" class="link">去申请 ↗</a></small></span>
+            <span class="secret">
+              <input type="password" id="ai-exa-key" data-key="ai.exaKey" placeholder="可以不填" spellcheck="false" autocomplete="off" />
+              <button id="ai-exa-key-show" class="icon eye" title="显示"><i class="glyph-eye"></i></button>
             </span>
           </div>
-          <div id="ai-reasoning-warn" class="error" hidden></div>
         </div>
 
         <h3>它是谁</h3>
@@ -219,7 +224,7 @@
             </div>
           </div>
         </div>
-        <p class="hint">聊天内容和截图只发给你选的服务商，桌宠自己不存。API 密钥明文保存在本机的 <code>~/.clawd-pet/config.json</code>。走系统代理设置，本机地址除外；改了代理不用重启。</p>
+        <p class="hint">聊天内容和截图只发给你选的服务商，桌宠自己不存；用 Exa 搜索时，搜索词会发给 Exa。API 密钥明文保存在本机的 <code>~/.clawd-pet/config.json</code>。走系统代理设置，本机地址除外；改了代理不用重启。</p>
       </section>
 
       <!-- ------------------------------------------------ 系统 -->

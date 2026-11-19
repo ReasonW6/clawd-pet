@@ -9,9 +9,9 @@
 //! Two wire formats cover the providers: OpenAI's chat completions, which most of them
 //! speak, and Anthropic's messages. When the user allows it, the model gets a tool that
 //! takes a screenshot of the pet's monitor (screen.rs) and decides itself when to use it.
-//! A screenshot only lives for the turn it was taken in. Where the provider has a web
-//! search of its own that the model calls when it wants (`Search`), it is turned on too,
-//! if the user allows that.
+//! A screenshot only lives for the turn it was taken in. For going online the user picks
+//! the provider's own web search, where it has one that the model calls when it wants
+//! (`Search`), or a search tool the pet runs itself through Exa (`exa_search`).
 
 use crate::config::{AiConfig, AiProfile};
 use crate::screen;
@@ -50,37 +50,51 @@ pub struct Provider {
     /// The provider's own web search, told to the settings page as whether there is one.
     #[serde(serialize_with = "has_search")]
     pub search: Search,
-    /// How the user's reasoning setting goes into a request.
-    #[serde(skip)]
-    pub reasoning: Reasoning,
-    /// What the settings page says under the reasoning setting: what the provider can't
-    /// do of it, from its documentation.
+    /// The reasoning levels its models take, from its documentation: the first entry
+    /// whose prefix the model id starts with.
+    pub reasoning: &'static [Levels],
+    /// What the settings page says under the reasoning setting, beside the levels.
     pub reasoning_note: &'static str,
 }
 
-/// How a provider takes the user's reasoning setting (`AiConfig::reasoning`: "off",
-/// "low", "medium" or "high"; empty leaves it to the model, and nothing is sent).
+/// The reasoning levels some of a provider's models take (`AiProfile::reasoning`; empty
+/// leaves it to the model, and nothing is sent).
+#[derive(Serialize)]
+pub struct Levels {
+    /// Model ids starting with this, ignoring case; empty for the rest.
+    pub prefix: &'static str,
+    #[serde(skip)]
+    pub how: Reasoning,
+    /// What the user can pick: "off", the provider's own level names, or for a thinking
+    /// budget "1k", "4k" and so on. None: nothing to set for these models.
+    pub levels: &'static [&'static str],
+}
+
+/// How a level goes into a request.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Reasoning {
-    /// No way to set it: nothing is sent.
-    None,
     /// OpenAI's `reasoning_effort`, "none" for off.
     Effort,
-    /// `thinking: { type }`, and `reasoning_effort` for the levels where `effort`.
-    Thinking { effort: bool },
-    /// `enable_thinking`, and `thinking_budget` for the levels (`BUDGETS`).
+    /// Off as `thinking: { type: "disabled" }`, a level as `reasoning_effort`.
+    Thinking,
+    /// Off as `enable_thinking: false`; "4k" as `enable_thinking` with `thinking_budget`
+    /// 4000, any other level as `reasoning_effort`.
     Budget,
-    /// Kimi K3, which always thinks and takes `reasoning_effort` low or high only.
-    Kimi,
-    /// OpenRouter's `reasoning: { effort }`.
+    /// OpenRouter's `reasoning: { effort }`, "none" for off.
     OpenRouter,
-    /// Anthropic's thinking and effort, which depend on the model (`anthropic_round`).
+    /// Anthropic's thinking and effort (`anthropic_round`).
     Anthropic,
 }
 
-/// Thinking tokens for low, medium and high where a provider takes a budget instead
-/// of levels.
-const BUDGETS: [u32; 3] = [1000, 4000, 16000];
+const fn lv(prefix: &'static str, how: Reasoning, levels: &'static [&'static str]) -> Levels {
+    Levels { prefix, how, levels }
+}
+
+/// The levels `model` takes at `provider`, if any.
+fn levels_for(p: &Provider, model: &str) -> Option<&'static Levels> {
+    let model = model.to_ascii_lowercase();
+    p.reasoning.iter().find(|l| model.starts_with(&l.prefix.to_ascii_lowercase())).filter(|l| !l.levels.is_empty())
+}
 
 /// How a provider's own web search is turned on: one the model uses when it wants and
 /// the provider runs, so that the pet has nothing to do but ask for it.
@@ -110,9 +124,15 @@ const BASE: Provider = Provider {
     key_url: "",
     needs_key: true,
     search: Search::None,
-    reasoning: Reasoning::Effort,
+    reasoning: &[lv("", Effort, &["off", "low", "medium", "high"])],
     reasoning_note: "按 OpenAI 标准的 reasoning_effort 发，模型不认就没有效果。",
 };
+
+use Reasoning::{Anthropic as Claude, Budget, Effort, OpenRouter as Router, Thinking};
+
+/// Claude's levels, by model.
+const CLAUDE_ALL: &[&str] = &["off", "low", "medium", "high", "xhigh", "max"];
+const CLAUDE_ON: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 
 pub const PROVIDERS: &[Provider] = &[
     Provider {
@@ -125,8 +145,22 @@ pub const PROVIDERS: &[Provider] = &[
         models: &["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"],
         key_url: "https://platform.claude.com/settings/keys",
         search: Search::Anthropic,
-        reasoning: Reasoning::Anthropic,
-        reasoning_note: "档位按 effort 发。Claude Opus 5.5 和 Fable 关不掉思考，选「关」按「低」；Haiku 4.5 这类旧模型没有档位。",
+        // Most specific first: "claude-opus-5" would take Opus 5.5 too.
+        reasoning: &[
+            lv("claude-opus-5-5", Claude, CLAUDE_ON),
+            lv("claude-fable-5", Claude, CLAUDE_ON),
+            lv("claude-mythos-5", Claude, CLAUDE_ON),
+            lv("claude-opus-5", Claude, CLAUDE_ALL),
+            lv("claude-sonnet-5", Claude, CLAUDE_ALL),
+            lv("claude-haiku-5", Claude, CLAUDE_ALL),
+            lv("claude-opus-4-8", Claude, CLAUDE_ALL),
+            lv("claude-opus-4-7", Claude, CLAUDE_ALL),
+            lv("claude-opus-4-6", Claude, &["off", "low", "medium", "high", "max"]),
+            lv("claude-sonnet-4-6", Claude, &["off", "low", "medium", "high", "max"]),
+            lv("claude-opus-4-5", Claude, &["off", "low", "medium", "high"]),
+            lv("", Claude, &[]),
+        ],
+        reasoning_note: "Claude Opus 5.5 和 Fable 关不掉思考；Haiku 4.5 这类旧模型不能调。",
         ..BASE
     },
     Provider {
@@ -137,7 +171,13 @@ pub const PROVIDERS: &[Provider] = &[
         model: "gpt-6.1-terra",
         models: &["gpt-6.1-terra", "gpt-6-luna", "gpt-6.1-sol"],
         key_url: "https://platform.openai.com/api-keys",
-        reasoning_note: "有的模型（比如 GPT-6 Astra、GPT-6.1 Sol）关不掉思考，选「关」会报错。",
+        reasoning: &[
+            lv("gpt-6.1-sol", Effort, &["low", "medium", "high", "xhigh", "max"]),
+            lv("gpt-6.2-", Effort, &["minimal", "low", "medium", "high", "xhigh", "max"]),
+            lv("gpt-6-astra", Effort, &["minimal", "low", "medium", "high", "xhigh", "max"]),
+            lv("", Effort, &["off", "minimal", "low", "medium", "high", "xhigh", "max"]),
+        ],
+        reasoning_note: "不是每个模型都有全部档位，选了它不认的会报错。",
         ..BASE
     },
     Provider {
@@ -148,7 +188,15 @@ pub const PROVIDERS: &[Provider] = &[
         model: "gemini-4-hydrogen",
         models: &["gemini-4-hydrogen", "gemini-3.8-flash", "gemini-3.5-flash-lite"],
         key_url: "https://aistudio.google.com/apikey",
-        reasoning_note: "Gemini 3、4 和 2.5 Pro 关不掉思考，选「关」会报错，想快就选「低」。",
+        reasoning: &[
+            lv("gemini-4-hydrogen", Effort, &["low", "medium", "high", "xhigh"]),
+            lv("gemini-4-neon", Effort, &["low", "medium", "high", "xhigh"]),
+            lv("gemini-4", Effort, &["low", "medium", "high"]),
+            lv("gemini-3", Effort, &["minimal", "low", "medium", "high"]),
+            lv("gemini-2.5-flash", Effort, &["off", "low", "medium", "high"]),
+            lv("", Effort, &["low", "medium", "high"]),
+        ],
+        reasoning_note: "Gemini 3、4 和 2.5 Pro 关不掉思考，想快就选最低一档。",
         ..BASE
     },
     Provider {
@@ -157,7 +205,13 @@ pub const PROVIDERS: &[Provider] = &[
         group: "国际",
         base_url: "https://api.x.ai/v1",
         key_url: "https://console.x.ai",
-        reasoning_note: "Grok 关不掉思考，选「关」会报错。",
+        reasoning: &[
+            lv("grok-4.7", Effort, &["low", "medium", "high", "xhigh"]),
+            lv("grok-4.6", Effort, &["low", "medium", "high", "xhigh"]),
+            lv("grok-4.3", Effort, &["off", "low", "medium", "high"]),
+            lv("", Effort, &["low", "medium", "high"]),
+        ],
+        reasoning_note: "Grok 4.5 以后关不掉思考。",
         ..BASE
     },
     Provider {
@@ -168,7 +222,14 @@ pub const PROVIDERS: &[Provider] = &[
         model: "mistral-small-latest",
         models: &["mistral-small-latest", "mistral-medium-latest"],
         key_url: "https://console.mistral.ai/api-keys",
-        reasoning_note: "Mistral Small、Medium 选「关」时只想一点点；Large 4 关不掉思考，选「关」会报错。",
+        reasoning: &[
+            lv("mistral-large-4", Effort, &["low", "medium", "high"]),
+            lv("mistral-small", Effort, &["off", "high"]),
+            lv("mistral-medium", Effort, &["off", "high"]),
+            lv("zai-glm-5-3", Effort, &["low", "high", "max"]),
+            lv("", Effort, &[]),
+        ],
+        reasoning_note: "Small 和 Medium 选「关」时只想一点点；Large 4 关不掉思考。",
         ..BASE
     },
     Provider {
@@ -177,7 +238,14 @@ pub const PROVIDERS: &[Provider] = &[
         group: "国际",
         base_url: "https://api.groq.com/openai/v1",
         key_url: "https://console.groq.com/keys",
-        reasoning_note: "只有部分模型认：GPT-OSS 分低中高、关不掉，Qwen 能关，别的模型选了会报错。",
+        reasoning: &[
+            lv("openai/gpt-oss", Effort, &["low", "medium", "high"]),
+            lv("qwen/qwen3.8", Effort, &["off", "low", "medium", "high"]),
+            lv("qwen/", Effort, &["off"]),
+            lv("meta-models/muse-spark", Effort, &["low", "medium", "high", "xhigh"]),
+            lv("", Effort, &[]),
+        ],
+        reasoning_note: "只有 GPT-OSS、Qwen 等少数模型能调。",
         ..BASE
     },
     Provider {
@@ -189,8 +257,8 @@ pub const PROVIDERS: &[Provider] = &[
         models: &["openrouter/auto"],
         key_url: "https://openrouter.ai/keys",
         search: Search::Tools(r#"[{"type":"openrouter:web_search","parameters":{"max_uses":3}}]"#),
-        reasoning: Reasoning::OpenRouter,
-        reasoning_note: "用 OpenRouter 统一的 reasoning 参数；必须思考的模型选「关」会报错。",
+        reasoning: &[lv("", Router, &["off", "minimal", "low", "medium", "high", "xhigh"])],
+        reasoning_note: "用 OpenRouter 统一的 reasoning 参数转给各家模型；必须思考的模型选「关」会报错。",
         ..BASE
     },
     Provider {
@@ -204,8 +272,8 @@ pub const PROVIDERS: &[Provider] = &[
         // Reading links the user sends comes along; with thinking on, the search goes
         // deeper and opens pages itself.
         search: Search::Tools(r#"[{"type":"deepseek_web_search"},{"type":"deepseek_read_url"}]"#),
-        reasoning: Reasoning::Thinking { effort: true },
-        reasoning_note: "DeepSeek 只有低、高两档，选「中」按「高」。关掉思考时，DeepSeek 不让看屏幕和上网搜索同时用，会拒绝请求。",
+        reasoning: &[lv("", Thinking, &["off", "low", "high", "max"])],
+        reasoning_note: "关掉思考时，DeepSeek 不让看屏幕和它自带的搜索同时用；Exa 搜索没有这个限制。",
         ..BASE
     },
     Provider {
@@ -216,8 +284,12 @@ pub const PROVIDERS: &[Provider] = &[
         model: "kimi-k3.1-pro",
         models: &["kimi-k3.1-pro", "kimi-k3"],
         key_url: "https://platform.moonshot.cn/console/api-keys",
-        reasoning: Reasoning::Kimi,
-        reasoning_note: "Kimi K3 系列一直在思考、关不掉，选「关」按「低」；没有「中」，按「高」。",
+        reasoning: &[
+            lv("kimi-k3", Thinking, &["low", "high", "max"]),
+            lv("kimi-k2.6", Thinking, &["off"]),
+            lv("", Thinking, &[]),
+        ],
+        reasoning_note: "Kimi K3 系列一直在思考，只能调深浅；K2.6 只能关掉。",
         ..BASE
     },
     Provider {
@@ -230,8 +302,8 @@ pub const PROVIDERS: &[Provider] = &[
         key_url: "https://open.bigmodel.cn/usercenter/apikeys",
         // search_result only adds what was found to the response, by which it shows.
         search: Search::Tools(r#"[{"type":"web_search","web_search":{"enable":true,"search_engine":"search_std","search_result":true}}]"#),
-        reasoning: Reasoning::Thinking { effort: false },
-        reasoning_note: "智谱只能开关思考，不分档位。GLM-5.3 系列关不掉思考，选「关」会报错。",
+        reasoning: &[lv("glm-5.3", Thinking, &[]), lv("", Thinking, &["off"])],
+        reasoning_note: "智谱只能关掉思考，不分档位；GLM-5.3 系列关不掉。",
         ..BASE
     },
     Provider {
@@ -243,8 +315,12 @@ pub const PROVIDERS: &[Provider] = &[
         models: &["qwen3.8-flash", "qwen3.7-plus", "qwen4-max"],
         key_url: "https://bailian.console.aliyun.com/?tab=model#/api-key",
         search: Search::Body(r#"{"enable_search":true}"#),
-        reasoning: Reasoning::Budget,
-        reasoning_note: "低、中、高把思考分别限制在约 1000、4000、16000 个 token 以内。有的模型（比如 qwen3.7-plus）关不掉思考，选「关」会报错。",
+        reasoning: &[
+            lv("qwen3.7-plus", Budget, &["1k", "4k", "16k"]),
+            lv("qwen3.8-2.4t", Budget, &["1k", "4k", "16k"]),
+            lv("", Budget, &["off", "1k", "4k", "16k"]),
+        ],
+        reasoning_note: "1k、4k、16k 是思考长度的上限（token）。",
         ..BASE
     },
     Provider {
@@ -253,8 +329,15 @@ pub const PROVIDERS: &[Provider] = &[
         group: "国内",
         base_url: "https://ark.cn-beijing.volces.com/api/v3",
         key_url: "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey",
-        reasoning: Reasoning::Thinking { effort: true },
-        reasoning_note: "豆包 Seed 系列能关、分低中高；方舟上别家的模型以方舟的说明为准。",
+        reasoning: &[
+            lv("doubao-seed", Thinking, &["off", "low", "medium", "high"]),
+            lv("deepseek-v4", Thinking, &["off", "low", "high", "max"]),
+            lv("glm-5-3", Thinking, &["low", "high", "max"]),
+            lv("glm-5-2", Thinking, &["off", "high", "max"]),
+            lv("kimi-k3", Thinking, &["low", "high", "max"]),
+            lv("", Thinking, &["off"]),
+        ],
+        reasoning_note: "档位按方舟上各模型的说明分。",
         ..BASE
     },
     Provider {
@@ -263,8 +346,13 @@ pub const PROVIDERS: &[Provider] = &[
         group: "国内",
         base_url: "https://api.siliconflow.cn/v1",
         key_url: "https://cloud.siliconflow.cn/account/ak",
-        reasoning: Reasoning::Budget,
-        reasoning_note: "低、中、高把思考分别限制在约 1000、4000、16000 个 token 以内；能不能关看模型。",
+        reasoning: &[
+            lv("pro/deepseek-ai/deepseek-v4", Budget, &["off", "high", "max"]),
+            lv("deepseek-ai/deepseek-v4", Budget, &["off", "high", "max"]),
+            lv("pro/zai-org/glm-5.2", Budget, &["off", "high", "max"]),
+            lv("", Budget, &["off", "1k", "4k", "16k"]),
+        ],
+        reasoning_note: "1k、4k、16k 是思考长度的上限（token）；能不能关看模型。",
         ..BASE
     },
     Provider {
@@ -273,7 +361,12 @@ pub const PROVIDERS: &[Provider] = &[
         group: "国内",
         base_url: "https://api.minimaxi.com/v1",
         key_url: "https://platform.minimaxi.com/user-center/basic-information/interface-key",
-        reasoning_note: "MiniMax-M3.1-Flash 关不掉思考，选「关」会报错；MiniMax-M3 能关，但不分档位。",
+        reasoning: &[
+            lv("minimax-m3.1-flash", Effort, &["low", "medium", "high", "xhigh", "max"]),
+            lv("minimax-m3", Thinking, &["off"]),
+            lv("", Effort, &[]),
+        ],
+        reasoning_note: "MiniMax-M3.1-Flash 关不掉思考；MiniMax-M3 只能关掉。",
         ..BASE
     },
     Provider {
@@ -282,8 +375,8 @@ pub const PROVIDERS: &[Provider] = &[
         group: "国内",
         base_url: "https://api.hunyuan.cloud.tencent.com/v1",
         key_url: "https://console.cloud.tencent.com/hunyuan/api-key",
-        reasoning: Reasoning::None,
-        reasoning_note: "混元的接口没有能调的推理开关，这里怎么选都不起作用。",
+        reasoning: &[lv("", Effort, &[])],
+        reasoning_note: "混元的接口没有能调的推理开关。",
         ..BASE
     },
     Provider {
@@ -292,8 +385,14 @@ pub const PROVIDERS: &[Provider] = &[
         group: "国内",
         base_url: "https://qianfan.baidubce.com/v2",
         key_url: "https://console.bce.baidu.com/iam/#/iam/apikey/list",
-        reasoning: Reasoning::Thinking { effort: false },
-        reasoning_note: "千帆只能开关思考，不分档位，而且只有部分模型认；GLM-5.3 这类模型关不掉。",
+        reasoning: &[
+            lv("deepseek-v4", Thinking, &["off", "high", "max"]),
+            lv("ernie-light-dt", Thinking, &["low", "high", "max"]),
+            lv("glm-5.3", Thinking, &[]),
+            lv("ernie-5.5-flash", Thinking, &[]),
+            lv("", Thinking, &["off"]),
+        ],
+        reasoning_note: "千帆按模型分：大多只能关掉思考，GLM-5.3 这类关不掉。",
         ..BASE
     },
     Provider {
@@ -302,7 +401,8 @@ pub const PROVIDERS: &[Provider] = &[
         group: "国内",
         base_url: "https://api.stepfun.com/v1",
         key_url: "https://platform.stepfun.com/interface-key",
-        reasoning_note: "阶跃的推理模型关不掉思考，选「关」会报错。",
+        reasoning: &[lv("", Effort, &["low", "medium", "high"])],
+        reasoning_note: "阶跃的推理模型关不掉思考。",
         ..BASE
     },
     Provider {
@@ -322,7 +422,7 @@ pub const PROVIDERS: &[Provider] = &[
         group: "自定义",
         wire: Wire::Anthropic,
         needs_key: false,
-        reasoning: Reasoning::Anthropic,
+        reasoning: &[lv("", Claude, CLAUDE_ALL)],
         reasoning_note: "按 Anthropic 的 thinking 和 effort 发，兼容服务不一定认。",
         ..BASE
     },
@@ -431,26 +531,13 @@ const ANTHROPIC_VERSION: &str = "2026-10-21";
 /// the request reruns on another model instead of just stopping.
 const FALLBACK_MODELS: &[&str] = &["claude-fable-5-2", "claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"];
 const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
-/// Claude models that take an effort level.
-const EFFORT_MODELS: &[&str] = &[
-    "claude-opus-5",
-    "claude-sonnet-5",
-    "claude-haiku-5",
-    "claude-fable-5",
-    "claude-mythos-5",
-    "claude-opus-4-8",
-    "claude-opus-4-7",
-    "claude-opus-4-6",
-    "claude-opus-4-5",
-    "claude-sonnet-4-6",
-];
-/// Claude models whose thinking can't be turned off: off means the lowest effort.
-const ALWAYS_THINK: &[&str] = &["claude-opus-5-5", "claude-fable-5", "claude-mythos-5"];
-
 const TOOL: &str = "look_at_screen";
 const TOOL_DESC: &str = "截一张用户当前屏幕的图来看（图里没有你自己）。回答需要看屏幕上的东西时，直接调用，不用先问用户。";
+/// The web search the pet runs itself, through Exa, for any model that does tools.
+const SEARCH_TOOL: &str = "web_search";
+const SEARCH_DESC: &str = "上网搜索，返回最相关的几个网页的摘录。问到新闻、天气、价格、比分、版本更新这类最新的事，或者拿不准、可能过时的事实时，直接调用，不用先问用户。query 写成要找的网页的描述，用户用什么语言就用什么语言。";
 /// Rounds of tool calls in one turn, and screenshots among them.
-const MAX_ROUNDS: usize = 4;
+const MAX_ROUNDS: usize = 5;
 const MAX_SHOTS: usize = 2;
 
 /// One message of the conversation so far.
@@ -576,9 +663,10 @@ struct Target {
     /// Anthropic's own API, which takes the extras that only it knows.
     official: bool,
     search: Search,
+    /// How the reasoning level goes in.
     reasoning: Reasoning,
-    /// The user's reasoning setting: "off", "low", "medium", "high", or empty for the
-    /// model's own default.
+    /// The user's reasoning level for this provider, if the model takes it; empty for
+    /// the model's own default.
     level: String,
 }
 
@@ -604,6 +692,9 @@ fn target(ai: &AiConfig, provider: &str, need_model: bool) -> Result<Target, Str
         Wire::OpenAi => base.trim_end_matches("/chat/completions").trim_end_matches("/models"),
         Wire::Anthropic => base.trim_end_matches("/messages").trim_end_matches("/models").trim_end_matches("/v1"),
     };
+    // A level the model doesn't take (picked for another model) is left out.
+    let levels = levels_for(p, model);
+    let level = profile.reasoning.trim();
     Ok(Target {
         wire: p.wire,
         base: base.to_string(),
@@ -611,11 +702,8 @@ fn target(ai: &AiConfig, provider: &str, need_model: bool) -> Result<Target, Str
         model: model.to_string(),
         official: p.id == "anthropic" && base == p.base_url,
         search: p.search,
-        reasoning: p.reasoning,
-        level: match ai.reasoning.as_str() {
-            l @ ("off" | "low" | "medium" | "high") => l.to_owned(),
-            _ => String::new(),
-        },
+        reasoning: levels.map_or(Effort, |l| l.how),
+        level: levels.filter(|l| l.levels.contains(&level)).map_or(String::new(), |_| level.to_owned()),
     })
 }
 
@@ -711,9 +799,9 @@ fn explain(f: Fail, t: &Target) -> String {
     let reasoning = !t.level.is_empty() && about_reasoning(&f);
     let mut s = describe(f);
     if pair {
-        s += "。DeepSeek 关掉思考时不让看屏幕和上网搜索同时用：在设置的「AI 聊天」里给推理换一档，或者关掉其中一个";
+        s += "。DeepSeek 关掉思考时不让看屏幕和它自带的搜索同时用：在设置的「AI 聊天」里给推理换一档，或者改用 Exa 搜索";
     } else if reasoning {
-        s += "。可能是这个模型不支持这档推理：在设置的「AI 聊天」里换一档，或者选「交给模型」";
+        s += "。可能是这个模型不支持这档推理：在设置的「AI 聊天」里换一档，或者选「默认」";
     }
     s
 }
@@ -841,10 +929,18 @@ async fn each_event(id: u64, mut resp: reqwest::Response, mut on_data: impl FnMu
     Ok(())
 }
 
+/// A call of one of the pet's tools.
+struct Call {
+    id: String,
+    name: String,
+    /// The arguments, Null when there are none or they don't parse.
+    input: Value,
+}
+
 /// What one request gave back.
 struct Round {
-    /// Tool calls: (id, name).
-    calls: Vec<(String, String)>,
+    /// Tool calls of the pet's own tools.
+    calls: Vec<Call>,
     /// The model's message, to send back along with the tool results.
     assistant: Value,
     wrote: bool,
@@ -903,32 +999,59 @@ fn reasoning(t: &Target, body: &mut Value) {
         return;
     }
     let off = level == "off";
+    let effort = if off { "none" } else { level };
     match t.reasoning {
-        Reasoning::None | Reasoning::Anthropic => {}
-        Reasoning::Effort => body["reasoning_effort"] = (if off { "none" } else { level }).into(),
-        Reasoning::OpenRouter => body["reasoning"] = json!({ "effort": if off { "none" } else { level } }),
-        Reasoning::Thinking { effort } => {
-            body["thinking"] = json!({ "type": if off { "disabled" } else { "enabled" } });
-            if effort && !off {
-                body["reasoning_effort"] = level.into();
+        Claude => {}
+        Effort => body["reasoning_effort"] = effort.into(),
+        Router => body["reasoning"] = json!({ "effort": effort }),
+        Thinking if off => body["thinking"] = json!({ "type": "disabled" }),
+        Thinking => body["reasoning_effort"] = level.into(),
+        Budget if off => body["enable_thinking"] = false.into(),
+        Budget => match level.strip_suffix('k').and_then(|n| n.parse::<u32>().ok()) {
+            Some(k) => {
+                body["enable_thinking"] = true.into();
+                body["thinking_budget"] = (k * 1000).into();
             }
-        }
-        Reasoning::Budget => {
-            body["enable_thinking"] = (!off).into();
-            if let Some(i) = ["low", "medium", "high"].iter().position(|l| *l == level) {
-                body["thinking_budget"] = BUDGETS[i].into();
-            }
-        }
-        Reasoning::Kimi => body["reasoning_effort"] = (if matches!(level, "off" | "low") { "low" } else { "high" }).into(),
+            None => body["reasoning_effort"] = level.into(),
+        },
     }
 }
 
-async fn openai_round(t: &Target, system: &str, msgs: &[Value], tools: bool, search: bool, last: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
+/// The tools offered to the model this round.
+#[derive(Clone, Copy)]
+struct Kit {
+    /// The screenshot tool.
+    shot: bool,
+    /// The web search through Exa.
+    exa: bool,
+    /// The provider's own web search.
+    search: bool,
+}
+
+impl Kit {
+    /// Tools of the pet's own, which the model must be able to call.
+    fn own(self) -> bool {
+        self.shot || self.exa
+    }
+}
+
+async fn openai_round(t: &Target, system: &str, msgs: &[Value], kit: Kit, last: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
+    let search = kit.search;
     let mut all = vec![json!({ "role": "system", "content": system })];
     all.extend_from_slice(msgs);
     let mut body = json!({ "model": t.model, "stream": true, "messages": all });
     let mut list: Vec<Value> = Vec::new();
-    if tools {
+    if kit.exa {
+        list.push(json!({
+            "type": "function",
+            "function": {
+                "name": SEARCH_TOOL,
+                "description": SEARCH_DESC,
+                "parameters": { "type": "object", "properties": { "query": { "type": "string" } }, "required": ["query"] },
+            },
+        }));
+    }
+    if kit.shot {
         list.push(json!({
             "type": "function",
             "function": { "name": TOOL, "description": TOOL_DESC, "parameters": { "type": "object", "properties": {} } },
@@ -1014,7 +1137,11 @@ async fn openai_round(t: &Target, system: &str, msgs: &[Value], tools: bool, sea
     Ok(Round {
         calls: calls
             .iter()
-            .map(|c| (c["id"].as_str().unwrap_or("").to_owned(), c["function"]["name"].as_str().unwrap_or("").to_owned()))
+            .map(|c| Call {
+                id: c["id"].as_str().unwrap_or("").to_owned(),
+                name: c["function"]["name"].as_str().unwrap_or("").to_owned(),
+                input: serde_json::from_str(c["function"]["arguments"].as_str().unwrap_or("")).unwrap_or(Value::Null),
+            })
             .collect(),
         assistant,
         wrote: out.wrote,
@@ -1058,7 +1185,7 @@ fn append(block: &mut Value, field: &str, s: &str) {
     block[field] = all.into();
 }
 
-async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], tools: bool, search: bool, last: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
+async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], kit: Kit, last: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
     let mut body = json!({
         "model": t.model,
         "max_tokens": if t.official { 16000 } else { 8192 },
@@ -1067,10 +1194,17 @@ async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], tools: bool, 
         "messages": msgs,
     });
     let mut list: Vec<Value> = Vec::new();
-    if tools {
+    if kit.exa {
+        list.push(json!({
+            "name": SEARCH_TOOL,
+            "description": SEARCH_DESC,
+            "input_schema": { "type": "object", "properties": { "query": { "type": "string" } }, "required": ["query"] },
+        }));
+    }
+    if kit.shot {
         list.push(json!({ "name": TOOL, "description": TOOL_DESC, "input_schema": { "type": "object", "properties": {} } }));
     }
-    if search && t.search == Search::Anthropic {
+    if kit.search && t.search == Search::Anthropic {
         // The plain version: the newer one filters results with code first, which takes
         // longer than a short chat reply is worth, and isn't there for every model.
         list.push(json!({ "type": "web_search_20250305", "name": "web_search", "max_uses": MAX_SEARCHES }));
@@ -1082,17 +1216,14 @@ async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], tools: bool, 
             body["tool_choice"] = json!({ "type": "none" });
         }
     }
-    // The user's reasoning setting; left to the model, nothing goes in. Anthropic's own
-    // API by what the model takes; a compatible service gets it as asked.
-    let has = |list: &[&str]| list.iter().any(|m| t.model.starts_with(m));
+    // The user's reasoning level, where the model takes it (`levels_for`); left to the
+    // model, nothing goes in.
     match t.level.as_str() {
         "" => {}
-        "off" if t.official && has(ALWAYS_THINK) => body["output_config"] = json!({ "effort": "low" }),
         // Its way of turning thinking off: "disabled" is turned down.
         "off" if t.official && t.model.starts_with("claude-sonnet-5-5") => body["thinking"] = json!({ "type": "between_tools" }),
         "off" => body["thinking"] = json!({ "type": "disabled" }),
-        level if !t.official || has(EFFORT_MODELS) => body["output_config"] = json!({ "effort": level }),
-        _ => {}
+        level => body["output_config"] = json!({ "effort": level }),
     }
     let beta = t.fallbacks().then(|| {
         body["fallbacks"] = "default".into();
@@ -1171,10 +1302,126 @@ async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], tools: bool, 
     let calls = blocks
         .iter()
         .filter(|b| b["type"] == "tool_use")
-        .map(|b| (b["id"].as_str().unwrap_or("").to_owned(), b["name"].as_str().unwrap_or("").to_owned()))
+        .map(|b| Call {
+            id: b["id"].as_str().unwrap_or("").to_owned(),
+            name: b["name"].as_str().unwrap_or("").to_owned(),
+            input: b["input"].clone(),
+        })
         .collect();
     let paused = stop == "pause_turn";
     Ok(Round { calls, assistant: json!({ "role": "assistant", "content": blocks }), wrote: out.wrote, refused, paused })
+}
+
+// ---------------------------------------------------------------- Exa
+
+/// Exa's MCP server, which searches without a key too: the free way, a few dozen
+/// searches a day for each IP address, and 429 after that.
+const EXA_MCP: &str = "https://mcp.exa.ai/mcp";
+const EXA_KEY_URL: &str = "https://dashboard.exa.ai/api-keys";
+/// Exa turns away a client that doesn't name itself (403 for Python's default one).
+const USER_AGENT: &str = concat!("clawd-pet/", env!("CARGO_PKG_VERSION"));
+/// Characters of search results that go to the model.
+const EXA_MAX: usize = 6000;
+
+/// The MCP session with Exa, kept between searches: (the key it was opened with, its id).
+static EXA_SESSION: Mutex<Option<(String, String)>> = Mutex::new(None);
+
+/// One JSON-RPC message to Exa's MCP server. Gives back the session id the reply names
+/// and the reply's message; or the status (0 for the network) and what went wrong.
+async fn exa_rpc(key: &str, session: Option<&str>, body: &Value) -> Result<(Option<String>, Value), (u16, String)> {
+    let mut rb = client(EXA_MCP)
+        .post(EXA_MCP)
+        .header("content-type", "application/json")
+        .header("accept", "application/json, text/event-stream")
+        .header("user-agent", USER_AGENT);
+    if !key.is_empty() {
+        rb = rb.header("x-api-key", key);
+    }
+    if let Some(s) = session {
+        rb = rb.header("mcp-session-id", s);
+    }
+    let resp = rb.body(body.to_string()).send().await.map_err(|e| (0, describe(net(e))))?;
+    let status = resp.status().as_u16();
+    let sid = resp.headers().get("mcp-session-id").and_then(|v| v.to_str().ok()).map(str::to_owned);
+    let text = resp.text().await.map_err(|e| (0, describe(net(e))))?;
+    if !(200..300).contains(&status) {
+        return Err((status, error_message(&text)));
+    }
+    // Plain JSON, or server-sent events with it in a data line.
+    let msg = text
+        .lines()
+        .filter_map(|l| l.strip_prefix("data:"))
+        .chain(std::iter::once(text.as_str()))
+        .find_map(|d| serde_json::from_str::<Value>(d.trim()).ok())
+        .unwrap_or(Value::Null);
+    Ok((sid, msg))
+}
+
+/// Opens an MCP session with Exa.
+async fn exa_open(key: &str) -> Result<String, (u16, String)> {
+    let init = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": { "name": "clawd-pet", "version": env!("CARGO_PKG_VERSION") },
+        },
+    });
+    let sid = exa_rpc(key, None, &init).await?.0.ok_or((0, "Exa 没有给出会话".to_string()))?;
+    exa_rpc(key, Some(&sid), &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).await?;
+    if let Ok(mut s) = EXA_SESSION.lock() {
+        *s = Some((key.to_owned(), sid.clone()));
+    }
+    Ok(sid)
+}
+
+/// Searches the web through Exa, with the user's key or (empty) without one. What goes
+/// wrong comes back as words for the model, which tells the user.
+async fn exa_search(key: &str, query: &str) -> Result<String, String> {
+    if query.is_empty() {
+        return Err("搜索词是空的，写上要搜什么再搜".into());
+    }
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": { "name": "web_search_exa", "arguments": { "query": query, "objective": query, "numResults": 5 } },
+    });
+    let cached = EXA_SESSION.lock().ok().and_then(|s| s.clone()).filter(|(k, _)| k == key).map(|(_, sid)| sid);
+    let mut result = match &cached {
+        Some(sid) => exa_rpc(key, Some(sid), &call).await,
+        None => Err((404, String::new())),
+    };
+    // No session yet, or it has expired: open one.
+    if matches!(result, Err((400 | 404, _))) {
+        result = match exa_open(key).await {
+            Ok(sid) => exa_rpc(key, Some(&sid), &call).await,
+            Err(e) => Err(e),
+        };
+    }
+    let msg = match result {
+        Ok((_, msg)) => msg,
+        Err((429, _)) if key.is_empty() => {
+            return Err("Exa 的免费搜索今天用完了（每个 IP 每天几十次）。告诉用户可以在设置的「AI 聊天」里填一个 Exa API key，或者明天再搜。".into())
+        }
+        Err((429, _)) => return Err("Exa 说搜得太频繁，或者账户额度用完了。告诉用户稍后再试，或者看看 Exa 账户的额度。".into()),
+        Err((401 | 403, _)) if !key.is_empty() => return Err("Exa 不认这个 API key。告诉用户去设置的「AI 聊天」里检查 Exa API key。".into()),
+        Err((0, m)) => return Err(format!("搜索失败了：{m}。照实告诉用户这次没查到。")),
+        Err((code, m)) => return Err(format!("搜索失败了（{code}）：{m}。照实告诉用户这次没查到。")),
+    };
+    if let Some(e) = msg.get("error") {
+        return Err(format!("搜索失败了：{}。照实告诉用户这次没查到。", e["message"].as_str().unwrap_or("")));
+    }
+    let text = msg["result"]["content"].as_array().into_iter().flatten().filter_map(|c| c["text"].as_str()).collect::<Vec<_>>().join("\n\n");
+    if msg["result"]["isError"] == true {
+        return Err(format!("搜索失败了：{}。照实告诉用户这次没查到。", clip(&text, 200)));
+    }
+    if text.trim().is_empty() {
+        return Ok("没搜到相关的网页。".into());
+    }
+    Ok(clip(&text, EXA_MAX))
 }
 
 // ---------------------------------------------------------------- a turn of the chat
@@ -1197,10 +1444,14 @@ enum Sight {
 enum Web {
     /// The provider's search is on; with links too where it reads those.
     On { links: bool },
-    /// The provider has one, but the user hasn't allowed it.
+    /// The pet's search through Exa is on (`SEARCH_TOOL`).
+    Exa,
+    /// The user hasn't turned either on.
     Off,
-    /// The provider or the model has none.
+    /// The provider's search is on, but the provider or the model has none.
     None,
+    /// Exa is on, but the model doesn't do tools.
+    NoTools,
 }
 
 /// The instructions for the chat: who the pet is, the persona it talks in, and what
@@ -1243,8 +1494,12 @@ fn system_prompt(nickname: &str, now: &str, identity: &str, persona: &str, sight
         // round (most follow-ups like "那大阪呢" in tries), and the model then made up
         // an answer; told this, it says it didn't find out instead.
         Web::On { .. } => "- 你能上网搜索：这是服务商给你的内置能力，不一定出现在工具列表里，但一直都在，别因为工具列表里没有搜索就以为自己上不了网。问到新闻、天气、价格、比分、版本更新这类最新的事，或者你拿不准、可能已经过时的事实时，直接去搜，别先问“要我搜一下吗”，也别凭印象硬答。之前搜过不代表这次不用搜。万一这一轮真的搜不了，就照实说这次没查到，绝不能凭印象编天气、价格、新闻这类数字和事实。搜完用自己的话简短说结论，不贴链接，不列来源。\n",
-        Web::Off => "- 你上不了网。对方要你查最新的东西时，告诉对方可以在设置的「AI 聊天」里打开「允许它上网搜索」。\n",
-        Web::None => "- 你上不了网：现在用的服务商或模型不支持联网搜索。问到最新消息、天气这类实时的事，直说你查不了，别编。\n",
+        // Tried against DeepSeek with this tool beside look_at_screen: it searched every
+        // question that needed it, follow-ups included.
+        Web::Exa => "- 你有一个 web_search 工具，能上网搜索。问到新闻、天气、价格、比分、版本更新这类最新的事，或者你拿不准、可能已经过时的事实时，直接调用它去搜，别先问“要我搜一下吗”，也别凭印象硬答。之前搜过不代表这次不用搜，追问也要重新搜。搜索失败或者没搜到，就照实说没查到，绝不能编天气、价格、新闻这类数字和事实。搜完用自己的话简短说结论，不贴链接，不列来源。\n",
+        Web::Off => "- 你上不了网。对方要你查最新的东西时，告诉对方可以在设置的「AI 聊天」里打开联网搜索。\n",
+        Web::None => "- 你上不了网：现在用的服务商或模型没有自带的联网搜索。问到最新消息、天气这类实时的事，直说你查不了，别编；可以告诉对方在设置的「AI 聊天」里改用 Exa 搜索。\n",
+        Web::NoTools => "- 你上不了网：现在用的这个模型不支持工具调用，用不了 Exa 搜索。问到最新消息、天气这类实时的事，直说你查不了，别编；告诉对方换个支持工具调用的模型才行。\n",
     };
     if let Web::On { links: true } = web {
         s += "- 对方发来链接，你可以直接打开看。\n";
@@ -1261,29 +1516,38 @@ async fn look(eye: &Eye) -> Result<String, String> {
 const SHOT_SENT: &str = "截好了，图在下一条消息里。";
 const BLIND: &str = "截图发不过去：当前模型不支持看图。告诉用户你看不了屏幕，换个能看图的模型才行。";
 
+/// What a tool gave back.
+enum Output {
+    /// A screenshot, as base64 JPEG.
+    Shot(String),
+    /// Text for the model, such as search results.
+    Text(String),
+}
+
 /// Adds the results of a round's tool calls. Returns where screenshots went, with
 /// what to put there instead if the model turns out not to take images (None: drop
 /// that message).
-fn push_results(wire: Wire, msgs: &mut Vec<Value>, results: Vec<(String, Result<String, String>)>) -> Vec<(usize, Option<Value>)> {
+fn push_results(wire: Wire, msgs: &mut Vec<Value>, results: Vec<(String, Result<Output, String>)>) -> Vec<(usize, Option<Value>)> {
     let mut slots = Vec::new();
+    let shot = |r: &Result<Output, String>| matches!(r, Ok(Output::Shot(_)));
     match wire {
         Wire::OpenAi => {
             // Tool messages can't carry images; the shot follows as the user's.
             // Blind, the tool message says so itself and the image goes: some providers
             // (Mistral's) want nothing between the tool results and the next reply.
-            let mut shot = None;
+            let mut image = None;
             for (id, r) in results {
                 let content = match r {
-                    Ok(b64) => {
-                        shot = Some(b64);
+                    Ok(Output::Shot(b64)) => {
+                        image = Some(b64);
                         slots.push((msgs.len(), Some(json!({ "role": "tool", "tool_call_id": id, "content": BLIND }))));
                         SHOT_SENT.to_owned()
                     }
-                    Err(e) => e,
+                    Ok(Output::Text(s)) | Err(s) => s,
                 };
                 msgs.push(json!({ "role": "tool", "tool_call_id": id, "content": content }));
             }
-            if let Some(b64) = shot {
+            if let Some(b64) = image {
                 slots.push((msgs.len(), None));
                 msgs.push(json!({ "role": "user", "content": [
                     { "type": "text", "text": "（刚截的屏幕）" },
@@ -1292,15 +1556,16 @@ fn push_results(wire: Wire, msgs: &mut Vec<Value>, results: Vec<(String, Result<
             }
         }
         Wire::Anthropic => {
-            let result = |id: &str, r: &Result<String, String>, blind: bool| match r {
-                Ok(_) if blind => json!({ "type": "tool_result", "tool_use_id": id, "content": BLIND, "is_error": true }),
-                Ok(b64) => json!({ "type": "tool_result", "tool_use_id": id, "content": [
+            let result = |id: &str, r: &Result<Output, String>, blind: bool| match r {
+                Ok(Output::Shot(_)) if blind => json!({ "type": "tool_result", "tool_use_id": id, "content": BLIND, "is_error": true }),
+                Ok(Output::Shot(b64)) => json!({ "type": "tool_result", "tool_use_id": id, "content": [
                     { "type": "image", "source": { "type": "base64", "media_type": "image/jpeg", "data": b64 } },
                 ] }),
+                Ok(Output::Text(s)) => json!({ "type": "tool_result", "tool_use_id": id, "content": s }),
                 Err(e) => json!({ "type": "tool_result", "tool_use_id": id, "content": e, "is_error": true }),
             };
             let seeing: Vec<Value> = results.iter().map(|(id, r)| result(id, r, false)).collect();
-            if results.iter().any(|(_, r)| r.is_ok()) {
+            if results.iter().any(|(_, r)| shot(r)) {
                 let blind: Vec<Value> = results.iter().map(|(id, r)| result(id, r, true)).collect();
                 slots.push((msgs.len(), Some(json!({ "role": "user", "content": blind }))));
             }
@@ -1312,16 +1577,17 @@ fn push_results(wire: Wire, msgs: &mut Vec<Value>, results: Vec<(String, Result<
 
 /// On the `last` round the model may not call a tool any more, so that the turn ends
 /// with an answer instead of a call nobody will run.
-async fn send(t: &Target, system: &str, msgs: &[Value], tools: bool, search: bool, last: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
+async fn send(t: &Target, system: &str, msgs: &[Value], kit: Kit, last: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
     match t.wire {
-        Wire::OpenAi => openai_round(t, system, msgs, tools, search, last, out).await,
-        Wire::Anthropic => anthropic_round(t, system, msgs, tools, search, last, out).await,
+        Wire::OpenAi => openai_round(t, system, msgs, kit, last, out).await,
+        Wire::Anthropic => anthropic_round(t, system, msgs, kit, last, out).await,
     }
 }
 
 /// Answers one turn. Ok(true): the model declined, and what it said shouldn't go back
 /// as context.
-async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &[Turn], eye: Option<&Eye>, search: bool) -> Result<bool, Fail> {
+/// `exa` is the Exa key when the pet's own search is on (empty: the free way).
+async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &[Turn], eye: Option<&Eye>, exa: Option<&str>, search: bool) -> Result<bool, Fail> {
     let mut msgs: Vec<Value> = history
         .iter()
         .filter(|h| !h.text.trim().is_empty())
@@ -1329,22 +1595,23 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
         .collect();
     let mut slots: Vec<(usize, Option<Value>)> = Vec::new();
     let mut shots = 0;
+    let mut searches = 0;
     // Turned a screenshot down earlier in this turn: no more of them.
     let mut blind = false;
     // A request with a screenshot in it went through: the model does take images.
     let mut seen = false;
     let mut out = Speaker { app, id, newline: false, wrote: false, searched: "" };
-    let tools = eye.is_some();
+    let kit = Kit { shot: eye.is_some(), exa: exa.is_some(), search };
     for n in 0..MAX_ROUNDS {
         // Closed while a tool ran: nothing more goes out, a screenshot least of all.
         if stopped(id) {
             return Err(Fail::Stopped);
         }
         let last = n + 1 == MAX_ROUNDS;
-        let round = match send(t, system, &msgs, tools, search, last, &mut out).await {
+        let round = match send(t, system, &msgs, kit, last, &mut out).await {
             // Turned down with the search on: that goes first, the screenshot tool after.
             Err(f) if search && n == 0 && rejects_search(&f) && !knows(&SEARCHED, &t.key()) => return Err(Fail::NoSearch),
-            Err(f) if tools && n == 0 && refuses_tools(&f) => return Err(Fail::NoTools),
+            Err(f) if kit.own() && n == 0 && refuses_tools(&f) => return Err(Fail::NoTools),
             // A model that doesn't take images, by what it says: tell it so and try again.
             Err(f) if !slots.is_empty() && !seen && rejects_images(&f) => {
                 // From the back, so that a dropped message doesn't move the rest.
@@ -1358,7 +1625,7 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
                     }
                 }
                 emit(app, id, "blind", "");
-                let round = send(t, system, &msgs, tools, search, last, &mut out).await?;
+                let round = send(t, system, &msgs, kit, last, &mut out).await?;
                 // That was it: no more screenshots for this model.
                 remember(&NO_IMAGES, t.key());
                 blind = true;
@@ -1384,20 +1651,30 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
         }
         msgs.push(round.assistant);
         let mut results = Vec::new();
-        for (call, name) in round.calls {
-            let r = match eye {
-                _ if name != TOOL => Err(format!("没有 {name} 这个工具")),
-                _ if blind => Err(BLIND.into()),
-                _ if shots >= MAX_SHOTS => Err("这一轮已经看过屏幕了，直接回答吧".into()),
-                _ if stopped(id) => return Err(Fail::Stopped),
-                Some(eye) => {
+        for call in round.calls {
+            if stopped(id) {
+                return Err(Fail::Stopped);
+            }
+            let r = match (call.name.as_str(), eye, exa) {
+                (TOOL, _, _) if blind => Err(BLIND.into()),
+                (TOOL, _, _) if shots >= MAX_SHOTS => Err("这一轮已经看过屏幕了，直接回答吧".into()),
+                (TOOL, Some(eye), _) => {
                     shots += 1;
                     emit(app, id, "look", "");
-                    look(eye).await
+                    look(eye).await.map(Output::Shot)
                 }
-                None => Err("用户没让你看屏幕".into()),
+                (TOOL, None, _) => Err("用户没让你看屏幕".into()),
+                (SEARCH_TOOL, _, Some(_)) if searches >= MAX_SEARCHES => Err("这一轮已经搜了好几次了，用搜到的回答吧".into()),
+                (SEARCH_TOOL, _, Some(key)) => {
+                    searches += 1;
+                    out.searched("search");
+                    let query = call.input["query"].as_str().unwrap_or("").trim().to_owned();
+                    exa_search(key, &query).await.map(Output::Text)
+                }
+                (SEARCH_TOOL, _, None) => Err("现在上不了网".into()),
+                (name, _, _) => Err(format!("没有 {name} 这个工具")),
             };
-            results.push((call, r));
+            results.push((call.id, r));
         }
         slots.extend(push_results(t.wire, &mut msgs, results));
         out.newline = out.wrote;
@@ -1420,18 +1697,23 @@ pub fn start(app: AppHandle, ai: AiConfig, nickname: String, now: String, id: u6
                     Some(_) => Sight::Tool,
                 };
                 let links = matches!(t.search, Search::Tools(s) if s.contains("read_url"));
+                // Exa and the provider's own search don't go together; the settings page
+                // turns one off as the other goes on.
                 let mut web = match t.search {
+                    _ if ai.exa && knows(&NO_TOOLS, &model) => Web::NoTools,
+                    _ if ai.exa => Web::Exa,
+                    _ if !ai.search => Web::Off,
                     Search::None => Web::None,
                     _ if knows(&NO_SEARCH, &model) => Web::None,
-                    _ if !ai.search => Web::Off,
                     _ => Web::On { links },
                 };
                 let persona = persona_prompt(&ai);
                 loop {
                     let tool_eye = if let Sight::Tool = sight { eye.as_ref() } else { None };
+                    let exa = matches!(web, Web::Exa).then_some(ai.exa_key.trim());
                     let search = matches!(web, Web::On { .. });
                     let system = system_prompt(&nickname, &now, &ai.identity, &persona, sight, web);
-                    match converse(&app, id, &t, &system, &history, tool_eye, search).await {
+                    match converse(&app, id, &t, &system, &history, tool_eye, exa, search).await {
                         // Turned down for the search, or for offering the screenshot tool:
                         // once more without it. Each goes once, so this ends.
                         Err(Fail::NoSearch) => {
@@ -1440,7 +1722,12 @@ pub fn start(app: AppHandle, ai: AiConfig, nickname: String, now: String, id: u6
                         }
                         Err(Fail::NoTools) => {
                             remember(&NO_TOOLS, model.clone());
-                            sight = Sight::NoTools;
+                            if eye.is_some() {
+                                sight = Sight::NoTools;
+                            }
+                            if let Web::Exa = web {
+                                web = Web::NoTools;
+                            }
                         }
                         r => break r.map_err(|f| explain(f, &t)),
                     }
@@ -1493,15 +1780,19 @@ pub async fn models(ai: AiConfig, provider: String) -> Result<Vec<String>, Strin
     Ok(ids)
 }
 
-/// Opens the page where the provider hands out API keys.
+/// Opens the page where the provider (or "exa") hands out API keys.
 pub fn open_key_page(provider: &str) {
-    let Some(p) = PROVIDERS.iter().find(|p| p.id == provider && !p.key_url.is_empty()) else { return };
+    let url = match PROVIDERS.iter().find(|p| p.id == provider) {
+        _ if provider == "exa" => EXA_KEY_URL,
+        Some(p) if !p.key_url.is_empty() => p.key_url,
+        _ => return,
+    };
     #[cfg(windows)]
     unsafe {
         use windows_sys::Win32::UI::Shell::ShellExecuteW;
         use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
         let wide = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
-        let (verb, url) = (wide("open"), wide(p.key_url));
+        let (verb, url) = (wide("open"), wide(url));
         ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), url.as_ptr(), std::ptr::null(), std::ptr::null(), SW_SHOWNORMAL);
     }
 }
