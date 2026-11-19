@@ -214,9 +214,10 @@ fn ai_identity() -> &'static str {
 }
 
 /// Answers the chat `history` (ending with the user's message) as chat `id`, in `ai`
-/// events. `now` is the local date and time, in words.
+/// events. `now` is the local date and time, in words; `looked`, that the chat has
+/// looked at the screen before.
 #[tauri::command]
-fn ai_chat(id: u64, history: Vec<ai::Turn>, now: String, app: AppHandle, state: State<AppState>) {
+fn ai_chat(id: u64, history: Vec<ai::Turn>, now: String, looked: bool, app: AppHandle, state: State<AppState>) {
     let cfg = state.config.lock().unwrap().clone();
     // Where the pet is, if the model may look at the screen it is on.
     let eye = main_window(&app).filter(|_| cfg.ai.screen).and_then(|w| {
@@ -227,7 +228,7 @@ fn ai_chat(id: u64, history: Vec<ai::Turn>, now: String, app: AppHandle, state: 
         let hwnd = 0;
         Some(ai::Eye { hwnd, x: p.x + s.width as i32 / 2, y: p.y + s.height as i32 - 80 })
     });
-    ai::start(app, cfg.ai, cfg.nickname, now, id, history, eye);
+    ai::start(app, cfg.ai, cfg.nickname, now, id, history, eye, looked);
 }
 
 #[tauri::command]

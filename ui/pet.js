@@ -1345,7 +1345,8 @@ function openChat() {
   stir(AWAKE_AFTER_POKE_MS);
   cancelLife();
   clearTimeout(noticeTimer);
-  chat = { req: 0, history: [], stack: [], phase: "idle", reply: null, quietSince: now() };
+  // looked: it has looked at the screen, so links aren't opened for the rest of the chat.
+  chat = { req: 0, history: [], stack: [], phase: "idle", reply: null, quietSince: now(), looked: false };
   openCompose();
 }
 
@@ -1567,7 +1568,7 @@ function sendChat(m) {
   while (chat.history[0]?.role !== "user") chat.history.shift();
   chat.phase = "waiting";
   chat.req = ++chatReq;
-  invoke("ai_chat", { id: chat.req, history: chat.history, now: nowText() });
+  invoke("ai_chat", { id: chat.req, history: chat.history, now: nowText(), looked: chat.looked });
   layoutChat();
   render();
 }
@@ -1614,6 +1615,7 @@ function onAi({ id, kind, text }) {
     typeOn();
   } else if (kind === "look") {
     r.looked = true;
+    chat.looked = true;
     setChip(r, chipFor(r));
     playOnce(ANIMS.chatSnap[0], { force: true, minMs: 0 });
   } else if (kind === "blind") {
