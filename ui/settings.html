@@ -146,10 +146,16 @@
             <input type="checkbox" class="switch" data-key="ai.enabled" />
           </label>
         </div>
+
+        <h3>连接</h3>
         <div class="card">
           <div class="row">
-            <span class="text"><b>服务商</b><small id="ai-provider-note"></small></span>
+            <span class="text"><b>服务商</b><small><span id="ai-provider-note"></span><a id="ai-base-show" class="link">改 API 地址</a></small></span>
             <select id="ai-provider"></select>
+          </div>
+          <div class="row" id="ai-base-row">
+            <span class="text"><b>API 地址</b><small id="ai-base-note">留空就用官方地址</small></span>
+            <input type="text" id="ai-base" class="wide" spellcheck="false" />
           </div>
           <div class="row">
             <span class="text"><b>API 密钥</b><small><a id="ai-key-link" class="link">去申请 ↗</a></small></span>
@@ -157,10 +163,6 @@
               <input type="password" id="ai-key" spellcheck="false" autocomplete="off" />
               <button id="ai-key-show" class="icon eye" title="显示"><i class="glyph-eye"></i></button>
             </span>
-          </div>
-          <div class="row">
-            <span class="text"><b>API 地址</b><small id="ai-base-note">留空就用官方地址</small></span>
-            <input type="text" id="ai-base" class="wide" spellcheck="false" />
           </div>
           <div class="row stack">
             <span class="text"><b>模型</b><small id="ai-model-note">点「获取模型」从服务商那里拉列表，也可以直接填</small></span>
@@ -170,18 +172,46 @@
             </span>
             <div id="ai-models" class="chips models"></div>
           </div>
+          <div class="row stack">
+            <span class="text"><b>推理</b><small id="ai-reasoning-note"></small></span>
+            <span class="segmented" id="ai-reasoning"></span>
+          </div>
+          <div id="ai-reasoning-warn" class="error" hidden></div>
         </div>
+
+        <h3>能做什么</h3>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>允许它看屏幕</b><small>它觉得需要时，会截一张你所在屏幕的图发给模型（截不到它自己和气泡），回复上会标出「看了一眼屏幕」。关掉后它根本拿不到截图；模型不能识图的话，它会说看不了</small></span>
+            <input type="checkbox" class="switch" data-key="ai.screen" />
+          </label>
+          <label class="row">
+            <span class="text"><b>上网搜索：服务商自带</b><small id="ai-search-note"></small></span>
+            <input type="checkbox" class="switch" data-key="ai.search" />
+          </label>
+          <label class="row">
+            <span class="text"><b>上网搜索：Exa</b><small>桌宠自己给模型一个搜索工具，用 Exa 去搜，哪家模型都能用，只要它会调用工具。搜索词会发给 Exa（exa.ai）。一般和上一种只开一个，打开一个会关掉另一个；两个都开着时用 Exa</small></span>
+            <input type="checkbox" class="switch" data-key="ai.exa" />
+          </label>
+          <div class="row" id="ai-exa-key-row">
+            <span class="text"><b>Exa API 密钥</b><small>不填就用免费额度，每个 IP 每天大约 50 次；填了按次计费，每月有 10 美元免费额度 <a id="ai-exa-link" class="link">去申请 ↗</a></small></span>
+            <span class="secret">
+              <input type="password" id="ai-exa-key" data-key="ai.exaKey" placeholder="可以不填" spellcheck="false" autocomplete="off" />
+              <button id="ai-exa-key-show" class="icon eye" title="显示"><i class="glyph-eye"></i></button>
+            </span>
+          </div>
+        </div>
+
+        <h3>它是谁</h3>
         <div class="card">
           <div class="row stack">
-            <span class="text"><b>身份</b><small>它觉得自己是谁：叫什么、是什么、住在哪儿。下面的人设管它怎么说话</small></span>
+            <span class="text"><b>身份</b><small>它觉得自己是谁：叫什么、是什么、住在哪儿</small></span>
             <textarea id="ai-identity" rows="2" spellcheck="false"></textarea>
             <div class="persona-foot">
               <small id="ai-identity-note"></small>
               <button id="ai-identity-reset" class="ghost">恢复默认</button>
             </div>
           </div>
-        </div>
-        <div class="card">
           <div class="row stack">
             <span class="text"><b>人设</b><small>它聊天时的性格和说话风格。每种都能改，也能自己加；不管哪种，回复都会保持简短</small></span>
             <div id="ai-personas" class="chips personas"></div>
@@ -194,13 +224,7 @@
             </div>
           </div>
         </div>
-        <div class="card">
-          <label class="row">
-            <span class="text"><b>允许它看屏幕</b><small>它觉得需要时，会截一张你所在屏幕的图发给模型（截不到它自己和气泡），回复上会标出「看了一眼屏幕」。关掉后它根本拿不到截图</small></span>
-            <input type="checkbox" class="switch" data-key="ai.screen" />
-          </label>
-        </div>
-        <p class="hint">聊天内容和截图只发给你选的服务商，桌宠自己不存。API 密钥明文保存在本机的 <code>~/.clawd-pet/config.json</code>。看屏幕要模型能识图，不能的话它会说看不了。走系统代理设置，本机地址除外；改了代理不用重启。</p>
+        <p class="hint">聊天内容和截图只发给你选的服务商，桌宠自己不存。开了联网搜索时，模型写的搜索词会交给搜索的一方（服务商自带的由服务商去搜，Exa 的发给 Exa），看过屏幕后的搜索词里可能有屏幕上的字，比如报错信息。API 密钥明文保存在本机的 <code>~/.clawd-pet/config.json</code>。走系统代理设置，本机地址除外；改了代理不用重启。</p>
       </section>
 
       <!-- ------------------------------------------------ 系统 -->

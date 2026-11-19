@@ -1345,7 +1345,8 @@ function openChat() {
   stir(AWAKE_AFTER_POKE_MS);
   cancelLife();
   clearTimeout(noticeTimer);
-  chat = { req: 0, history: [], stack: [], phase: "idle", reply: null, quietSince: now() };
+  // looked: it has looked at the screen, so links aren't opened for the rest of the chat.
+  chat = { req: 0, history: [], stack: [], phase: "idle", reply: null, quietSince: now(), looked: false };
   openCompose();
 }
 
@@ -1559,7 +1560,7 @@ function sendChat(m) {
   m.body.replaceChildren(el("div", "text", text));
   // ...and the reply comes up from below, pushing it up.
   const r = addMsg("ai");
-  Object.assign(r, { full: "", shown: "", buffer: "", chip: null, text: null, looked: false, ended: false, error: null });
+  Object.assign(r, { full: "", shown: "", buffer: "", chip: null, text: null, looked: false, blind: false, searched: null, ended: false, error: null });
   r.body.append(dots());
   chat.reply = r;
   chat.history.push({ role: "user", text });
@@ -1567,7 +1568,7 @@ function sendChat(m) {
   while (chat.history[0]?.role !== "user") chat.history.shift();
   chat.phase = "waiting";
   chat.req = ++chatReq;
-  invoke("ai_chat", { id: chat.req, history: chat.history, now: nowText() });
+  invoke("ai_chat", { id: chat.req, history: chat.history, now: nowText(), looked: chat.looked });
   layoutChat();
   render();
 }
@@ -1578,7 +1579,7 @@ function dots() {
   return d;
 }
 
-/** A small note above the reply: that it looked at the screen, or couldn't. */
+/** A small note above the reply: that it looked at the screen (or couldn't), or went online. */
 function setChip(r, text) {
   if (!r.chip) {
     r.chip = el("div", "chip");
@@ -1586,6 +1587,14 @@ function setChip(r, text) {
   }
   r.chip.textContent = text;
   layoutChat();
+}
+
+/** What the reply went and did on the way: under way until its text comes in. */
+function chipFor(r) {
+  const done = Boolean(r.text);
+  const sight = r.blind ? "🙈 这个模型看不了图" : r.looked && (done ? "👀 看了一眼屏幕" : "👀 瞄一眼屏幕…");
+  const web = r.searched === "link" ? (done ? "🔗 看了链接" : "🔗 打开链接…") : r.searched && (done ? "🔎 搜了一下" : "🔎 搜一下…");
+  return [sight, web].filter(Boolean).join(" · ");
 }
 
 function onAi({ id, kind, text }) {
@@ -1599,18 +1608,22 @@ function onAi({ id, kind, text }) {
       chat.phase = "typing";
       render();
     }
-    if (r.looked) setChip(r, "👀 看了一眼屏幕");
+    if (r.chip) setChip(r, chipFor(r));
     r.full += text;
     r.buffer += text;
     typing.add(r);
     typeOn();
   } else if (kind === "look") {
     r.looked = true;
-    setChip(r, "👀 瞄一眼屏幕…");
+    chat.looked = true;
+    setChip(r, chipFor(r));
     playOnce(ANIMS.chatSnap[0], { force: true, minMs: 0 });
   } else if (kind === "blind") {
-    r.looked = false;
-    setChip(r, "🙈 这个模型看不了图");
+    r.blind = true;
+    setChip(r, chipFor(r));
+  } else if (kind === "search") {
+    r.searched = text === "link" ? "link" : "search";
+    setChip(r, chipFor(r));
   } else if (kind === "done" || kind === "error") {
     r.ended = true;
     r.error = kind === "error" ? text : null;

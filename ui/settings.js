@@ -276,7 +276,7 @@ let providers = [];
 let fetchedModels = null;
 
 const provider = () => providers.find((p) => p.id === config.ai.provider) || providers[0];
-const profile = () => (config.ai.profiles[provider().id] ??= { apiKey: "", baseUrl: "", model: "" });
+const profile = () => (config.ai.profiles[provider().id] ??= { apiKey: "", baseUrl: "", model: "", reasoning: "" });
 
 async function initAi() {
   providers = await invoke("ai_providers");
@@ -290,6 +290,7 @@ async function initAi() {
   select.onchange = () => {
     config.ai.provider = select.value;
     fetchedModels = null;
+    baseOpen = false;
     showAi();
     save();
   };
@@ -303,15 +304,42 @@ async function initAi() {
   field("ai-key", "apiKey");
   field("ai-base", "baseUrl");
   field("ai-model", "model");
-  $("ai-key-show").onclick = () => {
-    const show = $("ai-key").type === "password";
-    $("ai-key").type = show ? "text" : "password";
-    $("ai-key-show").classList.toggle("on", show);
-    $("ai-key-show").title = show ? "隐藏" : "显示";
-  };
+  $("ai-model").addEventListener("input", showReasoning);
+  for (const [box, button] of [["ai-key", "ai-key-show"], ["ai-exa-key", "ai-exa-key-show"]]) {
+    $(button).onclick = () => {
+      const show = $(box).type === "password";
+      $(box).type = show ? "text" : "password";
+      $(button).classList.toggle("on", show);
+      $(button).title = show ? "隐藏" : "显示";
+    };
+  }
   $("ai-key-link").onclick = () => invoke("ai_key_page", { provider: provider().id });
+  $("ai-exa-link").onclick = () => invoke("ai_key_page", { provider: "exa" });
   $("ai-fetch").onclick = fetchModels;
+  $("ai-base-show").onclick = () => {
+    baseOpen = true;
+    showBase();
+    $("ai-base").focus();
+  };
+  // The two ways of searching: turning one on turns the other off. Not Exa for a
+  // provider without a search of its own, though: that would leave no search at all
+  // (with both on, the chat uses Exa).
+  const [search, exa] = ["ai.search", "ai.exa"].map((key) => document.querySelector(`[data-key="${key}"]`));
+  for (const [me, other, key] of [[search, exa, "exa"], [exa, search, "search"]]) {
+    me.addEventListener("input", () => {
+      if (me.checked && other.checked && provider().search) {
+        other.checked = false;
+        config.ai[key] = false;
+        save();
+      }
+      showExa();
+      showReasoning();
+    });
+  }
+  // The DeepSeek warning depends on the screen too.
+  document.querySelector('[data-key="ai.screen"]').addEventListener("input", showReasoning);
   showAi();
+  showExa();
   await initIdentity();
   await initPersonas();
 }
@@ -331,6 +359,64 @@ function showAi() {
   $("ai-model-note").textContent = "点「获取模型」从服务商那里拉列表，也可以直接填";
   $("ai-model-note").classList.remove("bad");
   renderModels();
+  $("ai-search-note").textContent = p.search
+    ? "问到新闻、天气、最新版本这类事，或者它拿不准的事，它会用服务商自带的联网搜索自己去查，回复上会标出「搜了一下」。有的服务商按次收费"
+    : `${p.name} 没有自带的联网搜索，开着也搜不了，可以改用下面的 Exa。自带搜索的有：${providers.filter((x) => x.search).map((x) => x.name).join("、")}`;
+  showBase();
+  showReasoning();
+}
+
+/** The address row stays folded away while the provider's own address is used. */
+let baseOpen = false;
+
+function showBase() {
+  const folded = !!provider().baseUrl && !profile().baseUrl && !baseOpen;
+  $("ai-base-row").hidden = folded;
+  $("ai-base-show").hidden = !folded;
+}
+
+function showExa() {
+  $("ai-exa-key-row").hidden = !config.ai.exa;
+}
+
+/** The reasoning levels the model takes: those of the first rule its name starts with. */
+function levels() {
+  const model = (profile().model || provider().model).toLowerCase();
+  const rule = provider().reasoning.find((r) => model.startsWith(r.prefix.toLowerCase()));
+  return rule ? rule.levels : [];
+}
+
+function showReasoning() {
+  const [p, mine, list] = [provider(), profile(), levels()];
+  // A level the model doesn't take is never sent, so it shows as the default.
+  const level = list.includes(mine.reasoning) ? mine.reasoning : "";
+  const box = $("ai-reasoning");
+  box.innerHTML = "";
+  box.hidden = !list.length;
+  for (const value of ["", ...list]) {
+    const label = el("label");
+    const radio = el("input");
+    radio.type = "radio";
+    radio.name = "ai-reasoning";
+    radio.checked = value === level;
+    radio.onchange = () => {
+      mine.reasoning = value;
+      showReasoning();
+      save();
+    };
+    label.append(radio, el("span", "", { "": "默认", off: "关" }[value] ?? value));
+    box.append(label);
+  }
+  $("ai-reasoning-note").textContent =
+    (list.length
+      ? "想得越多答得越准，也越慢、越费 token。「默认」什么都不发，按服务商自己的默认。"
+      : "这个模型没有能调的档位，按它自己的来。") + p.reasoningNote;
+  // DeepSeek turns down its screenshot tool beside its own search unless it thinks.
+  const clash = p.id === "deepseek" && level === "off" && config.ai.screen && config.ai.search && !config.ai.exa && p.search;
+  $("ai-reasoning-warn").hidden = !clash;
+  $("ai-reasoning-warn").textContent = clash
+    ? "推理关着，又同时开着看屏幕和 DeepSeek 自带的搜索：DeepSeek 会拒绝这样的请求，聊天时会报错。给推理换一档，或者改用 Exa 搜索。"
+    : "";
 }
 
 /** The models to pick from, narrowed down by what is typed in the box. */
@@ -346,6 +432,7 @@ function renderModels() {
       profile().model = m;
       $("ai-model").value = m;
       renderModels();
+      showReasoning();
       save();
     };
     $("ai-models").append(chip);

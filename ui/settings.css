@@ -248,6 +248,13 @@ h2 small {
   color: var(--muted);
 }
 
+/* A group of cards within a tab. */
+h3 {
+  margin: 18px 2px 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .card {
   margin-bottom: 12px;
   background: var(--card);
@@ -795,6 +802,47 @@ a.link[hidden] {
 
 #ai-provider {
   width: 260px;
+}
+
+#ai-base-show {
+  margin-left: 8px;
+}
+
+#ai-base-row[hidden],
+#ai-exa-key-row[hidden],
+#ai-reasoning[hidden] {
+  display: none;
+}
+
+/* Up to 8 levels: they wrap rather than run out of the card, with the gaps drawn as
+   the lines between them. */
+#ai-reasoning {
+  align-self: flex-start;
+  max-width: 100%;
+  flex-wrap: wrap;
+  gap: 1px;
+  background: var(--line);
+}
+
+#ai-reasoning label {
+  flex: 1 0 auto;
+  text-align: center;
+}
+
+#ai-reasoning span {
+  background: var(--card);
+}
+
+#ai-reasoning input:checked + span {
+  background: var(--clawd);
+}
+
+#ai-reasoning label + label span {
+  border-left: none;
+}
+
+#ai-exa-link {
+  margin-left: 4px;
 }
 
 .models {
