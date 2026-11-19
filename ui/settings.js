@@ -290,6 +290,7 @@ async function initAi() {
   select.onchange = () => {
     config.ai.provider = select.value;
     fetchedModels = null;
+    baseOpen = false;
     showAi();
     save();
   };
@@ -311,6 +312,23 @@ async function initAi() {
   };
   $("ai-key-link").onclick = () => invoke("ai_key_page", { provider: provider().id });
   $("ai-fetch").onclick = fetchModels;
+  $("ai-base-show").onclick = () => {
+    baseOpen = true;
+    showBase();
+    $("ai-base").focus();
+  };
+  for (const radio of document.querySelectorAll("input[name=ai-reasoning]")) {
+    radio.checked = radio.value === (config.ai.reasoning || "");
+    radio.onchange = () => {
+      config.ai.reasoning = radio.value;
+      showReasoning();
+      save();
+    };
+  }
+  // The DeepSeek warning depends on these two as well.
+  for (const key of ["ai.screen", "ai.search"]) {
+    document.querySelector(`[data-key="${key}"]`).addEventListener("input", showReasoning);
+  }
   showAi();
   await initIdentity();
   await initPersonas();
@@ -332,8 +350,32 @@ function showAi() {
   $("ai-model-note").classList.remove("bad");
   renderModels();
   $("ai-search-note").textContent = p.search
-    ? "问到新闻、天气、最新版本这类事，它会用服务商自带的联网搜索自己去查，回复上会标出「搜了一下」。有的服务商按次收费"
+    ? "问到新闻、天气、最新版本这类事，或者它拿不准的事，它会用服务商自带的联网搜索自己去查，回复上会标出「搜了一下」。有的服务商按次收费"
     : `${p.name} 没有能直接用的联网搜索，开着也搜不了。支持的有：${providers.filter((x) => x.search).map((x) => x.name).join("、")}`;
+  showBase();
+  showReasoning();
+}
+
+/** The address row stays folded away while the provider's own address is used. */
+let baseOpen = false;
+
+function showBase() {
+  const folded = !!provider().baseUrl && !profile().baseUrl && !baseOpen;
+  $("ai-base-row").hidden = folded;
+  $("ai-base-show").hidden = !folded;
+}
+
+function showReasoning() {
+  const p = provider();
+  const level = config.ai.reasoning || "";
+  $("ai-reasoning-note").textContent =
+    "想得越多答得越准，也越慢、越费 token。「交给模型」什么都不发，按服务商自己的默认。" + p.reasoningNote;
+  // DeepSeek turns down its screenshot tool beside its search unless it thinks.
+  const clash = p.id === "deepseek" && level === "off" && config.ai.screen && config.ai.search && p.search;
+  $("ai-reasoning-warn").hidden = !clash;
+  $("ai-reasoning-warn").textContent = clash
+    ? "推理关着，又同时开着看屏幕和上网搜索：DeepSeek 会拒绝这样的请求，聊天时会报错。给推理换一档，或者关掉其中一个。"
+    : "";
 }
 
 /** The models to pick from, narrowed down by what is typed in the box. */

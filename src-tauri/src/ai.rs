@@ -47,17 +47,40 @@ pub struct Provider {
     /// Where to get an API key.
     pub key_url: &'static str,
     pub needs_key: bool,
-    /// JSON merged into every chat request: turns off slow "thinking" where the
-    /// provider lets every one of its models do without.
-    #[serde(skip)]
-    pub extra: &'static str,
     /// The provider's own web search, told to the settings page as whether there is one.
     #[serde(serialize_with = "has_search")]
     pub search: Search,
-    /// JSON merged over `extra` when the screenshot tool goes along with the search.
+    /// How the user's reasoning setting goes into a request.
     #[serde(skip)]
-    pub search_with_tools: &'static str,
+    pub reasoning: Reasoning,
+    /// What the settings page says under the reasoning setting: what the provider can't
+    /// do of it, from its documentation.
+    pub reasoning_note: &'static str,
 }
+
+/// How a provider takes the user's reasoning setting (`AiConfig::reasoning`: "off",
+/// "low", "medium" or "high"; empty leaves it to the model, and nothing is sent).
+#[derive(Clone, Copy, PartialEq)]
+pub enum Reasoning {
+    /// No way to set it: nothing is sent.
+    None,
+    /// OpenAI's `reasoning_effort`, "none" for off.
+    Effort,
+    /// `thinking: { type }`, and `reasoning_effort` for the levels where `effort`.
+    Thinking { effort: bool },
+    /// `enable_thinking`, and `thinking_budget` for the levels (`BUDGETS`).
+    Budget,
+    /// Kimi K3, which always thinks and takes `reasoning_effort` low or high only.
+    Kimi,
+    /// OpenRouter's `reasoning: { effort }`.
+    OpenRouter,
+    /// Anthropic's thinking and effort, which depend on the model (`anthropic_round`).
+    Anthropic,
+}
+
+/// Thinking tokens for low, medium and high where a provider takes a budget instead
+/// of levels.
+const BUDGETS: [u32; 3] = [1000, 4000, 16000];
 
 /// How a provider's own web search is turned on: one the model uses when it wants and
 /// the provider runs, so that the pet has nothing to do but ask for it.
@@ -86,9 +109,9 @@ const BASE: Provider = Provider {
     models: &[],
     key_url: "",
     needs_key: true,
-    extra: "",
     search: Search::None,
-    search_with_tools: "",
+    reasoning: Reasoning::Effort,
+    reasoning_note: "按 OpenAI 标准的 reasoning_effort 发，模型不认就没有效果。",
 };
 
 pub const PROVIDERS: &[Provider] = &[
@@ -102,6 +125,8 @@ pub const PROVIDERS: &[Provider] = &[
         models: &["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"],
         key_url: "https://platform.claude.com/settings/keys",
         search: Search::Anthropic,
+        reasoning: Reasoning::Anthropic,
+        reasoning_note: "档位按 effort 发。Claude Opus 5.5 和 Fable 关不掉思考，选「关」按「低」；Haiku 4.5 这类旧模型没有档位。",
         ..BASE
     },
     Provider {
@@ -112,6 +137,7 @@ pub const PROVIDERS: &[Provider] = &[
         model: "gpt-6.1-terra",
         models: &["gpt-6.1-terra", "gpt-6-luna", "gpt-6.1-sol"],
         key_url: "https://platform.openai.com/api-keys",
+        reasoning_note: "有的模型（比如 GPT-6 Astra、GPT-6.1 Sol）关不掉思考，选「关」会报错。",
         ..BASE
     },
     Provider {
@@ -122,6 +148,7 @@ pub const PROVIDERS: &[Provider] = &[
         model: "gemini-4-hydrogen",
         models: &["gemini-4-hydrogen", "gemini-3.8-flash", "gemini-3.5-flash-lite"],
         key_url: "https://aistudio.google.com/apikey",
+        reasoning_note: "Gemini 3、4 和 2.5 Pro 关不掉思考，选「关」会报错，想快就选「低」。",
         ..BASE
     },
     Provider {
@@ -130,6 +157,7 @@ pub const PROVIDERS: &[Provider] = &[
         group: "国际",
         base_url: "https://api.x.ai/v1",
         key_url: "https://console.x.ai",
+        reasoning_note: "Grok 关不掉思考，选「关」会报错。",
         ..BASE
     },
     Provider {
@@ -140,6 +168,7 @@ pub const PROVIDERS: &[Provider] = &[
         model: "mistral-small-latest",
         models: &["mistral-small-latest", "mistral-medium-latest"],
         key_url: "https://console.mistral.ai/api-keys",
+        reasoning_note: "Mistral Small、Medium 选「关」时只想一点点；Large 4 关不掉思考，选「关」会报错。",
         ..BASE
     },
     Provider {
@@ -148,6 +177,7 @@ pub const PROVIDERS: &[Provider] = &[
         group: "国际",
         base_url: "https://api.groq.com/openai/v1",
         key_url: "https://console.groq.com/keys",
+        reasoning_note: "只有部分模型认：GPT-OSS 分低中高、关不掉，Qwen 能关，别的模型选了会报错。",
         ..BASE
     },
     Provider {
@@ -159,6 +189,8 @@ pub const PROVIDERS: &[Provider] = &[
         models: &["openrouter/auto"],
         key_url: "https://openrouter.ai/keys",
         search: Search::Tools(r#"[{"type":"openrouter:web_search","parameters":{"max_uses":3}}]"#),
+        reasoning: Reasoning::OpenRouter,
+        reasoning_note: "用 OpenRouter 统一的 reasoning 参数；必须思考的模型选「关」会报错。",
         ..BASE
     },
     Provider {
@@ -169,12 +201,11 @@ pub const PROVIDERS: &[Provider] = &[
         model: "deepseek-flash",
         models: &["deepseek-flash", "deepseek-v4-pro"],
         key_url: "https://platform.deepseek.com/api_keys",
-        extra: r#"{"thinking":{"type":"disabled"}}"#,
-        // With thinking off, a plain search; reading links the user sends comes along.
+        // Reading links the user sends comes along; with thinking on, the search goes
+        // deeper and opens pages itself.
         search: Search::Tools(r#"[{"type":"deepseek_web_search"},{"type":"deepseek_read_url"}]"#),
-        // Tools of the caller's own go beside the search only while thinking (400
-        // otherwise). It searches more thoroughly then, and without one it barely thinks.
-        search_with_tools: r#"{"thinking":{"type":"enabled"}}"#,
+        reasoning: Reasoning::Thinking { effort: true },
+        reasoning_note: "DeepSeek 只有低、高两档，选「中」按「高」。关掉思考时，DeepSeek 不让看屏幕和上网搜索同时用，会拒绝请求。",
         ..BASE
     },
     Provider {
@@ -185,6 +216,8 @@ pub const PROVIDERS: &[Provider] = &[
         model: "kimi-k3.1-pro",
         models: &["kimi-k3.1-pro", "kimi-k3"],
         key_url: "https://platform.moonshot.cn/console/api-keys",
+        reasoning: Reasoning::Kimi,
+        reasoning_note: "Kimi K3 系列一直在思考、关不掉，选「关」按「低」；没有「中」，按「高」。",
         ..BASE
     },
     Provider {
@@ -197,6 +230,8 @@ pub const PROVIDERS: &[Provider] = &[
         key_url: "https://open.bigmodel.cn/usercenter/apikeys",
         // search_result only adds what was found to the response, by which it shows.
         search: Search::Tools(r#"[{"type":"web_search","web_search":{"enable":true,"search_engine":"search_std","search_result":true}}]"#),
+        reasoning: Reasoning::Thinking { effort: false },
+        reasoning_note: "智谱只能开关思考，不分档位。GLM-5.3 系列关不掉思考，选「关」会报错。",
         ..BASE
     },
     Provider {
@@ -207,8 +242,9 @@ pub const PROVIDERS: &[Provider] = &[
         model: "qwen3.8-flash",
         models: &["qwen3.8-flash", "qwen3.7-plus", "qwen4-max"],
         key_url: "https://bailian.console.aliyun.com/?tab=model#/api-key",
-        extra: r#"{"enable_thinking":false}"#,
         search: Search::Body(r#"{"enable_search":true}"#),
+        reasoning: Reasoning::Budget,
+        reasoning_note: "低、中、高把思考分别限制在约 1000、4000、16000 个 token 以内。有的模型（比如 qwen3.7-plus）关不掉思考，选「关」会报错。",
         ..BASE
     },
     Provider {
@@ -217,6 +253,8 @@ pub const PROVIDERS: &[Provider] = &[
         group: "国内",
         base_url: "https://ark.cn-beijing.volces.com/api/v3",
         key_url: "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey",
+        reasoning: Reasoning::Thinking { effort: true },
+        reasoning_note: "豆包 Seed 系列能关、分低中高；方舟上别家的模型以方舟的说明为准。",
         ..BASE
     },
     Provider {
@@ -225,6 +263,8 @@ pub const PROVIDERS: &[Provider] = &[
         group: "国内",
         base_url: "https://api.siliconflow.cn/v1",
         key_url: "https://cloud.siliconflow.cn/account/ak",
+        reasoning: Reasoning::Budget,
+        reasoning_note: "低、中、高把思考分别限制在约 1000、4000、16000 个 token 以内；能不能关看模型。",
         ..BASE
     },
     Provider {
@@ -233,6 +273,7 @@ pub const PROVIDERS: &[Provider] = &[
         group: "国内",
         base_url: "https://api.minimaxi.com/v1",
         key_url: "https://platform.minimaxi.com/user-center/basic-information/interface-key",
+        reasoning_note: "MiniMax-M3.1-Flash 关不掉思考，选「关」会报错；MiniMax-M3 能关，但不分档位。",
         ..BASE
     },
     Provider {
@@ -241,6 +282,8 @@ pub const PROVIDERS: &[Provider] = &[
         group: "国内",
         base_url: "https://api.hunyuan.cloud.tencent.com/v1",
         key_url: "https://console.cloud.tencent.com/hunyuan/api-key",
+        reasoning: Reasoning::None,
+        reasoning_note: "混元的接口没有能调的推理开关，这里怎么选都不起作用。",
         ..BASE
     },
     Provider {
@@ -249,6 +292,8 @@ pub const PROVIDERS: &[Provider] = &[
         group: "国内",
         base_url: "https://qianfan.baidubce.com/v2",
         key_url: "https://console.bce.baidu.com/iam/#/iam/apikey/list",
+        reasoning: Reasoning::Thinking { effort: false },
+        reasoning_note: "千帆只能开关思考，不分档位，而且只有部分模型认；GLM-5.3 这类模型关不掉。",
         ..BASE
     },
     Provider {
@@ -257,9 +302,18 @@ pub const PROVIDERS: &[Provider] = &[
         group: "国内",
         base_url: "https://api.stepfun.com/v1",
         key_url: "https://platform.stepfun.com/interface-key",
+        reasoning_note: "阶跃的推理模型关不掉思考，选「关」会报错。",
         ..BASE
     },
-    Provider { id: "ollama", name: "Ollama", group: "本地", base_url: "http://localhost:11434/v1", needs_key: false, ..BASE },
+    Provider {
+        id: "ollama",
+        name: "Ollama",
+        group: "本地",
+        base_url: "http://localhost:11434/v1",
+        needs_key: false,
+        reasoning_note: "关不掉思考的模型选「关」时用它最低的一档；它不支持的档位按模型默认。",
+        ..BASE
+    },
     Provider { id: "lmstudio", name: "LM Studio", group: "本地", base_url: "http://localhost:1234/v1", needs_key: false, ..BASE },
     Provider { id: "custom", name: "自定义（OpenAI 兼容）", group: "自定义", needs_key: false, ..BASE },
     Provider {
@@ -268,6 +322,8 @@ pub const PROVIDERS: &[Provider] = &[
         group: "自定义",
         wire: Wire::Anthropic,
         needs_key: false,
+        reasoning: Reasoning::Anthropic,
+        reasoning_note: "按 Anthropic 的 thinking 和 effort 发，兼容服务不一定认。",
         ..BASE
     },
 ];
@@ -375,8 +431,21 @@ const ANTHROPIC_VERSION: &str = "2026-10-21";
 /// the request reruns on another model instead of just stopping.
 const FALLBACK_MODELS: &[&str] = &["claude-fable-5-2", "claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"];
 const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
-/// Claude models that take an effort level; chat goes quicker on a low one.
-const EFFORT_MODELS: &[&str] = &["claude-opus-5", "claude-sonnet-5", "claude-haiku-5", "claude-fable-5", "claude-mythos-5"];
+/// Claude models that take an effort level.
+const EFFORT_MODELS: &[&str] = &[
+    "claude-opus-5",
+    "claude-sonnet-5",
+    "claude-haiku-5",
+    "claude-fable-5",
+    "claude-mythos-5",
+    "claude-opus-4-8",
+    "claude-opus-4-7",
+    "claude-opus-4-6",
+    "claude-opus-4-5",
+    "claude-sonnet-4-6",
+];
+/// Claude models whose thinking can't be turned off: off means the lowest effort.
+const ALWAYS_THINK: &[&str] = &["claude-opus-5-5", "claude-fable-5", "claude-mythos-5"];
 
 const TOOL: &str = "look_at_screen";
 const TOOL_DESC: &str = "截一张用户当前屏幕的图来看（图里没有你自己）。回答需要看屏幕上的东西时，直接调用，不用先问用户。";
@@ -412,6 +481,10 @@ static NO_IMAGES: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 /// Models that turned the provider's web search down (a provider may have it for some
 /// of its models only), same keys: asked without it from then on, until the pet restarts.
 static NO_SEARCH: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+/// Models that have searched, same keys: one that turns a request down later did so for
+/// something else, and keeps its search.
+static SEARCHED: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 
 /// Searches a model may make in one request, where the provider takes a limit.
 const MAX_SEARCHES: u32 = 3;
@@ -502,9 +575,11 @@ struct Target {
     model: String,
     /// Anthropic's own API, which takes the extras that only it knows.
     official: bool,
-    extra: Option<Value>,
     search: Search,
-    search_with_tools: &'static str,
+    reasoning: Reasoning,
+    /// The user's reasoning setting: "off", "low", "medium", "high", or empty for the
+    /// model's own default.
+    level: String,
 }
 
 fn target(ai: &AiConfig, provider: &str, need_model: bool) -> Result<Target, String> {
@@ -535,9 +610,12 @@ fn target(ai: &AiConfig, provider: &str, need_model: bool) -> Result<Target, Str
         key: key.to_string(),
         model: model.to_string(),
         official: p.id == "anthropic" && base == p.base_url,
-        extra: serde_json::from_str(p.extra).ok(),
         search: p.search,
-        search_with_tools: p.search_with_tools,
+        reasoning: p.reasoning,
+        level: match ai.reasoning.as_str() {
+            l @ ("off" | "low" | "medium" | "high") => l.to_owned(),
+            _ => String::new(),
+        },
     })
 }
 
@@ -626,6 +704,20 @@ fn describe(f: Fail) -> String {
     }
 }
 
+/// `describe`, with a word on what to change in the settings where the reasoning
+/// setting is what the request was turned down for.
+fn explain(f: Fail, t: &Target) -> String {
+    let pair = matches!(&f, Fail::Status(_, m) if m.contains("client tools") && m.contains("thinking mode"));
+    let reasoning = !t.level.is_empty() && about_reasoning(&f);
+    let mut s = describe(f);
+    if pair {
+        s += "。DeepSeek 关掉思考时不让看屏幕和上网搜索同时用：在设置的「AI 聊天」里给推理换一档，或者关掉其中一个";
+    } else if reasoning {
+        s += "。可能是这个模型不支持这档推理：在设置的「AI 聊天」里换一档，或者选「交给模型」";
+    }
+    s
+}
+
 fn clip(s: &str, n: usize) -> String {
     if s.chars().count() > n {
         s.chars().take(n).collect::<String>() + "…"
@@ -650,11 +742,24 @@ fn turned_down(code: u16) -> bool {
     (400..500).contains(&code) && !matches!(code, 401 | 402 | 403 | 429)
 }
 
+/// A request turned down over thinking: the reasoning setting asks for what the model
+/// can't do, or (DeepSeek) the tools it was given need thinking on. That goes to the
+/// user as it is, rather than as a reason to drop the screenshot tool or the search.
+fn about_reasoning(f: &Fail) -> bool {
+    match f {
+        Fail::Status(code, msg) if turned_down(*code) => {
+            let m = msg.to_lowercase();
+            ["thinking", "reasoning", "effort", "思考", "推理"].iter().any(|w| m.contains(w))
+        }
+        _ => false,
+    }
+}
+
 /// A model that doesn't do tools (many local ones) turns down any request offering
 /// them, and says so.
 fn refuses_tools(f: &Fail) -> bool {
     match f {
-        Fail::Status(code, msg) if turned_down(*code) => {
+        Fail::Status(code, msg) if turned_down(*code) && !about_reasoning(f) => {
             let m = msg.to_lowercase();
             m.contains("tool") || m.contains("function")
         }
@@ -663,12 +768,14 @@ fn refuses_tools(f: &Fail) -> bool {
 }
 
 /// A model the provider's web search isn't there for (or an account it isn't turned on
-/// for) turns the request down, naming the search, the tool or the field.
+/// for) turns the request down, naming the search. Only that: a request turned down
+/// for anything else mentioning "tools" or "web" would otherwise cost the search until
+/// the pet restarts, and the model would be told it can't go online.
 fn rejects_search(f: &Fail) -> bool {
     match f {
-        Fail::Status(code, msg) if turned_down(*code) => {
+        Fail::Status(code, msg) if turned_down(*code) && !about_reasoning(f) => {
             let m = msg.to_lowercase();
-            ["search", "web", "tool", "enable_", "联网", "搜索"].iter().any(|w| m.contains(w))
+            ["search", "联网", "搜索"].iter().any(|w| m.contains(w))
         }
         _ => false,
     }
@@ -788,6 +895,34 @@ fn merge(body: &mut Value, json: &str) {
     }
 }
 
+/// Puts the user's reasoning setting into an OpenAI-style request, the way the provider
+/// takes it. Left to the model, nothing goes in.
+fn reasoning(t: &Target, body: &mut Value) {
+    let level = t.level.as_str();
+    if level.is_empty() {
+        return;
+    }
+    let off = level == "off";
+    match t.reasoning {
+        Reasoning::None | Reasoning::Anthropic => {}
+        Reasoning::Effort => body["reasoning_effort"] = (if off { "none" } else { level }).into(),
+        Reasoning::OpenRouter => body["reasoning"] = json!({ "effort": if off { "none" } else { level } }),
+        Reasoning::Thinking { effort } => {
+            body["thinking"] = json!({ "type": if off { "disabled" } else { "enabled" } });
+            if effort && !off {
+                body["reasoning_effort"] = level.into();
+            }
+        }
+        Reasoning::Budget => {
+            body["enable_thinking"] = (!off).into();
+            if let Some(i) = ["low", "medium", "high"].iter().position(|l| *l == level) {
+                body["thinking_budget"] = BUDGETS[i].into();
+            }
+        }
+        Reasoning::Kimi => body["reasoning_effort"] = (if matches!(level, "off" | "low") { "low" } else { "high" }).into(),
+    }
+}
+
 async fn openai_round(t: &Target, system: &str, msgs: &[Value], tools: bool, search: bool, last: bool, out: &mut Speaker<'_>) -> Result<Round, Fail> {
     let mut all = vec![json!({ "role": "system", "content": system })];
     all.extend_from_slice(msgs);
@@ -812,14 +947,7 @@ async fn openai_round(t: &Target, system: &str, msgs: &[Value], tools: bool, sea
             body["tool_choice"] = "none".into();
         }
     }
-    if let Some(Value::Object(extra)) = &t.extra {
-        for (k, v) in extra {
-            body[k] = v.clone();
-        }
-    }
-    if search && tools {
-        merge(&mut body, t.search_with_tools);
-    }
+    reasoning(t, &mut body);
     let resp = post(t, "chat/completions", &body, None).await?;
 
     let mut text = String::new();
@@ -954,8 +1082,17 @@ async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], tools: bool, 
             body["tool_choice"] = json!({ "type": "none" });
         }
     }
-    if EFFORT_MODELS.iter().any(|m| t.model.starts_with(m)) {
-        body["output_config"] = json!({ "effort": "low" });
+    // The user's reasoning setting; left to the model, nothing goes in. Anthropic's own
+    // API by what the model takes; a compatible service gets it as asked.
+    let has = |list: &[&str]| list.iter().any(|m| t.model.starts_with(m));
+    match t.level.as_str() {
+        "" => {}
+        "off" if t.official && has(ALWAYS_THINK) => body["output_config"] = json!({ "effort": "low" }),
+        // Its way of turning thinking off: "disabled" is turned down.
+        "off" if t.official && t.model.starts_with("claude-sonnet-5-5") => body["thinking"] = json!({ "type": "between_tools" }),
+        "off" => body["thinking"] = json!({ "type": "disabled" }),
+        level if !t.official || has(EFFORT_MODELS) => body["output_config"] = json!({ "effort": level }),
+        _ => {}
     }
     let beta = t.fallbacks().then(|| {
         body["fallbacks"] = "default".into();
@@ -1100,7 +1237,12 @@ fn system_prompt(nickname: &str, now: &str, identity: &str, persona: &str, sight
         Sight::NoImages => "- 你看不到用户的屏幕：现在用的这个模型不支持看图。用户让你看屏幕时，告诉对方换个能看图的模型才行。\n",
     };
     s += match web {
-        Web::On { .. } => "- 你能上网搜索。问到新闻、天气、价格、比分、版本更新这类最新的事，或者你拿不准的事实时，直接去搜，别先问“要我搜一下吗”。搜完用自己的话简短说结论，不贴链接，不列来源。\n",
+        // The provider's search isn't in the tool list the model sees, and a model that
+        // finds only look_at_screen there told the user it can't go online. DeepSeek
+        // with a tool of ours beside its search also often leaves the search out of a
+        // round (most follow-ups like "那大阪呢" in tries), and the model then made up
+        // an answer; told this, it says it didn't find out instead.
+        Web::On { .. } => "- 你能上网搜索：这是服务商给你的内置能力，不一定出现在工具列表里，但一直都在，别因为工具列表里没有搜索就以为自己上不了网。问到新闻、天气、价格、比分、版本更新这类最新的事，或者你拿不准、可能已经过时的事实时，直接去搜，别先问“要我搜一下吗”，也别凭印象硬答。之前搜过不代表这次不用搜。万一这一轮真的搜不了，就照实说这次没查到，绝不能凭印象编天气、价格、新闻这类数字和事实。搜完用自己的话简短说结论，不贴链接，不列来源。\n",
         Web::Off => "- 你上不了网。对方要你查最新的东西时，告诉对方可以在设置的「AI 聊天」里打开「允许它上网搜索」。\n",
         Web::None => "- 你上不了网：现在用的服务商或模型不支持联网搜索。问到最新消息、天气这类实时的事，直说你查不了，别编。\n",
     };
@@ -1201,7 +1343,7 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
         let last = n + 1 == MAX_ROUNDS;
         let round = match send(t, system, &msgs, tools, search, last, &mut out).await {
             // Turned down with the search on: that goes first, the screenshot tool after.
-            Err(f) if search && n == 0 && rejects_search(&f) => return Err(Fail::NoSearch),
+            Err(f) if search && n == 0 && rejects_search(&f) && !knows(&SEARCHED, &t.key()) => return Err(Fail::NoSearch),
             Err(f) if tools && n == 0 && refuses_tools(&f) => return Err(Fail::NoTools),
             // A model that doesn't take images, by what it says: tell it so and try again.
             Err(f) if !slots.is_empty() && !seen && rejects_images(&f) => {
@@ -1225,6 +1367,9 @@ async fn converse(app: &AppHandle, id: u64, t: &Target, system: &str, history: &
             r => r?,
         };
         seen |= !slots.is_empty();
+        if !out.searched.is_empty() {
+            remember(&SEARCHED, t.key());
+        }
         // Searching ran out of steps on the provider's side: the reply so far goes back
         // as it is, and the provider carries on from there.
         if round.paused && round.calls.is_empty() && !last {
@@ -1297,7 +1442,7 @@ pub fn start(app: AppHandle, ai: AiConfig, nickname: String, now: String, id: u6
                             remember(&NO_TOOLS, model.clone());
                             sight = Sight::NoTools;
                         }
-                        r => break r.map_err(describe),
+                        r => break r.map_err(|f| explain(f, &t)),
                     }
                 }
             }

@@ -125,6 +125,9 @@ pub struct AiConfig {
     pub screen: bool,
     /// Turn on the provider's own web search, where it has one.
     pub search: bool,
+    /// How hard the model thinks: "off", "low", "medium" or "high"; empty leaves it to
+    /// the model, and nothing about it is sent.
+    pub reasoning: String,
     /// Who the pet believes it is, as the user rewrote it; empty for `ai::IDENTITY`.
     pub identity: String,
     /// Who the pet chats as: an id from `ai::PERSONAS`, or of one in `custom_personas`.
@@ -142,6 +145,7 @@ impl Default for AiConfig {
             profiles: BTreeMap::new(),
             screen: false,
             search: true,
+            reasoning: String::new(),
             identity: String::new(),
             persona: "default".into(),
             persona_prompts: BTreeMap::new(),

@@ -146,10 +146,16 @@
             <input type="checkbox" class="switch" data-key="ai.enabled" />
           </label>
         </div>
+
+        <h3>连接</h3>
         <div class="card">
           <div class="row">
-            <span class="text"><b>服务商</b><small id="ai-provider-note"></small></span>
+            <span class="text"><b>服务商</b><small><span id="ai-provider-note"></span><a id="ai-base-show" class="link">改 API 地址</a></small></span>
             <select id="ai-provider"></select>
+          </div>
+          <div class="row" id="ai-base-row">
+            <span class="text"><b>API 地址</b><small id="ai-base-note">留空就用官方地址</small></span>
+            <input type="text" id="ai-base" class="wide" spellcheck="false" />
           </div>
           <div class="row">
             <span class="text"><b>API 密钥</b><small><a id="ai-key-link" class="link">去申请 ↗</a></small></span>
@@ -157,10 +163,6 @@
               <input type="password" id="ai-key" spellcheck="false" autocomplete="off" />
               <button id="ai-key-show" class="icon eye" title="显示"><i class="glyph-eye"></i></button>
             </span>
-          </div>
-          <div class="row">
-            <span class="text"><b>API 地址</b><small id="ai-base-note">留空就用官方地址</small></span>
-            <input type="text" id="ai-base" class="wide" spellcheck="false" />
           </div>
           <div class="row stack">
             <span class="text"><b>模型</b><small id="ai-model-note">点「获取模型」从服务商那里拉列表，也可以直接填</small></span>
@@ -171,17 +173,40 @@
             <div id="ai-models" class="chips models"></div>
           </div>
         </div>
+
+        <h3>能做什么</h3>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>允许它看屏幕</b><small>它觉得需要时，会截一张你所在屏幕的图发给模型（截不到它自己和气泡），回复上会标出「看了一眼屏幕」。关掉后它根本拿不到截图；模型不能识图的话，它会说看不了</small></span>
+            <input type="checkbox" class="switch" data-key="ai.screen" />
+          </label>
+          <label class="row">
+            <span class="text"><b>允许它上网搜索</b><small id="ai-search-note"></small></span>
+            <input type="checkbox" class="switch" data-key="ai.search" />
+          </label>
+          <div class="row stack">
+            <span class="text"><b>推理</b><small id="ai-reasoning-note"></small></span>
+            <span class="segmented" id="ai-reasoning">
+              <label><input type="radio" name="ai-reasoning" value="" /><span>交给模型</span></label>
+              <label><input type="radio" name="ai-reasoning" value="off" /><span>关</span></label>
+              <label><input type="radio" name="ai-reasoning" value="low" /><span>低</span></label>
+              <label><input type="radio" name="ai-reasoning" value="medium" /><span>中</span></label>
+              <label><input type="radio" name="ai-reasoning" value="high" /><span>高</span></label>
+            </span>
+          </div>
+          <div id="ai-reasoning-warn" class="error" hidden></div>
+        </div>
+
+        <h3>它是谁</h3>
         <div class="card">
           <div class="row stack">
-            <span class="text"><b>身份</b><small>它觉得自己是谁：叫什么、是什么、住在哪儿。下面的人设管它怎么说话</small></span>
+            <span class="text"><b>身份</b><small>它觉得自己是谁：叫什么、是什么、住在哪儿</small></span>
             <textarea id="ai-identity" rows="2" spellcheck="false"></textarea>
             <div class="persona-foot">
               <small id="ai-identity-note"></small>
               <button id="ai-identity-reset" class="ghost">恢复默认</button>
             </div>
           </div>
-        </div>
-        <div class="card">
           <div class="row stack">
             <span class="text"><b>人设</b><small>它聊天时的性格和说话风格。每种都能改，也能自己加；不管哪种，回复都会保持简短</small></span>
             <div id="ai-personas" class="chips personas"></div>
@@ -194,19 +219,7 @@
             </div>
           </div>
         </div>
-        <div class="card">
-          <label class="row">
-            <span class="text"><b>允许它看屏幕</b><small>它觉得需要时，会截一张你所在屏幕的图发给模型（截不到它自己和气泡），回复上会标出「看了一眼屏幕」。关掉后它根本拿不到截图</small></span>
-            <input type="checkbox" class="switch" data-key="ai.screen" />
-          </label>
-        </div>
-        <div class="card">
-          <label class="row">
-            <span class="text"><b>允许它上网搜索</b><small id="ai-search-note"></small></span>
-            <input type="checkbox" class="switch" data-key="ai.search" />
-          </label>
-        </div>
-        <p class="hint">聊天内容和截图只发给你选的服务商，桌宠自己不存。API 密钥明文保存在本机的 <code>~/.clawd-pet/config.json</code>。看屏幕要模型能识图，不能的话它会说看不了。走系统代理设置，本机地址除外；改了代理不用重启。</p>
+        <p class="hint">聊天内容和截图只发给你选的服务商，桌宠自己不存。API 密钥明文保存在本机的 <code>~/.clawd-pet/config.json</code>。走系统代理设置，本机地址除外；改了代理不用重启。</p>
       </section>
 
       <!-- ------------------------------------------------ 系统 -->

@@ -248,6 +248,13 @@ h2 small {
   color: var(--muted);
 }
 
+/* A group of cards within a tab. */
+h3 {
+  margin: 18px 2px 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .card {
   margin-bottom: 12px;
   background: var(--card);
@@ -795,6 +802,18 @@ a.link[hidden] {
 
 #ai-provider {
   width: 260px;
+}
+
+#ai-base-show {
+  margin-left: 8px;
+}
+
+#ai-base-row[hidden] {
+  display: none;
+}
+
+#ai-reasoning {
+  align-self: flex-start;
 }
 
 .models {
