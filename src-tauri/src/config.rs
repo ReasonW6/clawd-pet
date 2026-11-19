@@ -126,7 +126,8 @@ pub struct AiConfig {
     pub profiles: BTreeMap<String, AiProfile>,
     /// Give the model a tool that takes a screenshot of the pet's monitor.
     pub screen: bool,
-    /// Turn on the provider's own web search, where it has one.
+    /// Turn on the provider's own web search, where it has one. Off by default, for
+    /// configs from before it too: most providers bill each search.
     pub search: bool,
     /// Search through Exa instead, with a tool the pet runs itself. The settings page
     /// keeps it and `search` from both being on.
@@ -149,7 +150,7 @@ impl Default for AiConfig {
             provider: "deepseek".into(),
             profiles: BTreeMap::new(),
             screen: false,
-            search: true,
+            search: false,
             exa: false,
             exa_key: String::new(),
             identity: String::new(),
