@@ -321,11 +321,13 @@ async function initAi() {
     showBase();
     $("ai-base").focus();
   };
-  // The two ways of searching: turning one on turns the other off.
+  // The two ways of searching: turning one on turns the other off. Not Exa for a
+  // provider without a search of its own, though: that would leave no search at all
+  // (with both on, the chat uses Exa).
   const [search, exa] = ["ai.search", "ai.exa"].map((key) => document.querySelector(`[data-key="${key}"]`));
   for (const [me, other, key] of [[search, exa, "exa"], [exa, search, "search"]]) {
     me.addEventListener("input", () => {
-      if (me.checked && other.checked) {
+      if (me.checked && other.checked && provider().search) {
         other.checked = false;
         config.ai[key] = false;
         save();
@@ -410,7 +412,7 @@ function showReasoning() {
       ? "想得越多答得越准，也越慢、越费 token。「默认」什么都不发，按服务商自己的默认。"
       : "这个模型没有能调的档位，按它自己的来。") + p.reasoningNote;
   // DeepSeek turns down its screenshot tool beside its own search unless it thinks.
-  const clash = p.id === "deepseek" && level === "off" && config.ai.screen && config.ai.search && p.search;
+  const clash = p.id === "deepseek" && level === "off" && config.ai.screen && config.ai.search && !config.ai.exa && p.search;
   $("ai-reasoning-warn").hidden = !clash;
   $("ai-reasoning-warn").textContent = clash
     ? "推理关着，又同时开着看屏幕和 DeepSeek 自带的搜索：DeepSeek 会拒绝这样的请求，聊天时会报错。给推理换一档，或者改用 Exa 搜索。"

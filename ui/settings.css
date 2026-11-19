@@ -814,8 +814,31 @@ a.link[hidden] {
   display: none;
 }
 
+/* Up to 8 levels: they wrap rather than run out of the card, with the gaps drawn as
+   the lines between them. */
 #ai-reasoning {
   align-self: flex-start;
+  max-width: 100%;
+  flex-wrap: wrap;
+  gap: 1px;
+  background: var(--line);
+}
+
+#ai-reasoning label {
+  flex: 1 0 auto;
+  text-align: center;
+}
+
+#ai-reasoning span {
+  background: var(--card);
+}
+
+#ai-reasoning input:checked + span {
+  background: var(--clawd);
+}
+
+#ai-reasoning label + label span {
+  border-left: none;
 }
 
 #ai-exa-link {

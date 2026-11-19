@@ -613,12 +613,24 @@ fn client(url: &str) -> reqwest::Client {
     if loopback(url) {
         return LOCAL.get_or_init(|| builder().no_proxy().build().expect("http client")).clone();
     }
+    cached(&CLIENT, builder)
+}
+
+/// The client for Exa: it follows no redirects, so that the key never goes to another
+/// host, or over plain http.
+fn exa_client() -> reqwest::Client {
+    static CLIENT: Mutex<Option<(Vec<u16>, reqwest::Client)>> = Mutex::new(None);
+    cached(&CLIENT, || builder().redirect(reqwest::redirect::Policy::none()))
+}
+
+/// The client in `slot`, built again if the proxy settings have changed.
+fn cached(slot: &Mutex<Option<(Vec<u16>, reqwest::Client)>>, make: fn() -> reqwest::ClientBuilder) -> reqwest::Client {
     let proxy = proxy_settings();
-    let mut cached = CLIENT.lock().unwrap_or_else(|e| e.into_inner());
+    let mut cached = slot.lock().unwrap_or_else(|e| e.into_inner());
     match &*cached {
         Some((p, c)) if *p == proxy => c.clone(),
         _ => {
-            let c = builder().build().expect("http client");
+            let c = make().build().expect("http client");
             *cached = Some((proxy, c.clone()));
             c
         }
@@ -1256,8 +1268,9 @@ async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], kit: Kit, las
     // model, nothing goes in.
     match t.level.as_str() {
         "" => {}
-        // Its way of turning thinking off: "disabled" is turned down.
-        "off" if t.official && t.model.starts_with("claude-sonnet-5-5") => body["thinking"] = json!({ "type": "between_tools" }),
+        // Its way of turning thinking off: "disabled" is turned down. By the model's name
+        // wherever it's served (proxies may put a vendor prefix or a date on it).
+        "off" if t.model.to_ascii_lowercase().contains("claude-sonnet-5-5") => body["thinking"] = json!({ "type": "between_tools" }),
         "off" => body["thinking"] = json!({ "type": "disabled" }),
         level => body["output_config"] = json!({ "effort": level }),
     }
@@ -1381,7 +1394,7 @@ fn rpc_reply(text: &str, id: u64) -> Option<Value> {
 /// and the reply to the message's id (None for a notification, or if no reply came);
 /// or the status (0 for the network) and what went wrong.
 async fn exa_rpc(key: &str, session: Option<&str>, body: &Value) -> Result<(Option<String>, Option<Value>), (u16, String)> {
-    let mut rb = client(EXA_MCP)
+    let mut rb = exa_client()
         .post(EXA_MCP)
         .header("content-type", "application/json")
         .header("accept", "application/json, text/event-stream")
@@ -1499,6 +1512,10 @@ enum Web {
     None,
     /// Exa is on, but the model doesn't do tools.
     NoTools,
+    /// The provider's search is on, but it can open pages by itself (DeepSeek's) and the
+    /// chat has looked at the screen: it stays off for the rest of the chat (see
+    /// `Kit::links`).
+    Locked,
 }
 
 /// The instructions for the chat: who the pet is, the persona it talks in, and what
@@ -1547,6 +1564,7 @@ fn system_prompt(nickname: &str, now: &str, identity: &str, persona: &str, sight
         Web::Off => "- 你上不了网。对方要你查最新的东西时，告诉对方可以在设置的「AI 聊天」里打开联网搜索。\n",
         Web::None => "- 你上不了网：现在用的服务商或模型没有自带的联网搜索。问到最新消息、天气这类实时的事，直说你查不了，别编；可以告诉对方在设置的「AI 聊天」里改用 Exa 搜索。\n",
         Web::NoTools => "- 你上不了网：现在用的这个模型不支持工具调用，用不了 Exa 搜索。问到最新消息、天气这类实时的事，直说你查不了，别编；告诉对方换个支持工具调用的模型才行。\n",
+        Web::Locked => "- 这次聊天你看过用户的屏幕，为了不把屏幕上的内容带出去，接下来上不了网，也打不开链接。问到最新消息、天气这类实时的事，直说这次查不了，别编；告诉对方关掉聊天重新开就能搜，或者在设置的「AI 聊天」里改用 Exa 搜索。\n",
     };
     if let Web::On { links: true } = web {
         s += "- 对方发来链接，你可以直接打开看。\n";
@@ -1777,7 +1795,8 @@ pub fn start(app: AppHandle, ai: AiConfig, nickname: String, now: String, id: u6
                 // Opening links only for a link the user just sent, in a chat that hasn't
                 // looked at the screen (see `Kit::links`).
                 let asked = history.iter().rev().find(|h| h.role == "user").is_some_and(|h| has_link(&h.text));
-                let links = asked && !looked && matches!(t.search, Search::Tools(s) if s.contains("read_url"));
+                let opens_pages = matches!(t.search, Search::Tools(s) if s.contains("read_url"));
+                let links = asked && !looked && opens_pages;
                 // Exa and the provider's own search don't go together; the settings page
                 // turns one off as the other goes on.
                 let mut web = match t.search {
@@ -1786,6 +1805,7 @@ pub fn start(app: AppHandle, ai: AiConfig, nickname: String, now: String, id: u6
                     _ if !ai.search => Web::Off,
                     Search::None => Web::None,
                     _ if knows(&NO_SEARCH, &model) => Web::None,
+                    _ if looked && opens_pages => Web::Locked,
                     _ => Web::On { links },
                 };
                 let persona = persona_prompt(&ai);
@@ -1951,6 +1971,7 @@ mod tests {
         assert!(system_prompt("", "", "", "", Sight::Off, Web::Exa).contains(line));
         assert!(system_prompt("", "", "", "", Sight::Off, Web::On { links: true }).contains(line));
         assert!(!system_prompt("", "", "", "", Sight::Off, Web::Off).contains(line));
+        assert!(system_prompt("", "", "", "", Sight::Tool, Web::Locked).contains("接下来上不了网"));
         let query = "搜索词只写要查的问题本身";
         assert!(system_prompt("", "", "", "", Sight::Tool, Web::Exa).contains(query));
         assert!(!system_prompt("", "", "", "", Sight::Off, Web::Exa).contains(query));
