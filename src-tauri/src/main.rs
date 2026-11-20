@@ -302,11 +302,11 @@ fn ai_identity() -> &'static str {
 
 /// Answers the chat `history` (ending with the user's message) as chat `id`, in `ai`
 /// events. `now` is the local date and time, in words, and `day` the day as memory
-/// counts it; `looked`, that the chat has looked at the screen before; `opener`, what
-/// the pet said to start the chat, when it did.
+/// counts it; `chat` numbers the chat the message is in; `looked`, that the chat has
+/// looked at the screen before; `opener`, what the pet said to start the chat, when it did.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
-fn ai_chat(id: u64, history: Vec<ai::Turn>, now: String, day: String, looked: bool, opener: Option<String>, app: AppHandle, state: State<AppState>) {
+fn ai_chat(id: u64, chat: u64, history: Vec<ai::Turn>, now: String, day: String, looked: bool, opener: Option<String>, app: AppHandle, state: State<AppState>) {
     let cfg = state.config.lock().unwrap().clone();
     // Where the pet is, if the model may look at the screen it is on.
     let eye = main_window(&app).filter(|_| cfg.ai.screen).and_then(|w| {
@@ -318,7 +318,7 @@ fn ai_chat(id: u64, history: Vec<ai::Turn>, now: String, day: String, looked: bo
         Some(ai::Eye { hwnd, x: p.x + s.width as i32 / 2, y: p.y + s.height as i32 - 80 })
     });
     let memory = memory::for_chat(&day);
-    ai::start(app, cfg.ai, cfg.nickname, cfg.birthday, now, id, history, eye, looked, memory, opener.unwrap_or_default());
+    ai::start(app, cfg.ai, cfg.nickname, cfg.birthday, now, id, chat, history, eye, looked, memory, opener.unwrap_or_default());
 }
 
 /// Something memory counts (`memory::event`). Earlier days the pet never slept on get

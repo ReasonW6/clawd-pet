@@ -1420,8 +1420,11 @@ const TAIL_REACH = 48;
 const TAIL_INSET = 30;
 /** How far a bubble may reach across the pet's middle; one wider grows out on its own side. */
 const CHAT_REACH = 70;
-let chat = null; // { req, history: [{ role, text }], stack: [msg] top to bottom, phase, reply, quietSince }
+let chat = null; // { seq, req, history: [{ role, text }], stack: [msg] top to bottom, phase, reply, quietSince }
 let chatReq = 0;
+/** Numbers the chats, for the pages the backend lets each one open. From the time, so
+ * that a reloaded page doesn't count from 1 again into a chat the backend still keeps. */
+let chatSeq = Date.now();
 /** Bubbles on screen, those on their way out included: { kind, el, card, body, sp, gone, ... }. */
 const msgs = new Set();
 
@@ -1469,7 +1472,7 @@ function openChat(opener = "") {
   // log: the whole chat, which history (sent as context) is only the end of, for memory
   // to go over when the model had no tool to note things down with; searched: it went
   // online at some point.
-  chat = { req: 0, history: [], stack: [], phase: "idle", reply: null, quietSince: now(), looked: false, opener, log: [], searched: false };
+  chat = { seq: ++chatSeq, req: 0, history: [], stack: [], phase: "idle", reply: null, quietSince: now(), looked: false, opener, log: [], searched: false };
   if (opener) addMsg("ai").body.append(el("div", "text", opener));
   openCompose();
 }
@@ -1713,7 +1716,7 @@ function sendChat(m) {
   m.body.replaceChildren(el("div", "text", text));
   // ...and the reply comes up from below, pushing it up.
   const r = addMsg("ai");
-  Object.assign(r, { full: "", shown: "", buffer: "", chip: null, text: null, looked: false, blind: false, searched: null, remembered: false, ended: false, error: null });
+  Object.assign(r, { full: "", shown: "", buffer: "", chip: null, text: null, looked: false, blind: false, searched: null, read: false, searching: false, reading: false, remembered: false, ended: false, error: null });
   r.body.append(dots());
   chat.reply = r;
   // Once a chat, even if its first question goes unanswered and out of the log.
@@ -1725,7 +1728,7 @@ function sendChat(m) {
   while (chat.history[0]?.role !== "user") chat.history.shift();
   chat.phase = "waiting";
   chat.req = ++chatReq;
-  invoke("ai_chat", { id: chat.req, history: chat.history, now: nowText(), day: memDay(), looked: chat.looked, opener: chat.opener || null });
+  invoke("ai_chat", { id: chat.req, chat: chat.seq, history: chat.history, now: nowText(), day: memDay(), looked: chat.looked, opener: chat.opener || null });
   layoutChat();
   render();
 }
@@ -1746,14 +1749,20 @@ function setChip(r, text) {
   layoutChat();
 }
 
-/** What the reply went and did on the way: under way until its text comes in. */
+/** What the reply went and did on the way: under way until its text comes in, or it ends. */
 function chipFor(r) {
-  const done = Boolean(r.text);
+  const done = Boolean(r.text) || r.ended;
   const sight = r.blind ? "🙈 这个模型看不了图" : r.looked && (done ? "👀 看了一眼屏幕" : "👀 瞄一眼屏幕…");
-  const web = r.searched === "link" ? (done ? "🔗 看了链接" : "🔗 打开链接…") : r.searched && (done ? "🔎 搜了一下" : "🔎 搜一下…");
+  // Exa's searches and reads are marked as they start, and only count once one came
+  // back; none did by the end, and the mark says so.
+  const web =
+    r.searched === "link" ? (done ? "🔗 看了链接" : "🔗 打开链接…")
+    : r.searched ? (done ? "🔎 搜了一下" : "🔎 搜一下…")
+    : r.searching && (r.ended ? "🔎 没搜成" : "🔎 搜一下…");
+  const read = r.read ? (done ? "📖 读了网页" : "📖 读网页…") : r.reading && (r.ended ? "📖 没读成" : "📖 读网页…");
   const memo = r.remembered && "📝 记下了";
   const set = r.set && "⚙️ 改了设置";
-  return [sight, web, memo, set].filter(Boolean).join(" · ");
+  return [sight, web, read, memo, set].filter(Boolean).join(" · ");
 }
 
 function onAi({ id, kind, text }) {
@@ -1784,6 +1793,15 @@ function onAi({ id, kind, text }) {
     r.searched = text === "link" ? "link" : "search";
     chat.searched = true;
     setChip(r, chipFor(r));
+  } else if (kind === "read") {
+    r.read = true;
+    chat.searched = true;
+    setChip(r, chipFor(r));
+  } else if (kind === "searching" || kind === "reading") {
+    // What it asked went out, whether or not anything came back.
+    r[kind] = true;
+    chat.searched = true;
+    setChip(r, chipFor(r));
   } else if (kind === "remember") {
     r.remembered = true;
     setChip(r, chipFor(r));
@@ -1794,6 +1812,7 @@ function onAi({ id, kind, text }) {
     r.ended = true;
     r.error = kind === "error" ? text : null;
     r.refused = kind === "done" && text === "refused";
+    if (r.chip) setChip(r, chipFor(r));
     finishReply(r);
   }
 }
