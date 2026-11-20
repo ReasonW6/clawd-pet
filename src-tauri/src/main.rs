@@ -340,17 +340,11 @@ fn memory_merge(log: Option<memory::ChatLog>, now: String, app: AppHandle) {
 }
 
 /// The pet fell asleep for the first time in a sleep window (`why` "night" or "nap"), or
-/// the settings page asks ("manual"): time to dream about the days so far. The page's
-/// call comes back once that dream is over (or the dream ahead of it in line, and then
-/// it).
+/// the settings page asks ("manual"): time to dream about the days so far. Comes back
+/// once that dream is over (after any ahead of it in line), which the page waits for.
 #[tauri::command]
 async fn memory_dream(day: String, now: String, why: String, app: AppHandle) {
-    let why = memory::Why::parse(&why);
-    if why == memory::Why::Manual {
-        memory::dream(app, day, why, now).await;
-    } else {
-        tauri::async_runtime::spawn(memory::dream(app, day, why, now));
-    }
+    memory::dream(app, day, memory::Why::parse(&why), now).await;
 }
 
 #[tauri::command]

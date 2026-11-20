@@ -145,6 +145,8 @@ struct State {
     version: u64,
     /// The day of the last dream that went through.
     last_dream: String,
+    /// The day of the last night's dream that went through.
+    last_night: String,
     /// Why the last rewrite of the note failed, until one goes through.
     last_error: String,
     /// Rewrites in a row that left the memos (`MAX_UNMERGED`).
@@ -295,8 +297,9 @@ pub fn event(kind: &str, detail: &Value, day: &str) -> Reply {
             reply.catch_up = st.pending.iter().any(|(d, v)| d.as_str() < day && !v.is_empty());
         }
         // A day with nothing counted ("day" is only the pet starting) gives a dream
-        // nothing to go over.
+        // nothing to go over. What changed above (a new day, milestones) is still kept.
         if !matches!(kind, "task" | "rough" | "git" | "late" | "petted" | "grumpy" | "chat" | "holiday") {
+            s.dirty = true;
             return;
         }
         let d = st.pending.entry(day.to_owned()).or_default();
@@ -767,10 +770,13 @@ pub async fn dream(app: AppHandle, today: String, why: Why, now: String) {
                 st.dreaming.clear();
                 // A catch-up comes the morning after a night's dream when the user was
                 // up past midnight: what that dream prepared for the morning stays.
-                // Older topics don't.
-                let last_night = day_number(&st.last_dream).zip(day_number(&today)).is_some_and(|(l, t)| l + 1 == t);
+                // Older topics don't, nor a nap's or the button's.
+                let last_night = day_number(&st.last_night).zip(day_number(&today)).is_some_and(|(l, t)| l + 1 == t);
                 let keep = why == Why::CatchUp && last_night && !st.topics.is_empty();
                 st.last_dream = today.clone();
+                if why == Why::Night {
+                    st.last_night = today.clone();
+                }
                 let topics: Vec<Topic> = v["topics"]
                     .as_array()
                     .into_iter()

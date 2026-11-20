@@ -1500,7 +1500,8 @@ function mergeChat() {
   if (!memOn()) return;
   invoke("memory_merge", {
     // Replies may tell what was on the screen or on a page: only the user's words go then.
-    log: { turns: chat.log, private: chat.looked || chat.searched, opener: chat.opener },
+    // A question still being answered leaves with nothing to show for it.
+    log: { turns: chat.reply && !chat.reply.finished ? chat.log.slice(0, -1) : chat.log, private: chat.looked || chat.searched, opener: chat.opener },
     now: nowText(),
   });
 }
@@ -1707,7 +1708,9 @@ function sendChat(m) {
   Object.assign(r, { full: "", shown: "", buffer: "", chip: null, text: null, looked: false, blind: false, searched: null, remembered: false, ended: false, error: null });
   r.body.append(dots());
   chat.reply = r;
-  if (!chat.log.some((m) => m.role === "user")) remember("chat");
+  // Once a chat, even if its first question goes unanswered and out of the log.
+  if (!chat.counted) remember("chat");
+  chat.counted = true;
   logChat("user", text);
   chat.history.push({ role: "user", text });
   chat.history = chat.history.slice(-CHAT_HISTORY);
