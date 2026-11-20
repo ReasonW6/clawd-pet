@@ -1500,10 +1500,18 @@ function mergeChat() {
   if (!memOn()) return;
   invoke("memory_merge", {
     // Replies may tell what was on the screen or on a page: only the user's words go then.
-    // A question still being answered leaves with nothing to show for it.
-    log: { turns: chat.reply && !chat.reply.finished ? chat.log.slice(0, -1) : chat.log, private: chat.looked || chat.searched, opener: chat.opener },
+    log: { turns: mergedTurns(), private: chat.looked || chat.searched, opener: chat.opener },
     now: nowText(),
   });
+}
+
+/** The chat's log for memory. A reply still coming leaves its question out; one that has
+ *  all come in and is only being typed out goes in with it. */
+function mergedTurns() {
+  const r = chat.reply;
+  if (!r || r.finished) return chat.log;
+  if (r.ended && !r.error && !r.refused && r.full.trim()) return [...chat.log, { role: "assistant", text: r.full.trim() }];
+  return chat.log.slice(0, -1);
 }
 
 function logChat(role, text) {

@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{AppHandle, Emitter};
 
@@ -168,6 +168,18 @@ static JOB: OnceLock<tauri::async_runtime::Mutex<()>> = OnceLock::new();
 /// Times everything was forgotten: a rewrite that started before then drops what it
 /// took along (days, memos, the chat) instead of writing it into the emptied memory.
 static FORGETS: AtomicU64 = AtomicU64::new(0);
+/// A dream from the settings page's button is asked for and not over: the page shows it
+/// even if reopened meanwhile, and another click doesn't queue a second one.
+static MANUAL: AtomicBool = AtomicBool::new(false);
+
+/// Holds `MANUAL` for as long as it lives.
+struct Manual;
+
+impl Drop for Manual {
+    fn drop(&mut self) {
+        MANUAL.store(false, Ordering::SeqCst);
+    }
+}
 
 fn cfg() -> Config {
     CONFIG.get().map(|c| c.lock().unwrap().clone()).unwrap_or_default()
@@ -280,10 +292,13 @@ pub fn event(kind: &str, detail: &Value, day: &str) -> Reply {
     }
     with(|s| {
         let st = &mut s.state;
+        let mut changed = false;
         if st.bond.first_met.is_empty() {
             st.bond.first_met = day.to_owned();
+            changed = true;
         }
         if day > st.bond.last_day.as_str() {
+            changed = true;
             st.bond.last_day = day.to_owned();
             st.bond.days += 1;
             let n = known(&st.bond, day);
@@ -299,7 +314,7 @@ pub fn event(kind: &str, detail: &Value, day: &str) -> Reply {
         // A day with nothing counted ("day" is only the pet starting) gives a dream
         // nothing to go over. What changed above (a new day, milestones) is still kept.
         if !matches!(kind, "task" | "rough" | "git" | "late" | "petted" | "grumpy" | "chat" | "holiday") {
-            s.dirty = true;
+            s.dirty |= changed;
             return;
         }
         let d = st.pending.entry(day.to_owned()).or_default();
@@ -711,6 +726,14 @@ pub async fn dream(app: AppHandle, today: String, why: Why, now: String) {
     if !on(&config) {
         return;
     }
+    let manual = if why == Why::Manual {
+        if MANUAL.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        Some(Manual)
+    } else {
+        None
+    };
     let _one = job().lock().await;
     let taken = with(|s| {
         let st = &mut s.state;
@@ -726,16 +749,21 @@ pub async fn dream(app: AppHandle, today: String, why: Why, now: String) {
         }
         let taken = st.dreaming.clone();
         let memos = st.memos.len();
+        // A catch-up comes the morning after a night's dream when the user was up past
+        // midnight: what that dream prepared for the morning stays, and the model isn't
+        // asked for more. Older topics don't, nor a nap's or the button's.
+        let last_night = day_number(&st.last_night).zip(day_number(&today)).is_some_and(|(l, t)| l + 1 == t);
+        let keep = why == Why::CatchUp && last_night && !st.topics.is_empty();
         s.save_state();
-        Some((taken, s.state.bond.clone(), memos, FORGETS.load(Ordering::SeqCst)))
+        Some((taken, s.state.bond.clone(), memos, FORGETS.load(Ordering::SeqCst), keep))
     })
     .flatten();
-    let Some((days, bond, memos, forgets)) = taken else { return };
+    let Some((days, bond, memos, forgets, keep)) = taken else { return };
     dreaming(&app, true);
 
     let nick = config.nickname.trim();
     let persona = ai::persona_prompt(&config.ai);
-    let system = format!(
+    let mut system = format!(
         "你是一只桌宠，现在睡着了，在梦里整理和用户相处的记忆。现在是 {now}。要做两件事：\n\
          1. 更新记忆笔记。给了“刚记下的变更”的话（聊天时记下的），先把它们放进去：新增的放进对应小节，更新的替换旧说法，忘掉的删干净。再挑这段时间值得记住的事，概括着写，别罗列数字：用户的近况（忙到很晚、完成了大任务）写进【最近】，一起经历的事（第一次聊天、过节、认识满多少天这类相处的里程碑）写进【我们之间】。删掉已经过去、不再重要的计划和近况。某件事反复出现，可以概括成习惯写进【喜好与习惯】，但要有记录支持，不要臆测。\n\
          2. 准备最多 {MAX_TOPICS} 句{}topics），像朋友随口一提：接着笔记里的事关心一句、提醒快到的计划、或者就这几天的事说一句。每句都要接着一件具体的事（笔记里的计划、近况、宠物、这几天的经历），直接说事，不用“还记得……吗”“我记得”这种开头，也别感慨时间过得快、说“第一次”“有纪念意义”这类空话。每句一句话，不超过 40 字，用下面人设的口吻；{}不碰健康、感情这类敏感话题，不翻旧账，也别句句都夸。{}没什么好说的就少准备几句。\n\
@@ -750,6 +778,9 @@ pub async fn dream(app: AppHandle, today: String, why: Why, now: String) {
         if nick.is_empty() { String::new() } else { format!("称呼用户时叫“{nick}”；") },
         if why == Why::Nap { "when 都写 \"anytime\"。" } else { "when 写 \"morning\"（适合早上说）或 \"anytime\"。" }
     );
+    if keep {
+        system += "\n这次不用准备 topics（已经有准备好的了），\"topics\" 写成空数组 []。";
+    }
     let days_text = days_text(&days);
     let bond_text = bond_line(&bond, &today);
     let ask = |note: &str, memos: &str| {
@@ -768,11 +799,8 @@ pub async fn dream(app: AppHandle, today: String, why: Why, now: String) {
         match &result {
             Ok(v) => {
                 st.dreaming.clear();
-                // A catch-up comes the morning after a night's dream when the user was
-                // up past midnight: what that dream prepared for the morning stays.
-                // Older topics don't, nor a nap's or the button's.
-                let last_night = day_number(&st.last_night).zip(day_number(&today)).is_some_and(|(l, t)| l + 1 == t);
-                let keep = why == Why::CatchUp && last_night && !st.topics.is_empty();
+                // Unless they were all said meanwhile.
+                let keep = keep && !st.topics.is_empty();
                 st.last_dream = today.clone();
                 if why == Why::Night {
                     st.last_night = today.clone();
@@ -793,6 +821,10 @@ pub async fn dream(app: AppHandle, today: String, why: Why, now: String) {
                     .collect();
                 if !keep && (!topics.is_empty() || v.get("topics").is_some()) {
                     st.topics = topics;
+                    // These aren't last night's any more.
+                    if why != Why::Night {
+                        st.last_night.clear();
+                    }
                 }
             }
             Err(_) => {
@@ -804,6 +836,8 @@ pub async fn dream(app: AppHandle, today: String, why: Why, now: String) {
         s.save_state();
     });
     dreaming(&app, false);
+    // Before the page hears of it.
+    drop(manual);
     match result {
         Ok(_) => changed(&app),
         Err(e) if !e.is_empty() => fail(&app, e),
@@ -866,6 +900,7 @@ pub fn snapshot(day: &str) -> Value {
             "milestones": names,
             "lastDream": st.last_dream,
             "lastError": st.last_error,
+            "dreaming": MANUAL.load(Ordering::SeqCst),
             "topics": st.topics.len(),
             "memos": st.memos.len(),
             "pending": !st.pending.is_empty(),

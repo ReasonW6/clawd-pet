@@ -684,7 +684,10 @@ async function showMemory() {
   noteInfo();
   $("memory-error").hidden = !memory.lastError;
   $("memory-error").textContent = memory.lastError ? `上次整理没成功：${memory.lastError}` : "";
-  if (!dreaming) $("memory-dream").disabled = !on;
+  // Also one asked for before the page was reopened.
+  const busy = dreaming || memory.dreaming;
+  $("memory-dream").textContent = busy ? "整理中…" : "现在整理一次";
+  $("memory-dream").disabled = busy || !on;
 }
 
 function noteInfo() {
