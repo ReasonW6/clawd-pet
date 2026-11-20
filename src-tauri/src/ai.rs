@@ -1652,19 +1652,26 @@ fn trim_link(mut link: &str) -> &str {
 /// be part of the link (a Chinese page name) or not (Chinese right after it); and what
 /// it ends in may be punctuation after it or part of it (`.../Yahoo!`). So every way of
 /// reading it goes in: up to there or on to a space or CJK punctuation, with what it
-/// ends in or without. All of them are in the text as written.
+/// ends in or without. All of them are in the text as written. A "www." in the middle of
+/// something (`user@www.a.com`, `sub.www.a.com`) doesn't start one.
 fn links_in(s: &str) -> Vec<String> {
     // Lower case ASCII only: the same bytes at the same places.
     let lower = s.to_ascii_lowercase();
     let stop = |c: char| c.is_whitespace() || "<>\"'`|{}^\\".contains(c);
     let mut links = Vec::new();
+    let mut had = BTreeSet::new();
     let mut i = 0;
     while let Some(at) = ["https://", "http://", "www."].iter().filter_map(|w| lower[i..].find(w)).min().map(|o| i + o) {
+        let inside = s[..at].chars().last().is_some_and(|c| c.is_ascii_alphanumeric() || ".@-_/:".contains(c));
+        if lower[at..].starts_with("www.") && inside {
+            i = at + 4;
+            continue;
+        }
         let ascii = s[at..].find(|c: char| stop(c) || !c.is_ascii()).map_or(s.len(), |e| at + e);
         let full = s[at..].find(|c: char| stop(c) || cjk_punct(c)).map_or(s.len(), |e| at + e);
         for run in [&s[at..full], &s[at..ascii]] {
             for link in [trim_link(run), run] {
-                if let Some(link) = norm(link).filter(|l| !links.contains(l)) {
+                if let Some(link) = norm(link).filter(|l| had.insert(l.clone())) {
                     links.push(link);
                 }
             }
@@ -1793,16 +1800,17 @@ impl Ask {
 /// Searches the web through Exa, with the user's key or (empty) without one: lite and
 /// auto through its MCP server, the deep searches (only with a key) through its API.
 /// Gives back the results laid out for the model, at most `limit` characters of them,
-/// and the pages they came from. What goes wrong comes back as words for the model,
-/// which tells the user.
-async fn exa_search(key: &str, ask: &Ask, limit: usize) -> Result<(String, Vec<String>), String> {
-    let (text, urls) = if ask.deep() {
+/// the pages they came from, and whether those are sure to be results (`lay_out`). What
+/// goes wrong comes back as words for the model, which tells the user.
+async fn exa_search(key: &str, ask: &Ask, limit: usize) -> Result<(String, Vec<String>, bool), String> {
+    let (text, urls, sure) = if ask.deep() {
         let mut contents = json!({ "highlights": { "maxCharacters": RESULT_CHARS } });
         if ask.fresh {
             contents["maxAgeHours"] = 1.into();
         }
         let body = json!({ "query": ask.query, "type": ask.mode, "numResults": ask.count, "contents": contents });
-        lay_out_results(&exa_rest(key, &body).await?, limit)
+        let (text, urls) = lay_out_results(&exa_rest(key, &body).await?, limit);
+        (text, urls, true)
     } else {
         let mut args = json!({
             "query": ask.query,
@@ -1819,34 +1827,50 @@ async fn exa_search(key: &str, ask: &Ask, limit: usize) -> Result<(String, Vec<S
     };
     if text.trim().is_empty() {
         let hint = if ask.mode == "lite" { "lite 只查缓存，可以换 mode=auto 再搜一次。" } else { "" };
-        return Ok((format!("没搜到相关的网页。{hint}"), urls));
+        return Ok((format!("没搜到相关的网页。{hint}"), urls, sure));
     }
     let note = if ask.no_deep { "（现在没有 deep，这次按 auto 搜的）\n" } else { "" };
-    Ok((format!("{note}{text}"), urls))
+    Ok((format!("{note}{text}"), urls, sure))
 }
 
 /// Reads whole pages through Exa, at most `each` characters of every one. Gives back
-/// what they say and the links written out in them.
-async fn exa_fetch(key: &str, urls: &[String], each: usize) -> Result<(String, Vec<String>), String> {
+/// what they say, the links written out in them, and how many pages came through: Exa
+/// tells of a page it couldn't get in a line of its own ("Error fetching <url>: ...")
+/// and still answers for the rest. None came through (or nothing at all), it went wrong.
+async fn exa_fetch(key: &str, urls: &[String], each: usize) -> Result<(String, Vec<String>, usize), String> {
     let text = exa_tool(key, "web_fetch_exa", json!({ "urls": urls, "maxCharacters": each }), "读网页").await?;
+    let read = pages_read(&text, urls.len());
     if text.trim().is_empty() {
-        return Ok(("网页是空的，什么也没读到。".into(), Vec::new()));
+        return Err("网页是空的，什么也没读到。照实告诉用户这次没读到。".into());
+    }
+    if read == 0 {
+        return Err(format!("读网页失败了：{}。照实告诉用户这次没读到。", clip(text.trim(), 200)));
     }
     let text = clip(&text, each * urls.len());
     let links = links_in(&text);
-    Ok((text, links))
+    Ok((text, links, read))
+}
+
+/// Of `asked` pages, how many came through, by Exa's "Error fetching" lines for the rest.
+fn pages_read(text: &str, asked: usize) -> usize {
+    asked.saturating_sub(text.lines().filter(|l| l.trim_start().starts_with("Error fetching ")).count())
 }
 
 /// Search results as Exa gives them (`{"results": [...]}`), laid out for the model; or,
 /// if that's not what came, the text as it is, with the pages from its "URL:" lines.
-fn lay_out(text: &str, limit: usize) -> (String, Vec<String>) {
+/// Those may be in what a page says as well as above it, so they are kept as if from a
+/// page (`false`): they don't open once the chat has looked at the screen (`SEEN`).
+fn lay_out(text: &str, limit: usize) -> (String, Vec<String>, bool) {
     match serde_json::from_str::<Value>(text) {
-        Ok(v) if v["results"].is_array() => lay_out_results(&v, limit),
+        Ok(v) if v["results"].is_array() => {
+            let (text, urls) = lay_out_results(&v, limit);
+            (text, urls, true)
+        }
         _ => {
             // Only the pages the model gets to see.
             let text = clip(text, limit);
             let urls = text.lines().filter_map(|l| l.trim().strip_prefix("URL:")).filter_map(norm).collect();
-            (text, urls)
+            (text, urls, false)
         }
     }
 }
@@ -2298,11 +2322,11 @@ async fn converse(app: &AppHandle, id: u64, chat: u64, t: &Target, system: &str,
                         emit(app, id, "searching", "");
                         let r = exa_search(key, &ask, SEARCH_CHARS.min(TURN_CHARS.saturating_sub(used))).await;
                         // Only a search that came back counts toward the limits and the mark.
-                        r.map(|(text, urls)| {
+                        r.map(|(text, urls, sure)| {
                             calls += 1;
                             deeps += u32::from(ask.deep());
                             used += text.chars().count();
-                            seen_add(chat, urls, true);
+                            seen_add(chat, urls, sure);
                             out.searched("search");
                             Output::Text(text)
                         })
@@ -2345,8 +2369,9 @@ async fn converse(app: &AppHandle, id: u64, chat: u64, t: &Target, system: &str,
                         emit(app, id, "reading", "");
                         let each = PAGE_CHARS.min((TURN_CHARS.saturating_sub(used)) / take.len());
                         match exa_fetch(key, take, each).await {
-                            Ok((text, urls)) => {
-                                let n = take.len() as u32;
+                            // Only the pages that came through count.
+                            Ok((text, urls, read)) => {
+                                let n = read as u32;
                                 pages += n;
                                 calls += n;
                                 used += text.chars().count();
@@ -2640,6 +2665,9 @@ mod tests {
                 "https://bar.io/y**",
             ]
         );
+        // A "www." in the middle of something isn't a link; after Chinese it is.
+        assert!(links_in("mail user@www.a.com, see sub.www.b.com or x/www.c.com").is_empty());
+        assert_eq!(links_in("看www.d.com"), ["https://www.d.com"]);
         // What a link the user sent ends in may be part of it.
         assert_eq!(links_in("看 https://en.wikipedia.org/wiki/Yahoo! 这个"), ["https://en.wikipedia.org/wiki/Yahoo", "https://en.wikipedia.org/wiki/Yahoo!"]);
         // A "www." inside a link isn't taken again.
@@ -2706,21 +2734,32 @@ mod tests {
             { "url": "https://a.com/1", "title": "A", "publishedDate": "2026-11-18T00:00:00Z", "highlights": [long] },
             { "url": "https://b.com/2", "title": "B", "highlights": ["short"] },
         ] });
-        let (text, urls) = lay_out(&v.to_string(), SEARCH_CHARS);
+        let (text, urls, sure) = lay_out(&v.to_string(), SEARCH_CHARS);
+        assert!(sure);
         assert!(text.contains("网址：https://a.com/1") && text.contains("日期：2026-11-18") && text.contains("short"));
         assert!(text.chars().count() < 2 * RESULT_CHARS);
         assert_eq!(urls, ["https://a.com/1", "https://b.com/2"]);
         // Out of room after the first: the second doesn't go in, nor does its page.
-        let (text, urls) = lay_out(&v.to_string(), 500);
+        let (text, urls, _) = lay_out(&v.to_string(), 500);
         assert!(text.chars().count() <= 501 && !text.contains("b.com"));
         assert_eq!(urls, ["https://a.com/1"]);
         // Cut off before its link: the page doesn't go in.
-        let (_, urls) = lay_out(&v.to_string(), 8);
+        let (_, urls, _) = lay_out(&v.to_string(), 8);
         assert!(urls.is_empty());
         // Not what Exa usually sends: as it is, with the pages from its URL lines.
-        let (text, urls) = lay_out("Title: X\nURL: https://c.com/x\nHighlights: y", 100);
+        // They may come from what a page says, so they're kept as from a page.
+        let (text, urls, sure) = lay_out("Title: X\nURL: https://c.com/x\nHighlights: y", 100);
+        assert!(!sure);
         assert!(text.starts_with("Title: X"));
         assert_eq!(urls, ["https://c.com/x"]);
+    }
+
+    #[test]
+    fn only_pages_read_count() {
+        let text = "# Blog\nURL: https://a.com/\n\nhello\n\nError fetching https://a.com/x: CRAWL_NOT_FOUND";
+        assert_eq!(pages_read(text, 2), 1);
+        assert_eq!(pages_read("Error fetching https://a.com/x: CRAWL_NOT_FOUND", 1), 0);
+        assert_eq!(pages_read("# Blog\nURL: https://a.com/\nhello", 1), 1);
     }
 
     #[test]
