@@ -295,7 +295,8 @@ h3 {
   min-width: 0;
 }
 
-.text small:empty {
+.text small:empty,
+.text small:has(> a[hidden]:only-child) {
   display: none;
 }
 

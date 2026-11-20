@@ -129,7 +129,8 @@ function openDropdown(select, button) {
     for (const option of child.children) add(option, group);
   }
   // Keyboard: the arrows move a mark, Enter picks it.
-  let marked = -1;
+  // Unshown at first, but the arrows move on from the selected one.
+  let marked = items.findIndex((item) => item.classList.contains("selected"));
   const mark = (i) => {
     items[marked]?.classList.remove("marked");
     marked = i;
@@ -149,6 +150,8 @@ function openDropdown(select, button) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") step(e.key === "ArrowDown" ? 1 : -1);
     else if (e.key === "Enter" && items[marked] && !items[marked].hidden) pick(items[marked].value);
     else if (e.key === "Escape") closeDropdown(true);
+    // From the button, so that Tab goes on to the control after it.
+    else if (e.key === "Tab") return closeDropdown(true);
     else return;
     e.preventDefault();
   };
@@ -533,6 +536,11 @@ async function initAi() {
   const field = (id, key) => {
     $(id).oninput = () => {
       profile()[key] = $(id).value.trim();
+      // Models fetched from the old address may not be at the new one.
+      if (key === "baseUrl" && fetchedModels) {
+        fetchedModels = null;
+        renderModels();
+      }
       save();
     };
   };
@@ -682,7 +690,8 @@ function showAi() {
   $("ai-key").placeholder = p.needsKey ? "必填" : "不需要就留空";
   $("ai-key-link").hidden = !p.keyUrl;
   $("ai-base").value = mine.baseUrl;
-  $("ai-base").placeholder = p.baseUrl || "如 https://example.com/v1";
+  $("ai-base").placeholder = p.baseUrl || "必填，如 https://example.com/v1";
+  $("ai-fetch").disabled = false; // a fetch for the provider before is ignored when it comes back
   $("ai-model-note").textContent = "";
   $("ai-model-note").classList.remove("bad");
   $("ai-model-input").hidden = true;
@@ -772,8 +781,8 @@ function renderModels() {
 
 async function fetchModels() {
   const [button, note] = [$("ai-fetch"), $("ai-model-note")];
-  // What the list is for: the provider, and for one of the user's own, its kind.
-  const which = () => `${provider().id} ${provider().mine?.kind ?? ""}`;
+  // What the list is for: the provider, its address, and for one of the user's own, its kind.
+  const which = () => `${provider().id} ${provider().mine?.kind ?? ""} ${profile().baseUrl}`;
   const asked = which();
   button.disabled = true;
   note.classList.remove("bad");
