@@ -839,15 +839,15 @@ fn explain(f: Fail, t: &Target) -> String {
     let reasoning = !t.level.is_empty() && about_reasoning(&f, &t.model);
     let mut s = describe(f);
     if pair {
-        s += "。DeepSeek 关掉思考时不让看屏幕和它自带的搜索同时用：在设置的「AI 聊天」里给推理换一档，或者改用 Exa 搜索";
+        s += "。DeepSeek 关掉思考时不让看屏幕和它自带的搜索同时用：在设置的「AI 聊天 › 服务商与模型」里给推理换一档，或者在「AI 聊天」里改用 Exa 搜索";
     } else if reasoning {
-        s += "。可能是这个模型不支持这档推理：在设置的「AI 聊天」里换一档，或者选「默认」";
+        s += "。可能是这个模型不支持这档推理：在设置的「AI 聊天 › 服务商与模型」里换一档，或者选「默认」";
     }
     s
 }
 
 /// A reply cut off at the output limit, usually by long thinking.
-const TRUNCATED: &str = "回复到了输出长度上限，被截断了（多半是想得太久）。在设置的「AI 聊天」里把推理调低一档再试";
+const TRUNCATED: &str = "回复到了输出长度上限，被截断了（多半是想得太久）。在设置的「AI 聊天 › 服务商与模型」里把推理调低一档再试";
 
 fn clip(s: &str, n: usize) -> String {
     if s.chars().count() > n {

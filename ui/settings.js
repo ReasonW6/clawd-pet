@@ -77,7 +77,11 @@ function dropdown(select) {
       show();
     },
   });
-  new MutationObserver(show).observe(select, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
+  // An open list was made from the options as they were: it goes once they change.
+  new MutationObserver(() => {
+    if (dropped?.select === select) closeDropdown();
+    show();
+  }).observe(select, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
   button.onclick = () => (dropped?.select === select ? closeDropdown() : openDropdown(select, button));
   // The arrows open it, as they would a select.
   button.onkeydown = (e) => {
@@ -165,6 +169,10 @@ function openDropdown(select, button) {
   }
   pop.append(list);
   pop.tabIndex = -1;
+  // Tabbing away closes it; the button's own click does that itself.
+  pop.addEventListener("focusout", (e) => {
+    if (!pop.contains(e.relatedTarget) && e.relatedTarget !== button) closeDropdown();
+  });
   document.body.append(pop);
 
   // Below the button, or above it where there is more room there.
@@ -188,10 +196,12 @@ function openDropdown(select, button) {
 /** `refocus`: give the focus back to the button, as after Escape. */
 function closeDropdown(refocus = false) {
   if (!dropped) return;
-  dropped.pop.remove();
-  dropped.button.classList.remove("open");
-  if (refocus) dropped.button.focus();
+  // Cleared first: removing the list may lose it the focus, which closes it again.
+  const { pop, button } = dropped;
   dropped = null;
+  pop.remove();
+  button.classList.remove("open");
+  if (refocus) button.focus();
 }
 
 // Clicking elsewhere, scrolling the page or leaving the window closes the list.
@@ -215,6 +225,16 @@ for (const tab of document.querySelectorAll("nav button")) {
 
 for (const back of document.querySelectorAll("a.back")) {
   back.onclick = () => showTab(back.dataset.back);
+}
+
+// The links between pages have no href, so Tab and Enter reach them this way.
+for (const link of document.querySelectorAll("a.back, a.row.more")) {
+  link.tabIndex = 0;
+  link.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    link.click();
+  });
 }
 
 /** Shows a tab; a page within one (`memory` in `ai`) keeps its tab lit in the sidebar. */
@@ -489,7 +509,8 @@ const profile = () => (config.ai.profiles[provider().id] ??= { apiKey: "", baseU
 function migrateCustom() {
   for (const [kind, name] of [["custom", "自定义"], ["custom-anthropic", "自定义（Anthropic）"]]) {
     const old = config.ai.profiles[kind];
-    if (config.ai.provider !== kind && !old?.baseUrl) continue;
+    // Anything set (a key alone too) would be out of reach once the templates aren't listed.
+    if (config.ai.provider !== kind && !Object.values(old ?? {}).some(Boolean)) continue;
     const mine = { id: `my-${kind}-${Date.now().toString(36)}`, name, kind };
     config.ai.customProviders.push(mine);
     if (old) config.ai.profiles[mine.id] = old;
@@ -519,7 +540,7 @@ async function initAi() {
   field("ai-base", "baseUrl");
   $("ai-name").oninput = () => {
     provider().mine.name = $("ai-name").value.trim();
-    renderProviders();
+    $("ai-provider").selectedOptions[0].textContent = provider().name;
     showSummary();
     save();
   };
@@ -546,6 +567,7 @@ async function initAi() {
   };
   $("ai-model-input").oninput = () => {
     profile().model = $("ai-model-input").value.trim();
+    renderModels(); // the list above shows it as it is typed
     modelChanged();
   };
   $("ai-model-input").onblur = () => {
