@@ -142,7 +142,7 @@
         <h2>AI 聊天</h2>
         <div class="card">
           <label class="row">
-            <span class="text"><b>和它聊天</b><small>开启后双击它，头顶会弹出对话框；聊天开着时单击它接着说。聊天记录不保存，关掉就没了</small></span>
+            <span class="text"><b>和它聊天</b><small>开启后双击它，头顶会弹出对话框；聊天开着时单击它接着说。聊天原文不保存，关掉就没了；打开下面的「记忆」后，它会把值得记住的事整理进一篇笔记</small></span>
             <input type="checkbox" class="switch" data-key="ai.enabled" />
           </label>
         </div>
@@ -224,7 +224,52 @@
             </div>
           </div>
         </div>
-        <p class="hint">聊天内容和截图只发给你选的服务商，桌宠自己不存。开了联网搜索时，模型写的搜索词会交给搜索的一方（服务商自带的由服务商去搜，Exa 的发给 Exa），看过屏幕后的搜索词里可能有屏幕上的字，比如报错信息。API 密钥明文保存在本机的 <code>~/.clawd-pet/config.json</code>。走系统代理设置，本机地址除外；改了代理不用重启。</p>
+        <h3>记忆</h3>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>记住我们的事</b><small>聊天时，它会把值得记住的事（你的近况、喜好、约定）随手记下，回复上标着「记下了」，关掉聊天后整理进一篇笔记；只是闲聊就什么都不记，也不多花钱。夜里睡着时，再把这一天一起经历的事整理一遍</small></span>
+            <input type="checkbox" class="switch" data-key="memory.enabled" />
+          </label>
+          <label class="row">
+            <span class="text"><b>主动提起</b><small>睡觉时准备几句想对你说的话，早安或闲下来时冒出来，一天最多两三次；点一下就能接着聊</small></span>
+            <input type="checkbox" class="switch" data-key="memory.proactive" />
+          </label>
+          <a class="row more" id="memory-open">
+            <span class="text"><b>查看记忆</b><small id="memory-summary"></small></span>
+            <i class="chevron right"></i>
+          </a>
+        </div>
+
+        <p class="hint">聊天内容和截图只发给你选的服务商，桌宠自己不存原文（打开「记忆」后只留一篇整理过的笔记）。开了联网搜索时，模型写的搜索词会交给搜索的一方（服务商自带的由服务商去搜，Exa 的发给 Exa），看过屏幕后的搜索词里可能有屏幕上的字，比如报错信息。API 密钥明文保存在本机的 <code>~/.clawd-pet/config.json</code>。走系统代理设置，本机地址除外；改了代理不用重启。</p>
+      </section>
+
+      <!-- ------------------------------------------------ 记忆（AI 聊天的子页面） -->
+      <section id="tab-memory">
+        <h2><a class="back" id="memory-back">‹ AI 聊天</a> 记忆</h2>
+        <p class="hint" id="memory-off" hidden>要先在「AI 聊天」里打开「和它聊天」和「记住我们的事」，它才会记事。</p>
+        <div class="card">
+          <div class="row">
+            <span class="text"><b id="memory-known"></b><small id="memory-counts"></small></span>
+          </div>
+          <div class="row" id="memory-milestones-row">
+            <span class="text"><b>里程碑</b><small id="memory-milestones"></small></span>
+          </div>
+        </div>
+
+        <h3>记忆笔记</h3>
+        <div class="card">
+          <div class="row stack">
+            <span class="text"><small>它记得的关于你的事，每次聊天都会带上。可以直接改，改完点别处就保存；也可以在聊天里对它说“记住……”“忘掉……”</small></span>
+            <textarea id="memory-note" rows="14" spellcheck="false" placeholder="还没有记下什么。聊几句，或者在这里写下你想让它知道的事"></textarea>
+            <div class="persona-foot">
+              <small id="memory-note-info"></small>
+              <button id="memory-dream" class="ghost">现在整理一次</button>
+              <button id="memory-forget" class="ghost">全部忘掉</button>
+            </div>
+          </div>
+          <div id="memory-error" class="error" hidden></div>
+        </div>
+        <p class="hint">笔记只记你自己说的事和你们一起经历的事，不记聊天原文、网页和截图里的内容，也不记证件号、账号密码这类信息；健康、信仰这类话题，除非你明确让它记住。每次聊天和整理时，笔记会发给你选的服务商，换了服务商就发给新的那家。记下的事马上存好，退出了也不丢；用不了工具的模型没法随手记，要等聊天关掉后整体看一遍，退出时还开着的那次聊天就来不及了。文件在 <code>~/.clawd-pet/memory</code>。</p>
       </section>
 
       <!-- ------------------------------------------------ 系统 -->

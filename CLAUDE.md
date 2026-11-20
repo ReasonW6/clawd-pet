@@ -36,7 +36,7 @@ cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得�
 
 Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
-- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`。
+- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）和 `config`（只在聊天改了设置时）；只发给主窗口的还有 `dream`（做梦开始、结束）。
 - 前端调用的命令都在 `main.rs` 的 `generate_handler!` 里注册；`window.__TAURI__` 是全局对象（`withGlobalTauri`），前端没有打包器和 import。
 
 ### Claude Code 联动
@@ -57,6 +57,27 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 - 子代理的事件带 `agent_id`（会话 id 和主线程一样）。子代理自己的 `UserPromptSubmit` 不算会话的新一轮；会话已经回到待命时，子代理的 `PreToolUse` / `PostToolUse` / `PostToolUseFailure` 也不再让它忙起来：后台子代理会比这一轮活得久，中断后也可能还有零星事件。
 - 嵌套会话（`desktop_sessions.rs`）：桌面版的 /btw 分支、侧会话在 Claude Code 里是独立的会话，hook 不带来源。桌面版自己的会话记录 `<数据目录>\claude-code-sessions\<账号>\<组织>\local_<应用 id>.json` 里有：`cliSessionId` 是 hook 里的 `session_id`，`spawnedFrom.sessionId` 是来源会话的应用 id。数据目录在商店版是 `%LOCALAPPDATA%\Claude-Data\<包名>`，否则是 `%APPDATA%\Claude`。`cliSessionId` 总在文件开头，所以只读每个文件的前 256 字节来找；还没有记录的会话，全部记录最多每 5 秒重新搜一遍。来源会话被 rewind 后 `cliSessionId` 会变，所以每 30 秒重读一次它的文件开头。找到的来源作为 `_parent` / `_parent_title` / `_parent_cwd` 加进事件。前端用 `rootOf` 把一家子归到最上面那个会话名下，一家子都停了才庆祝完成。用过桌面版开会话的工具（`SPAWN_TOOLS`）的那一轮，结束后先等 8 秒，让刚开的会话报到。这是桌面版的内部格式，读不到就当没有来源。
 - 点完成气泡切到桌面版会话（`claude_app.rs`）：桌面版的 `claude://code/<id>` 被功能开关关着，要的也是应用内部的 id，所以用 UI Automation 在它的侧边栏里按会话标题找 Invoke 按钮去点（行的名字是「标题」或「标题 运行中」这样带状态的）。依赖 `windows` crate（和 tauri 用的同一版本），只用于这里的 COM 调用；其余 Win32 调用仍用 `windows-sys`。`SetForegroundWindow` 只在桌宠刚被点过、自己是前台时才管用，所以 `focus_claude` 要在点击处理里同步调用，不能等。
+
+### 记忆（`memory.rs`）
+
+`ai.enabled && memory.enabled` 都开着才工作；关着时前端不发事件、后端也不写文件、不发请求（后端收到命令和应用结果前都会再查一遍）。
+
+- 存储在 `~/.clawd-pet/memory/`：`note.md` 是一篇固定篇幅（约 1200 字）、分五节的笔记，每次聊天整篇放进系统提示（`for_chat` → `ai::start` 的 `memory` 参数）；`state.json` 是关系（`Bond`）、上次做梦以来按天的事件计数（`pending`）、要主动提起的话（`topics`）。状态在内存里改，置脏后由 `main.rs` 的 2 秒保存循环和退出时 `flush`；写盘一律先写 `.tmp` 再 rename。
+- 一天从 05:00 算起。Cargo 里没有 chrono，逻辑日期由前端（`memDay()`）算好随每个命令传来；后端收到某天的第一条事件时数天数、判里程碑。
+- 笔记的改写都走 `ai::complete`：复用聊天的 `send`（同样流式，`Speaker` 不带 `app` 就不往前端发），不带工具和搜索，推理取该模型最低档。`each_event` 用 `live` 判断要不要继续，所以新开、关掉聊天不会掐断它。
+  - 聊天中：记忆开着、模型又不在 `NO_TOOLS` 里时，`Kit` 多一个 `remember` 工具（`memo`），由模型自己判断要不要记；后端 `memory::memo` 把变更追加到 `memos` 并马上写盘，发 `ai { kind: "remember" }`。拼记忆段时 `memos` 附在笔记后面。模型拒绝工具时随截图工具一起去掉。
+  - `merge`：前端在聊天关闭时调 `memory_merge`，带上 `chat.log`。`memos` 不为空就合进笔记；模型用不了工具（`ai::without_tools`）时改看聊天记录，先过本地筛选（`worth`）。启动时 `memos` 不为空也补做一次。看过屏幕或上过网的聊天只交用户的话。
+  - 合并和做梦都把当时的 `memos` 一起交给模型，应用结果时在同一把锁里删掉这几条。
+  - `dream`（`Why`）：每个睡眠窗口（午睡、夜里）第一次睡着时（`fallAsleep`），或新的一天第一条事件到来而还有更早的日子没整理时（补做，只整理更早的日子）。没有新的天数也没有 `memos` 就不调模型（只有 `"day"` 这类什么都没数的事件不算新的一天，`event` 不为它建 `pending` 条目）；每次触发只试一次（`rewrite` 内部重试一遍）。午睡的 topics 只有 `anytime`。做梦中的天数先挪到 `dreaming`，失败或中途退出就并回 `pending`。设置页的「现在整理一次」等 `memory_dream` 返回（命令等梦做完才返回）；手动整理同时只有一个（`MANUAL`），它在跑也写在 `memory_get` 里，重开设置页也看得到。真正调模型时前后各发一次 `dream`（`true` / `false`）给主窗口，桌宠睡着的话按睡姿轮播 `ANIMS.dreamNight` / `dreamNap`，结束后再演 90 秒。
+  - 同一时间只跑一个改写（`JOB`）；拿快照时记下 `version`，回来发现用户在设置里改过笔记就基于新笔记重做一次。`version` 只增不减，「全部忘掉」也不归零。「全部忘掉」还会让 `FORGETS` 加一；合并和做梦在拿到要整理的内容时记下它，改写时发现变了就放弃，不把忘掉前拿到的东西写回去。
+  - 模型回复没有新笔记（`{"changed": false}`）时 `memos` 留着，等下一次合并或做梦；连着 `MAX_UNMERGED` 次都没合进去就丢掉（新记一条重新计数）。补做的梦紧接着昨晚的夜里那次梦（`last_night`）时，不换掉那次准备的、还没说的 topics，也不让模型再写；之后别的梦换掉了 topics，就清掉 `last_night`。
+- 笔记用中立的第三人称写，不带人设口吻；只有 `topics` 按做梦时的人设写，并记下人设 id，换了人设就丢掉。
+- 称呼和生日以设置为准：`remember` 的说明和整理的提示词都不让记这两样，笔记里已有的在下次整理时删掉；聊天的系统提示直接从配置带上它们。聊天里改称呼走 `change_setting`。
+- 事件只记计数、时长和项目文件夹名，不记会话标题（桌面版的标题是从用户的话里生成的）。
+
+### 聊天改设置（`change_setting`）
+
+模型支持工具调用时（和记忆开关无关），`Kit` 带 `change_setting { key, value }`，由 `main.rs` 的 `change_setting` 执行：只认白名单里的几项（`nickname`、`birthday`、`chatty`、`liveliness`、`sedentaryMinutes`、`sleepEnabled`、`size`），按设置页的范围严格校验，再和 `set_config` 一样经 `apply_config` 生效（窗口大小、保存、发 `config`）。设置页自己保存的 `config` 只发给主窗口；聊天改的发给所有窗口，设置页对照它记下的后端配置（`known`），只同步聊天改了的项（`onConfig`），免得之后保存时把改动盖掉，也不盖掉还没保存的输入。工具结果告诉模型改了什么，前端在回复上只显示「⚙️ 改了设置」；一轮最多 3 次；模型用不了工具时，提示词让它请用户去设置里改。
 
 ### 前端（`ui/`）
 

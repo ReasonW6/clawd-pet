@@ -1,5 +1,5 @@
 const { invoke } = window.__TAURI__.core;
-const { emitTo } = window.__TAURI__.event;
+const { emitTo, listen } = window.__TAURI__.event;
 const { getCurrentWindow } = window.__TAURI__.window;
 
 const $ = (id) => document.getElementById(id);
@@ -16,10 +16,14 @@ const set = (path, value) => {
 
 let saveTimer;
 let savedTimer;
+/** The config as the backend last had it, by this page's saves and the chat's changes:
+ *  a chat change shows only in the keys it changed, not over an edit still unsaved. */
+let known;
 
 function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
+    known = structuredClone(config);
     await invoke("set_config", { config });
     $("saved").classList.add("show");
     clearTimeout(savedTimer);
@@ -52,11 +56,15 @@ $("win-close").onclick = () => getCurrentWindow().close();
 // ---------------------------------------------------------------- tabs
 
 for (const tab of document.querySelectorAll("nav button")) {
-  tab.onclick = () => {
-    document.querySelectorAll("nav button, main section").forEach((e) => e.classList.remove("active"));
-    tab.classList.add("active");
-    $(`tab-${tab.dataset.tab}`).classList.add("active");
-  };
+  tab.onclick = () => showTab(tab.dataset.tab);
+}
+
+/** Shows a tab; a page within one (`memory` in `ai`) keeps its tab lit in the sidebar. */
+function showTab(id, under = id) {
+  document.querySelectorAll("nav button, main section").forEach((e) => e.classList.remove("active"));
+  document.querySelector(`nav button[data-tab="${under}"]`).classList.add("active");
+  $(`tab-${id}`).classList.add("active");
+  document.querySelector("main").scrollTop = 0;
 }
 
 // ---------------------------------------------------------------- simple fields
@@ -100,15 +108,39 @@ function bindBirthday() {
   month.append(new Option("不设置", ""));
   for (let m = 1; m <= 12; m++) month.append(new Option(`${m} 月`, String(m).padStart(2, "0")));
   for (let d = 1; d <= 31; d++) day.append(new Option(`${d} 日`, String(d).padStart(2, "0")));
-  const [m, d] = config.birthday ? config.birthday.split("-") : ["", "01"];
-  month.value = m;
-  day.value = d;
-  day.hidden = !m;
+  showBirthday();
   month.onchange = day.onchange = () => {
     day.hidden = !month.value;
     config.birthday = month.value ? `${month.value}-${day.value}` : "";
     save();
   };
+}
+
+function showBirthday() {
+  const [month, day] = [$("birth-month"), $("birth-day")];
+  const [m, d] = config.birthday ? config.birthday.split("-") : ["", "01"];
+  month.value = m;
+  day.value = d;
+  day.hidden = !m;
+}
+
+/** What the chat may change (`change_setting` in main.rs). */
+const CHAT_KEYS = ["nickname", "birthday", "chatty", "liveliness", "sedentaryMinutes", "sleepEnabled", "size"];
+
+/** The chat changed a setting (the `config` event comes only for that): the page shows
+ *  it, and saves on top of it. */
+function onConfig(c) {
+  for (const key of CHAT_KEYS) {
+    if (c[key] === known[key]) continue;
+    config[key] = c[key];
+    const input = document.querySelector(`[data-key="${key}"]`);
+    if (input?.type === "checkbox") input.checked = c[key];
+    else if (input) input.value = c[key];
+  }
+  for (const radio of document.querySelectorAll("input[name=liveliness]")) radio.checked = Number(radio.value) === config.liveliness;
+  showBirthday();
+  refreshOutputs();
+  known = structuredClone(c);
 }
 
 // ---------------------------------------------------------------- sleep windows
@@ -617,6 +649,97 @@ function disarmDelete() {
   $("ai-persona-delete").textContent = "删除";
 }
 
+// ---------------------------------------------------------------- memory
+
+/** The day as memory counts it (as in pet.js): days start at 05:00. */
+function memDay() {
+  const d = new Date(Date.now() - 5 * 3600 * 1000);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+let memory = null;
+let forgetTimer;
+/** The button's dream is under way (its call comes back when it is over). */
+let dreaming = false;
+
+async function showMemory() {
+  memory = await invoke("memory_get", { day: memDay() });
+  if (!memory) return;
+  const on = config.ai.enabled && config.memory.enabled;
+  $("memory-summary").textContent = !on
+    ? "还没打开"
+    : memory.met
+      ? `认识第 ${memory.known} 天 · ${memory.lastDream ? `上次整理 ${memory.lastDream}` : "还没整理过"}`
+      : "还什么都没记";
+  $("memory-off").hidden = on;
+  $("memory-known").textContent = memory.met ? `认识第 ${memory.known} 天` : "还不认识呢";
+  $("memory-counts").textContent = memory.met ? `一起过了 ${memory.days} 天 · 聊过 ${memory.chats} 次 · 一起完成了 ${memory.tasks} 个任务` : "打开记忆后，从下一次见面开始算";
+  $("memory-milestones-row").hidden = !memory.milestones.length;
+  $("memory-milestones").textContent = memory.milestones.map((m) => `${m.name}（${m.day}）`).join("、");
+  const box = $("memory-note");
+  // Off, nothing would keep what is written in it.
+  box.readOnly = !on;
+  // Not while the user is writing in it.
+  if (document.activeElement !== box) box.value = memory.note;
+  noteInfo();
+  $("memory-error").hidden = !memory.lastError;
+  $("memory-error").textContent = memory.lastError ? `上次整理没成功：${memory.lastError}` : "";
+  // Also one asked for before the page was reopened.
+  const busy = dreaming || memory.dreaming;
+  $("memory-dream").textContent = busy ? "整理中…" : "现在整理一次";
+  $("memory-dream").disabled = busy || !on;
+}
+
+function noteInfo() {
+  const n = [...$("memory-note").value.trim()].length;
+  const over = n > memory.noteMax ? "，有点长，下次整理时会压缩" : "";
+  const memos = memory.memos ? `；还有 ${memory.memos} 条刚记下的，关掉聊天后整理进来` : "";
+  $("memory-note-info").textContent = `${n} / ${memory.noteMax} 字${over}${memos}`;
+}
+
+function initMemory() {
+  $("memory-open").onclick = () => showTab("memory", "ai");
+  $("memory-back").onclick = () => showTab("ai");
+  const box = $("memory-note");
+  box.oninput = noteInfo;
+  box.onchange = () => invoke("memory_edit", { op: "save", note: box.value });
+  $("memory-dream").onclick = () => {
+    $("memory-dream").textContent = "整理中…";
+    $("memory-dream").disabled = true;
+    dreaming = true;
+    invoke("memory_dream", { day: memDay(), now: new Date().toLocaleString("zh-CN", { dateStyle: "full", timeStyle: "short", hour12: false }), why: "manual" }).finally(dreamDone);
+  };
+  $("memory-forget").onclick = () => {
+    const b = $("memory-forget");
+    if (!b.classList.contains("armed")) {
+      b.classList.add("armed");
+      b.textContent = "再点一次，全部删掉";
+      clearTimeout(forgetTimer);
+      forgetTimer = setTimeout(disarmForget, 2500);
+      return;
+    }
+    disarmForget();
+    box.value = "";
+    invoke("memory_edit", { op: "forget" });
+  };
+  // Switching memory on or off changes what the page says.
+  for (const key of ["memory.enabled", "ai.enabled"]) document.querySelector(`[data-key="${key}"]`).addEventListener("input", showMemory);
+  listen("memory", () => showMemory());
+  showMemory();
+}
+
+function dreamDone() {
+  dreaming = false;
+  $("memory-dream").textContent = "现在整理一次";
+  $("memory-dream").disabled = !(config.ai.enabled && config.memory.enabled);
+}
+
+function disarmForget() {
+  clearTimeout(forgetTimer);
+  $("memory-forget").classList.remove("armed");
+  $("memory-forget").textContent = "全部忘掉";
+}
+
 // ---------------------------------------------------------------- autostart
 
 async function initAutostart() {
@@ -678,9 +801,11 @@ async function initGallery() {
 async function boot() {
   config = await invoke("get_config");
   config.sys.folders ??= [];
+  known = structuredClone(config);
   bindFields();
   refreshOutputs();
   bindBirthday();
+  listen("config", (e) => onConfig(e.payload));
   renderSleepWindows();
   pathList("folders", "add-folder", () => config.sys.folders);
   initFullscreenExclude();
@@ -688,6 +813,7 @@ async function boot() {
   showHooks(await invoke("hooks_installed"));
   initAutostart();
   initAi();
+  initMemory();
   initGallery();
 }
 
