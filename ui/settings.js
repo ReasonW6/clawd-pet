@@ -16,13 +16,14 @@ const set = (path, value) => {
 
 let saveTimer;
 let savedTimer;
-/** What the last save sent: its echo (the `config` event) is no change from elsewhere. */
-let sent = null;
+/** What each save in flight sent, oldest first: its echo (the `config` event) is no
+ *  change from elsewhere. */
+const sent = [];
 
 function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
-    sent = structuredClone(config);
+    sent.push(structuredClone(config));
     await invoke("set_config", { config });
     $("saved").classList.add("show");
     clearTimeout(savedTimer);
@@ -130,7 +131,10 @@ const CHAT_KEYS = ["nickname", "birthday", "chatty", "liveliness", "sedentaryMin
 function onConfig(c) {
   // The echo of this page's own save holds what was sent, which typing since may have
   // moved on from.
-  if (sent && CHAT_KEYS.every((k) => c[k] === sent[k])) return;
+  if (sent.length && CHAT_KEYS.every((k) => c[k] === sent[0][k])) {
+    sent.shift();
+    return;
+  }
   for (const key of CHAT_KEYS) {
     if (c[key] === config[key]) continue;
     config[key] = c[key];
@@ -660,6 +664,9 @@ function memDay() {
 let memory = null;
 let forgetTimer;
 let dreamTimer;
+/** The dream asked for with the button has begun: one that was under way when it was
+ *  clicked ends first, and isn't it. */
+let dreamStarted = false;
 
 async function showMemory() {
   memory = await invoke("memory_get", { day: memDay() });
@@ -676,6 +683,8 @@ async function showMemory() {
   $("memory-milestones-row").hidden = !memory.milestones.length;
   $("memory-milestones").textContent = memory.milestones.map((m) => `${m.name}（${m.day}）`).join("、");
   const box = $("memory-note");
+  // Off, nothing would keep what is written in it.
+  box.readOnly = !on;
   // Not while the user is writing in it.
   if (document.activeElement !== box) box.value = memory.note;
   noteInfo();
@@ -700,6 +709,7 @@ function initMemory() {
   $("memory-dream").onclick = () => {
     $("memory-dream").textContent = "整理中…";
     $("memory-dream").disabled = true;
+    dreamStarted = false;
     invoke("memory_dream", { day: memDay(), now: new Date().toLocaleString("zh-CN", { dateStyle: "full", timeStyle: "short", hour12: false }), why: "manual" });
     // Back once the dream is done (the "dream" event), or after a while whatever happened.
     clearTimeout(dreamTimer);
@@ -721,7 +731,11 @@ function initMemory() {
   // Switching memory on or off changes what the page says.
   for (const key of ["memory.enabled", "ai.enabled"]) document.querySelector(`[data-key="${key}"]`).addEventListener("input", showMemory);
   listen("memory", () => showMemory());
-  listen("dream", (e) => e.payload || dreamDone());
+  listen("dream", (e) => {
+    if (!dreamTimer) return;
+    if (e.payload) dreamStarted = true;
+    else if (dreamStarted) dreamDone();
+  });
   showMemory();
 }
 

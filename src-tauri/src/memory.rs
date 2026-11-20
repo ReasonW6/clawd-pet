@@ -30,6 +30,10 @@ use tauri::{AppHandle, Emitter};
 
 /// How long the note may get, in characters; a little over is let through.
 const NOTE_MAX: usize = 1200;
+/// Rewrites in a row that may leave the memos where they are before they go anyway: a
+/// model that keeps finding nothing to change for one (forgetting what the note never
+/// had) would have it merged at every launch and every chat's close.
+const MAX_UNMERGED: u32 = 2;
 /// Topics prepared in one dream.
 const MAX_TOPICS: usize = 3;
 /// Milestones in how long they have known each other: (days, id, what the pet says).
@@ -138,6 +142,8 @@ struct State {
     last_dream: String,
     /// Why the last rewrite of the note failed, until one goes through.
     last_error: String,
+    /// Rewrites in a row that left the memos (`MAX_UNMERGED`).
+    unmerged: u32,
 }
 
 struct Store {
@@ -513,11 +519,11 @@ fn fail(app: &AppHandle, e: String) {
 
 /// Rewrites the note with `ask`, given the note it starts from and the memos it takes in
 /// (the first `memos` of them, which go once it's done); tries again once if the user
-/// changed the note meanwhile, and gives up if everything was forgotten. Memos go only
-/// with a new note: a reply that changes nothing leaves them for the next rewrite. Gives
-/// back the reply it went with.
-async fn rewrite(app: &AppHandle, system: &str, memos: usize, ask: impl Fn(&str, &str) -> String) -> Result<Value, String> {
-    let forgets = FORGETS.load(Ordering::SeqCst);
+/// changed the note meanwhile, and gives up if everything was forgotten since `forgets`
+/// (`FORGETS` when the caller took what it goes over). Memos go with a new note; a reply
+/// that changes nothing leaves them for the next rewrite, up to `MAX_UNMERGED` times.
+/// Gives back the reply it went with.
+async fn rewrite(app: &AppHandle, system: &str, memos: usize, forgets: u64, ask: impl Fn(&str, &str) -> String) -> Result<Value, String> {
     for _ in 0..2 {
         let Some((note, version, taken)) = with(|s| (s.note.clone(), s.state.version, memos_text(&s.state.memos[..memos.min(s.state.memos.len())]))) else { return Err(String::new()) };
         let ai_cfg = cfg().ai;
@@ -535,10 +541,17 @@ async fn rewrite(app: &AppHandle, system: &str, memos: usize, ask: impl Fn(&str,
             if s.state.version != version {
                 return Some(false);
             }
+            let taken = memos.min(s.state.memos.len());
             if let Some(n) = note {
-                let taken = memos.min(s.state.memos.len());
                 s.state.memos.drain(..taken);
+                s.state.unmerged = 0;
                 s.save_note(n);
+            } else if taken > 0 {
+                s.state.unmerged += 1;
+                if s.state.unmerged >= MAX_UNMERGED {
+                    s.state.memos.drain(..taken);
+                    s.state.unmerged = 0;
+                }
             }
             s.state.last_error.clear();
             s.dirty = true;
@@ -575,6 +588,8 @@ pub async fn merge(app: AppHandle, log: Option<ChatLog>, now: String) {
         return;
     }
     let log = log.filter(|l| ai::without_tools(&config.ai) && worth(&l.turns));
+    // The chat is from before any forgetting while this waits its turn.
+    let forgets = FORGETS.load(Ordering::SeqCst);
     let _one = job().lock().await;
     let memos = with(|s| s.state.memos.len()).unwrap_or(0);
     if memos == 0 && log.is_none() {
@@ -600,7 +615,7 @@ pub async fn merge(app: AppHandle, log: Option<ChatLog>, now: String) {
         }
         s
     };
-    if let Err(e) = rewrite(&app, &system, memos, ask).await {
+    if let Err(e) = rewrite(&app, &system, memos, forgets, ask).await {
         if !e.is_empty() {
             fail(&app, e);
         }
@@ -697,11 +712,10 @@ pub async fn dream(app: AppHandle, today: String, why: Why, now: String) {
         let taken = st.dreaming.clone();
         let memos = st.memos.len();
         s.save_state();
-        Some((taken, s.state.bond.clone(), memos))
+        Some((taken, s.state.bond.clone(), memos, FORGETS.load(Ordering::SeqCst)))
     })
     .flatten();
-    let Some((days, bond, memos)) = taken else { return };
-    let forgets = FORGETS.load(Ordering::SeqCst);
+    let Some((days, bond, memos, forgets)) = taken else { return };
     dreaming(&app, true);
 
     let nick = config.nickname.trim();
@@ -730,7 +744,7 @@ pub async fn dream(app: AppHandle, today: String, why: Why, now: String) {
             if note.trim().is_empty() { "（空）" } else { note }
         )
     };
-    let result = rewrite(&app, &system, memos, ask).await;
+    let result = rewrite(&app, &system, memos, forgets, ask).await;
     with(|s| {
         if FORGETS.load(Ordering::SeqCst) != forgets {
             return;
@@ -739,6 +753,11 @@ pub async fn dream(app: AppHandle, today: String, why: Why, now: String) {
         match &result {
             Ok(v) => {
                 st.dreaming.clear();
+                // A catch-up comes the morning after a night's dream when the user was
+                // up past midnight: what that dream prepared for the morning stays.
+                // Older topics don't.
+                let last_night = day_number(&st.last_dream).zip(day_number(&today)).is_some_and(|(l, t)| l + 1 == t);
+                let keep = why == Why::CatchUp && last_night && !st.topics.is_empty();
                 st.last_dream = today.clone();
                 let topics: Vec<Topic> = v["topics"]
                     .as_array()
@@ -754,9 +773,6 @@ pub async fn dream(app: AppHandle, today: String, why: Why, now: String) {
                     })
                     .take(MAX_TOPICS)
                     .collect();
-                // A catch-up comes the morning after a night's dream when the user was up
-                // past midnight: what that dream prepared for the morning stays.
-                let keep = why == Why::CatchUp && !st.topics.is_empty();
                 if !keep && (!topics.is_empty() || v.get("topics").is_some()) {
                     st.topics = topics;
                 }

@@ -454,6 +454,7 @@ function onHook(p) {
       feel("down", 3);
       // Already counted at its third failed tool.
       if (s.fails < 3) remember("rough");
+      s.fails = 0;
       playOnce(pick(ANIMS.apiError), { force: true, minMs: 3000 });
       toast(`呜…出错了（${p.error_type || p.error || "unknown"}）`);
       break;
@@ -466,6 +467,8 @@ function onTurnDone(s) {
   s.state = "idle";
   s.subagents = 0;
   s.turnStart = 0;
+  // Not every turn starts with UserPromptSubmit, which clears this too.
+  s.fails = 0;
   // A session it just started in the desktop app takes a moment to report in: give it
   // that before telling whether the family is done.
   const grace = s.spawnedAt + SPAWN_GRACE_MS - now();
