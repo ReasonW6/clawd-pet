@@ -1582,10 +1582,9 @@ fn seen_has(chat: u64, url: &str, looked: bool) -> bool {
     SEEN.lock().is_ok_and(|s| s.0 == chat && s.1.get(url).is_some_and(|sure| *sure || !looked))
 }
 
-/// Whether the chat has pages at all. A page only comes from a page read after one that
-/// was sure, so the answer is the same whether it has looked or not.
-fn seen_any(chat: u64) -> bool {
-    SEEN.lock().is_ok_and(|s| s.0 == chat && !s.1.is_empty())
+/// Whether the chat has a page that may open; `looked` as for `seen_has`.
+fn seen_any(chat: u64, looked: bool) -> bool {
+    SEEN.lock().is_ok_and(|s| s.0 == chat && s.1.values().any(|sure| *sure || !looked))
 }
 
 /// A link as it is kept and compared: http or https only, with the scheme and the host
@@ -1662,7 +1661,7 @@ fn links_in(s: &str) -> Vec<String> {
     let mut had = BTreeSet::new();
     let mut i = 0;
     while let Some(at) = ["https://", "http://", "www."].iter().filter_map(|w| lower[i..].find(w)).min().map(|o| i + o) {
-        let inside = s[..at].chars().last().is_some_and(|c| c.is_ascii_alphanumeric() || ".@-_/:".contains(c));
+        let inside = s[..at].chars().last().is_some_and(|c| c.is_ascii_alphanumeric() || ".@".contains(c));
         if lower[at..].starts_with("www.") && inside {
             i = at + 4;
             continue;
@@ -1788,7 +1787,7 @@ impl Ask {
             Value::String(s) => s.trim().parse().ok(),
             _ => None,
         };
-        let count = count.map_or(10, |n| n.round().clamp(3.0, 20.0) as u32);
+        let count = count.filter(|n| n.is_finite()).map_or(10, |n| n.round().clamp(3.0, 20.0) as u32);
         Ask { query, mode, fresh, count, no_deep }
     }
 
@@ -1839,7 +1838,7 @@ async fn exa_search(key: &str, ask: &Ask, limit: usize) -> Result<(String, Vec<S
 /// and still answers for the rest. None came through (or nothing at all), it went wrong.
 async fn exa_fetch(key: &str, urls: &[String], each: usize) -> Result<(String, Vec<String>, usize), String> {
     let text = exa_tool(key, "web_fetch_exa", json!({ "urls": urls, "maxCharacters": each }), "读网页").await?;
-    let read = pages_read(&text, urls.len());
+    let read = pages_read(&text, urls);
     if text.trim().is_empty() {
         return Err("网页是空的，什么也没读到。照实告诉用户这次没读到。".into());
     }
@@ -1851,9 +1850,15 @@ async fn exa_fetch(key: &str, urls: &[String], each: usize) -> Result<(String, V
     Ok((text, links, read))
 }
 
-/// Of `asked` pages, how many came through, by Exa's "Error fetching" lines for the rest.
-fn pages_read(text: &str, asked: usize) -> usize {
-    asked.saturating_sub(text.lines().filter(|l| l.trim_start().starts_with("Error fetching ")).count())
+/// Of the pages `asked` for, how many came through: those without an "Error fetching
+/// <url>" line of Exa's for them. Only a line naming a page asked for counts, once per
+/// page, so a page's own text can't make it look as if fewer were read.
+fn pages_read(text: &str, asked: &[String]) -> usize {
+    let failed = |url: &String| {
+        let head = format!("Error fetching {url}");
+        text.lines().map(str::trim).any(|l| l.strip_prefix(&head).is_some_and(|rest| rest.is_empty() || rest.starts_with(':')))
+    };
+    asked.iter().filter(|u| !failed(u)).count()
 }
 
 /// Search results as Exa gives them (`{"results": [...]}`), laid out for the model; or,
@@ -2219,8 +2224,10 @@ async fn converse(app: &AppHandle, id: u64, chat: u64, t: &Target, system: &str,
         }
         let last = n + 1 == MAX_ROUNDS;
         // Pages to read come with the first search results, or a link the user sent; once
-        // there, they stay for the chat, so the tool does too.
-        kit.fetch = kit.exa && seen_any(chat);
+        // there, they stay for the chat, so the tool does too. Offered once in the turn, it
+        // stays listed even if a screenshot leaves nothing it may open: the history has its
+        // calls in it.
+        kit.fetch = kit.fetch || (kit.exa && seen_any(chat, looked || shots > 0));
         let round = match send(t, system, &msgs, kit, last, &mut out).await {
             // Turned down with the search on: that goes first, the screenshot tool after.
             Err(f) if search && n == 0 && !knows(&SEARCHED, &t.key()) && (rejects_search(&f, &t.model) || (!kit.own() && search_is_tool && refuses_tools(&f, &t.model))) => {
@@ -2666,8 +2673,9 @@ mod tests {
             ]
         );
         // A "www." in the middle of something isn't a link; after Chinese it is.
-        assert!(links_in("mail user@www.a.com, see sub.www.b.com or x/www.c.com").is_empty());
+        assert!(links_in("mail user@www.a.com, see sub.www.b.com or awww.c.com").is_empty());
         assert_eq!(links_in("看www.d.com"), ["https://www.d.com"]);
+        assert_eq!(links_in("网址:www.e.com"), ["https://www.e.com"]);
         // What a link the user sent ends in may be part of it.
         assert_eq!(links_in("看 https://en.wikipedia.org/wiki/Yahoo! 这个"), ["https://en.wikipedia.org/wiki/Yahoo", "https://en.wikipedia.org/wiki/Yahoo!"]);
         // A "www." inside a link isn't taken again.
@@ -2706,9 +2714,12 @@ mod tests {
         assert!(seen_has(7, "https://a.com/p?x=1", true));
         // Another chat starts with none; what the old one would add is dropped.
         seen_open(8);
-        assert!(!seen_any(8));
+        assert!(!seen_any(8, false));
         seen_add(7, vec!["https://b.com/".into()], true);
-        assert!(!seen_any(8));
+        assert!(!seen_any(8, false));
+        // Only pages from pages: nothing may open once the chat has looked.
+        seen_add(8, vec!["https://c.com/1".into()], false);
+        assert!(seen_any(8, false) && !seen_any(8, true));
     }
 
     #[test]
@@ -2721,6 +2732,8 @@ mod tests {
         assert_eq!((a.mode, a.fresh), ("auto", true));
         let a = Ask::from(&json!({ "query": "q", "mode": "deep", "count": "50", "fresh": "false" }), false);
         assert_eq!((a.mode, a.no_deep, a.count, a.fresh), ("auto", true, 20, false));
+        let a = Ask::from(&json!({ "query": "q", "count": "NaN" }), false);
+        assert_eq!(a.count, 10);
         let a = Ask::from(&json!({ "query": "q", "mode": "deep-lite", "count": 1 }), true);
         assert_eq!((a.mode, a.no_deep, a.count), ("deep-lite", false, 3));
         assert!(search_input(true)["properties"]["mode"]["enum"].as_array().unwrap().contains(&json!("deep")));
@@ -2757,9 +2770,13 @@ mod tests {
     #[test]
     fn only_pages_read_count() {
         let text = "# Blog\nURL: https://a.com/\n\nhello\n\nError fetching https://a.com/x: CRAWL_NOT_FOUND";
-        assert_eq!(pages_read(text, 2), 1);
-        assert_eq!(pages_read("Error fetching https://a.com/x: CRAWL_NOT_FOUND", 1), 0);
-        assert_eq!(pages_read("# Blog\nURL: https://a.com/\nhello", 1), 1);
+        let asked = ["https://a.com/".to_string(), "https://a.com/x".to_string()];
+        assert_eq!(pages_read(text, &asked), 1);
+        assert_eq!(pages_read("Error fetching https://a.com/x: CRAWL_NOT_FOUND", &asked[1..]), 0);
+        assert_eq!(pages_read("# Blog\nURL: https://a.com/\nhello", &asked[..1]), 1);
+        // A page's own text with such lines in it, for pages not asked for or twice over.
+        let page = "# Issue\nURL: https://a.com/\nError fetching data: timeout\nError fetching https://b.com/: x\nError fetching https://a.com/xyz: x";
+        assert_eq!(pages_read(page, &asked[..1]), 1);
     }
 
     #[test]
