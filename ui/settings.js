@@ -112,8 +112,11 @@ function openDropdown(select, button) {
     const item = el("div", "dropdown-item", option.textContent);
     item.classList.toggle("selected", option.selected);
     item.onclick = () => pick(option.value);
-    item.onmousemove = () => mark(items.indexOf(item));
+    // Without scrolling: an item scrolled under a still mouse would mark the next one.
+    item.onmousemove = () => mark(items.indexOf(item), false);
     item.value = option.value;
+    // An option marked data-keep ("自己填…") stays through any search.
+    item.keep = "keep" in option.dataset;
     items.push(item);
     group?.items.push(item);
     list.append(item);
@@ -131,12 +134,13 @@ function openDropdown(select, button) {
   // Keyboard: the arrows move a mark, Enter picks it.
   // Unshown at first, but the arrows move on from the selected one.
   let marked = items.findIndex((item) => item.classList.contains("selected"));
-  const mark = (i) => {
+  const mark = (i, scroll = true) => {
     items[marked]?.classList.remove("marked");
     marked = i;
     const item = items[i];
     if (!item) return;
     item.classList.add("marked");
+    if (!scroll) return;
     if (item.offsetTop < list.scrollTop) list.scrollTop = item.offsetTop;
     else if (item.offsetTop + item.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = item.offsetTop + item.offsetHeight - list.clientHeight;
   };
@@ -163,7 +167,7 @@ function openDropdown(select, button) {
     search.placeholder = "搜索…";
     search.oninput = () => {
       const q = search.value.trim().toLowerCase();
-      for (const item of items) item.hidden = !!q && !item.textContent.toLowerCase().includes(q);
+      for (const item of items) item.hidden = !!q && !item.keep && !item.textContent.toLowerCase().includes(q);
       for (const g of groups) g.head.hidden = g.items.every((item) => item.hidden);
       mark(-1);
       step(1);
@@ -536,10 +540,16 @@ async function initAi() {
   const field = (id, key) => {
     $(id).oninput = () => {
       profile()[key] = $(id).value.trim();
-      // Models fetched from the old address may not be at the new one.
-      if (key === "baseUrl" && fetchedModels) {
-        fetchedModels = null;
-        renderModels();
+      // A fetch from the old address is ignored when it comes back, and the models
+      // fetched from it may not be at the new one.
+      if (key === "baseUrl") {
+        $("ai-fetch").disabled = false;
+        $("ai-model-note").textContent = "";
+        $("ai-model-note").classList.remove("bad");
+        if (fetchedModels) {
+          fetchedModels = null;
+          renderModels();
+        }
       }
       save();
     };
@@ -696,7 +706,6 @@ function showAi() {
   $("ai-model-note").classList.remove("bad");
   $("ai-model-input").hidden = true;
   renderModels();
-  $("ai-search-note").textContent = p.search ? "问到新闻、天气这类事会自己去查，有的服务商按次收费" : `${p.name} 没有自带的联网搜索，可以用 Exa`;
   showBase();
   showReasoning();
   showSummary();
@@ -705,6 +714,7 @@ function showAi() {
 function showSummary() {
   const p = provider();
   $("provider-summary").textContent = `${p.name} · ${profile().model || p.model || "还没选模型"}`;
+  $("ai-search-note").textContent = p.search ? "问到新闻、天气这类事会自己去查，有的服务商按次收费" : `${p.name} 没有自带的联网搜索，可以用 Exa`;
 }
 
 /** The address row stays folded away while the provider's own address is used. */
@@ -775,7 +785,9 @@ function renderModels() {
   none.hidden = true;
   select.append(none);
   for (const m of current && !list.includes(current) ? [current, ...list] : list) select.append(new Option(m, m));
-  select.append(new Option("自己填…", MANUAL));
+  const manual = new Option("自己填…", MANUAL);
+  manual.dataset.keep = "";
+  select.append(manual);
   select.value = current;
 }
 
@@ -787,16 +799,22 @@ async function fetchModels() {
   button.disabled = true;
   note.classList.remove("bad");
   note.textContent = "正在获取…";
+  let list;
   try {
-    const list = await invoke("ai_models", { ai: config.ai, provider: provider().id });
-    if (which() !== asked) return; // switched away meanwhile
+    list = await invoke("ai_models", { ai: config.ai, provider: provider().id });
+  } catch (e) {
+    list = e;
+  }
+  // Switched away meanwhile: the page has moved on (and freed the button), so neither
+  // the list nor an error belongs to it.
+  if (which() !== asked) return;
+  button.disabled = false;
+  if (Array.isArray(list)) {
     fetchedModels = list;
     note.textContent = list.length ? `找到 ${list.length} 个模型` : "服务商没给出列表，选「自己填」吧";
-  } catch (e) {
-    note.textContent = String(e);
+  } else {
+    note.textContent = String(list);
     note.classList.add("bad");
-  } finally {
-    button.disabled = false;
   }
   renderModels();
 }
