@@ -699,8 +699,19 @@ struct Target {
     level: String,
 }
 
+/// The provider `id` names: a built-in one, or one the user added, which works like the
+/// template it names.
+fn provider_of(ai: &AiConfig, id: &str) -> Option<&'static Provider> {
+    let id = match ai.custom_providers.iter().find(|c| c.id == id) {
+        Some(c) if c.kind == "custom-anthropic" => "custom-anthropic",
+        Some(_) => "custom",
+        None => id,
+    };
+    PROVIDERS.iter().find(|p| p.id == id)
+}
+
 fn target(ai: &AiConfig, provider: &str, need_model: bool) -> Result<Target, String> {
-    let p = PROVIDERS.iter().find(|p| p.id == provider).ok_or("不认识这个服务商")?;
+    let p = provider_of(ai, provider).ok_or("不认识这个服务商")?;
     let empty = AiProfile::default();
     let profile = ai.profiles.get(provider).unwrap_or(&empty);
     let own = profile.base_url.trim().trim_end_matches('/');
@@ -828,15 +839,15 @@ fn explain(f: Fail, t: &Target) -> String {
     let reasoning = !t.level.is_empty() && about_reasoning(&f, &t.model);
     let mut s = describe(f);
     if pair {
-        s += "。DeepSeek 关掉思考时不让看屏幕和它自带的搜索同时用：在设置的「AI 聊天」里给推理换一档，或者改用 Exa 搜索";
+        s += "。DeepSeek 关掉思考时不让看屏幕和它自带的搜索同时用：在设置的「AI 聊天 › 服务商与模型」里给推理换一档，或者在「AI 聊天」里改用 Exa 搜索";
     } else if reasoning {
-        s += "。可能是这个模型不支持这档推理：在设置的「AI 聊天」里换一档，或者选「默认」";
+        s += "。可能是这个模型不支持这档推理：在设置的「AI 聊天 › 服务商与模型」里换一档，或者选「默认」";
     }
     s
 }
 
 /// A reply cut off at the output limit, usually by long thinking.
-const TRUNCATED: &str = "回复到了输出长度上限，被截断了（多半是想得太久）。在设置的「AI 聊天」里把推理调低一档再试";
+const TRUNCATED: &str = "回复到了输出长度上限，被截断了（多半是想得太久）。在设置的「AI 聊天 › 服务商与模型」里把推理调低一档再试";
 
 fn clip(s: &str, n: usize) -> String {
     if s.chars().count() > n {
@@ -2031,9 +2042,7 @@ pub fn without_tools(ai: &AiConfig) -> bool {
 /// closing meanwhile leave it alone. Gives back the text of the reply.
 pub async fn complete(ai: &AiConfig, system: &str, user: &str) -> Result<String, String> {
     let mut t = target(ai, &ai.provider, true)?;
-    t.level = PROVIDERS
-        .iter()
-        .find(|p| p.id == ai.provider)
+    t.level = provider_of(ai, &ai.provider)
         .and_then(|p| levels_for(p, &t.model))
         // "off" comes first where there is one, the lowest level otherwise.
         .and_then(|l| l.levels.first())

@@ -263,6 +263,17 @@ h3 {
   box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.12);
 }
 
+/* Rows that paint a background (on hover, in a list) keep inside the card's round corners. */
+.card > :first-child {
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+
+.card > :last-child {
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+
 .row {
   display: flex;
   align-items: center;
@@ -282,6 +293,11 @@ h3 {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+
+.text small:empty,
+.text small:has(> a[hidden]:only-child) {
+  display: none;
 }
 
 .text small,
@@ -520,6 +536,141 @@ button.icon:hover {
 .segmented input:checked + span {
   background: var(--clawd);
   color: #fff;
+}
+
+/* ---- drop-downs: a button over the hidden <select>, and a list of our own (settings.js) */
+
+select.native {
+  display: none;
+}
+
+.dropdown {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 90px;
+  max-width: 100%;
+  padding: 5px 9px 5px 10px;
+  box-shadow: none;
+  text-align: left;
+}
+
+.dropdown[hidden] {
+  display: none;
+}
+
+.dropdown > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dropdown:hover {
+  background: #fffaf5;
+}
+
+.dropdown:active {
+  transform: none;
+  box-shadow: none;
+}
+
+.dropdown.open,
+.dropdown:focus-visible {
+  border-color: var(--clawd);
+  outline: none;
+}
+
+.dropdown.placeholder > span {
+  color: var(--muted);
+}
+
+.dropdown .chevron {
+  flex: none;
+  color: var(--muted);
+}
+
+.dropdown.open .chevron {
+  margin-top: 3px;
+  transform: rotate(-135deg);
+}
+
+.dropdown-pop {
+  position: fixed;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 360px;
+  padding: 4px;
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.14);
+  outline: none;
+}
+
+.dropdown-pop input[type="search"] {
+  width: 100%;
+  padding: 4px 8px;
+}
+
+/* Positioned, so that the items' offsetTop counts from it (scrolling to one). */
+.dropdown-list {
+  position: relative;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.dropdown-group {
+  padding: 8px 10px 3px;
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--muted);
+}
+
+.dropdown-group:first-child {
+  padding-top: 3px;
+}
+
+.dropdown-item {
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dropdown-item.marked {
+  background: var(--clawd-soft);
+}
+
+.dropdown-item.selected {
+  background: var(--clawd);
+  color: #fff;
+}
+
+.dropdown-item.selected.marked {
+  background: #d06a3a;
+}
+
+.dropdown-list::-webkit-scrollbar {
+  width: 10px;
+}
+
+.dropdown-list::-webkit-scrollbar-track {
+  background: none;
+  border: none;
+}
+
+.dropdown-list::-webkit-scrollbar-thumb {
+  background: #ddd3c5;
+  border: 2px solid #fff;
+  border-radius: 5px;
+}
+
+.dropdown-list::-webkit-scrollbar-thumb:hover {
+  background: var(--clawd);
 }
 
 .pill {
@@ -800,18 +951,45 @@ a.link[hidden] {
   display: none;
 }
 
-#ai-provider {
+#ai-provider + .dropdown {
   width: 260px;
-}
-
-#ai-base-show {
-  margin-left: 8px;
 }
 
 #ai-base-row[hidden],
 #ai-exa-key-row[hidden],
-#ai-reasoning[hidden] {
+#ai-name-row[hidden],
+#ai-kind-row[hidden],
+#ai-reasoning-row[hidden],
+#ai-model-input[hidden] {
   display: none;
+}
+
+/* Name and delete button, as wide as the boxes below. */
+#ai-name-row .unit {
+  width: 260px;
+}
+
+#ai-name {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The model list and its button, with a box to type a name in below when wanted. */
+.model-pick {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 260px;
+}
+
+.model-pick .dropdown {
+  flex: 1;
+  min-width: 0;
+}
+
+#ai-model-input {
+  width: 100%;
 }
 
 /* Up to 8 levels: they wrap rather than run out of the card, with the gaps drawn as
@@ -843,21 +1021,6 @@ a.link[hidden] {
 
 #ai-exa-link {
   margin-left: 4px;
-}
-
-.models {
-  max-height: 132px;
-  overflow-y: auto;
-}
-
-.models:empty {
-  display: none;
-}
-
-.models button.active {
-  background: var(--clawd);
-  border-color: var(--ink);
-  color: #fff;
 }
 
 .bad {
@@ -970,7 +1133,8 @@ a.back {
 
 /* Asks for a second click before deleting. */
 #memory-forget.armed,
-#ai-persona-delete.armed {
+#ai-persona-delete.armed,
+#ai-provider-delete.armed {
   border-style: solid;
   border-color: #c0392b;
   background: #c0392b;

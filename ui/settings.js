@@ -48,6 +48,177 @@ function removeButton(onClick) {
   return b;
 }
 
+// ---------------------------------------------------------------- drop-downs
+
+// A <select> pops up a square list no CSS reaches, so each gets a button and a list of
+// our own. The select stays underneath with the value: setting it from code shows, and
+// picking from the list fires its change event.
+
+const selectValue = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+/** The list that is open: { select, button, pop }. */
+let dropped = null;
+
+function dropdown(select) {
+  const button = el("button", "dropdown");
+  const label = el("span");
+  button.append(label, el("i", "chevron"));
+  select.classList.add("native");
+  select.after(button);
+  const show = () => {
+    const option = select.selectedOptions[0];
+    label.textContent = option?.textContent ?? "";
+    button.classList.toggle("placeholder", !option || option.hidden);
+    button.hidden = select.hidden;
+  };
+  Object.defineProperty(select, "value", {
+    get: () => selectValue.get.call(select),
+    set: (v) => {
+      selectValue.set.call(select, v);
+      show();
+    },
+  });
+  // An open list was made from the options as they were: it goes once they change.
+  new MutationObserver(() => {
+    if (dropped?.select === select) closeDropdown();
+    show();
+  }).observe(select, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
+  button.onclick = () => (dropped?.select === select ? closeDropdown() : openDropdown(select, button));
+  // The arrows open it, as they would a select.
+  button.onkeydown = (e) => {
+    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && dropped?.select !== select) {
+      e.preventDefault();
+      openDropdown(select, button);
+    }
+  };
+  show();
+}
+
+function openDropdown(select, button) {
+  closeDropdown();
+  const pop = el("div", "dropdown-pop");
+  const list = el("div", "dropdown-list");
+  /** Each group's heading and items, to hide the heading of one filtered empty. */
+  const groups = [];
+  const items = [];
+  // The focus goes back to the button (unless what the change opens takes it).
+  const pick = (value) => {
+    closeDropdown(true);
+    if (value === select.value) return;
+    select.value = value;
+    select.dispatchEvent(new Event("change"));
+  };
+  const add = (option, group) => {
+    if (option.hidden || option.disabled) return;
+    const item = el("div", "dropdown-item", option.textContent);
+    item.classList.toggle("selected", option.selected);
+    item.onclick = () => pick(option.value);
+    // Without scrolling: an item scrolled under a still mouse would mark the next one.
+    item.onmousemove = () => mark(items.indexOf(item), false);
+    item.value = option.value;
+    // An option marked data-keep ("自己填…") stays through any search.
+    item.keep = "keep" in option.dataset;
+    items.push(item);
+    group?.items.push(item);
+    list.append(item);
+  };
+  for (const child of select.children) {
+    if (child.tagName !== "OPTGROUP") {
+      add(child);
+      continue;
+    }
+    const group = { head: el("div", "dropdown-group", child.label), items: [] };
+    groups.push(group);
+    list.append(group.head);
+    for (const option of child.children) add(option, group);
+  }
+  // Keyboard: the arrows move a mark, Enter picks it.
+  // Unshown at first, but the arrows move on from the selected one.
+  let marked = items.findIndex((item) => item.classList.contains("selected"));
+  const mark = (i, scroll = true) => {
+    items[marked]?.classList.remove("marked");
+    marked = i;
+    const item = items[i];
+    if (!item) return;
+    item.classList.add("marked");
+    if (!scroll) return;
+    if (item.offsetTop < list.scrollTop) list.scrollTop = item.offsetTop;
+    else if (item.offsetTop + item.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = item.offsetTop + item.offsetHeight - list.clientHeight;
+  };
+  const step = (by) => {
+    const shown = items.filter((item) => !item.hidden);
+    if (!shown.length) return;
+    const at = shown.indexOf(items[marked]);
+    mark(items.indexOf(shown[at < 0 ? (by > 0 ? 0 : shown.length - 1) : (at + by + shown.length) % shown.length]));
+  };
+  pop.onkeydown = (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") step(e.key === "ArrowDown" ? 1 : -1);
+    else if (e.key === "Enter" && items[marked] && !items[marked].hidden) pick(items[marked].value);
+    else if (e.key === "Escape") closeDropdown(true);
+    // From the button, so that Tab goes on to the control after it.
+    else if (e.key === "Tab") return closeDropdown(true);
+    else return;
+    e.preventDefault();
+  };
+  // A select marked data-search (the models) can be searched once its list is long.
+  let search;
+  if ("search" in select.dataset && items.length > 12) {
+    search = el("input");
+    search.type = "search";
+    search.placeholder = "搜索…";
+    search.oninput = () => {
+      const q = search.value.trim().toLowerCase();
+      for (const item of items) item.hidden = !!q && !item.keep && !item.textContent.toLowerCase().includes(q);
+      for (const g of groups) g.head.hidden = g.items.every((item) => item.hidden);
+      mark(-1);
+      step(1);
+    };
+    pop.append(search);
+  }
+  pop.append(list);
+  pop.tabIndex = -1;
+  // Tabbing away closes it; the button's own click does that itself.
+  pop.addEventListener("focusout", (e) => {
+    if (!pop.contains(e.relatedTarget) && e.relatedTarget !== button) closeDropdown();
+  });
+  document.body.append(pop);
+
+  // Below the button, or above it where there is more room there.
+  const r = button.getBoundingClientRect();
+  const extra = pop.offsetHeight - list.offsetHeight; // borders, padding, search box
+  const below = innerHeight - r.bottom - 10;
+  const above = r.top - 46; // under the title bar
+  const up = below < 220 && above > below;
+  list.style.maxHeight = `${Math.min(320, (up ? above : below) - extra)}px`;
+  pop.style.minWidth = `${r.width}px`;
+  pop.style.left = `${Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8))}px`;
+  if (up) pop.style.bottom = `${innerHeight - r.top + 4}px`;
+  else pop.style.top = `${r.bottom + 4}px`;
+  const selected = list.querySelector(".selected");
+  if (selected) list.scrollTop = selected.offsetTop - (list.clientHeight - selected.offsetHeight) / 2;
+  (search || pop).focus();
+  button.classList.add("open");
+  dropped = { select, button, pop };
+}
+
+/** `refocus`: give the focus back to the button, as after Escape. */
+function closeDropdown(refocus = false) {
+  if (!dropped) return;
+  // Cleared first: removing the list may lose it the focus, which closes it again.
+  const { pop, button } = dropped;
+  dropped = null;
+  pop.remove();
+  button.classList.remove("open");
+  if (refocus) button.focus();
+}
+
+// Clicking elsewhere, scrolling the page or leaving the window closes the list.
+document.addEventListener("mousedown", (e) => {
+  if (dropped && !dropped.pop.contains(e.target) && !dropped.button.contains(e.target)) closeDropdown();
+});
+document.querySelector("main").addEventListener("scroll", () => closeDropdown());
+addEventListener("resize", () => closeDropdown());
+addEventListener("blur", () => closeDropdown());
+
 // ---------------------------------------------------------------- window
 
 $("win-min").onclick = () => getCurrentWindow().minimize();
@@ -57,6 +228,20 @@ $("win-close").onclick = () => getCurrentWindow().close();
 
 for (const tab of document.querySelectorAll("nav button")) {
   tab.onclick = () => showTab(tab.dataset.tab);
+}
+
+for (const back of document.querySelectorAll("a.back")) {
+  back.onclick = () => showTab(back.dataset.back);
+}
+
+// The links between pages have no href, so Tab and Enter reach them this way.
+for (const link of document.querySelectorAll("a.back, a.row.more")) {
+  link.tabIndex = 0;
+  link.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    link.click();
+  });
 }
 
 /** Shows a tab; a page within one (`memory` in `ai`) keeps its tab lit in the sidebar. */
@@ -306,37 +491,108 @@ function showHooks(installed) {
 let providers = [];
 /** The provider's own model list once fetched; until then a few suggestions. */
 let fetchedModels = null;
+/** The two built-in templates the user's own providers work like; not offered by themselves. */
+const TEMPLATES = ["custom", "custom-anthropic"];
+/** Not values of their own: the provider list's "add one", the model list's "type it". */
+const ADD = "\u0001add";
+const MANUAL = "\u0001manual";
+let deleteProviderTimer = 0;
 
-const provider = () => providers.find((p) => p.id === config.ai.provider) || providers[0];
+const customProvider = (id) => config.ai.customProviders.find((c) => c.id === id);
+
+/** The provider chatted with; one of the user's own is its template under its own id and name. */
+function provider() {
+  const mine = customProvider(config.ai.provider);
+  if (mine) {
+    const template = providers.find((p) => p.id === mine.kind) || providers.find((p) => p.id === "custom");
+    return { ...template, id: mine.id, name: mine.name || "未命名", mine };
+  }
+  return providers.find((p) => p.id === config.ai.provider && !TEMPLATES.includes(p.id)) || providers[0];
+}
+
 const profile = () => (config.ai.profiles[provider().id] ??= { apiKey: "", baseUrl: "", model: "", reasoning: "" });
+
+/** Settings from before providers of one's own: what was set for a template becomes one. */
+function migrateCustom() {
+  for (const [kind, name] of [["custom", "自定义"], ["custom-anthropic", "自定义（Anthropic）"]]) {
+    const old = config.ai.profiles[kind];
+    // Anything set (a key alone too) would be out of reach once the templates aren't listed.
+    if (config.ai.provider !== kind && !Object.values(old ?? {}).some(Boolean)) continue;
+    const mine = { id: `my-${kind}-${Date.now().toString(36)}`, name, kind };
+    config.ai.customProviders.push(mine);
+    if (old) config.ai.profiles[mine.id] = old;
+    delete config.ai.profiles[kind];
+    if (config.ai.provider === kind) config.ai.provider = mine.id;
+    save();
+  }
+}
 
 async function initAi() {
   providers = await invoke("ai_providers");
-  const select = $("ai-provider");
-  for (const group of new Set(providers.map((p) => p.group))) {
-    const optgroup = document.createElement("optgroup");
-    optgroup.label = group;
-    for (const p of providers.filter((p) => p.group === group)) optgroup.append(new Option(p.name, p.id));
-    select.append(optgroup);
-  }
-  select.onchange = () => {
-    config.ai.provider = select.value;
-    fetchedModels = null;
-    baseOpen = false;
-    showAi();
-    save();
+  migrateCustom();
+  $("ai-provider").onchange = () => {
+    const id = $("ai-provider").value;
+    if (id === ADD) addProvider();
+    else switchProvider(id);
   };
+  $("provider-open").onclick = () => showTab("provider", "ai");
+  $("persona-open").onclick = () => showTab("persona", "ai");
   const field = (id, key) => {
     $(id).oninput = () => {
       profile()[key] = $(id).value.trim();
-      if (key === "model") renderModels();
+      // A fetch from the old address is ignored when it comes back, and the models
+      // fetched from it may not be at the new one.
+      if (key === "baseUrl") {
+        $("ai-fetch").disabled = false;
+        $("ai-model-note").textContent = "";
+        $("ai-model-note").classList.remove("bad");
+        if (fetchedModels) {
+          fetchedModels = null;
+          renderModels();
+        }
+      }
       save();
     };
   };
   field("ai-key", "apiKey");
   field("ai-base", "baseUrl");
-  field("ai-model", "model");
-  $("ai-model").addEventListener("input", showReasoning);
+  $("ai-name").oninput = () => {
+    provider().mine.name = $("ai-name").value.trim();
+    $("ai-provider").selectedOptions[0].textContent = provider().name;
+    showSummary();
+    save();
+  };
+  for (const radio of document.querySelectorAll("input[name=ai-kind]")) {
+    radio.onchange = () => {
+      provider().mine.kind = radio.value;
+      fetchedModels = null;
+      showAi();
+      save();
+    };
+  }
+  $("ai-provider-delete").onclick = deleteProvider;
+  $("ai-model").onchange = () => {
+    const model = $("ai-model").value;
+    if (model === MANUAL) {
+      renderModels(); // back to the model in use until one is typed
+      $("ai-model-input").value = profile().model;
+      $("ai-model-input").hidden = false;
+      $("ai-model-input").focus();
+      return;
+    }
+    profile().model = model;
+    modelChanged();
+  };
+  $("ai-model-input").oninput = () => {
+    profile().model = $("ai-model-input").value.trim();
+    renderModels(); // the list above shows it as it is typed
+    modelChanged();
+  };
+  $("ai-model-input").onblur = () => {
+    $("ai-model-input").hidden = true;
+    renderModels();
+  };
+  $("ai-model-input").onkeydown = (e) => e.key === "Enter" && $("ai-model-input").blur();
   for (const [box, button] of [["ai-key", "ai-key-show"], ["ai-exa-key", "ai-exa-key-show"]]) {
     $(button).onclick = () => {
       const show = $(box).type === "password";
@@ -376,26 +632,89 @@ async function initAi() {
   await initPersonas();
 }
 
+function renderProviders() {
+  const select = $("ai-provider");
+  select.innerHTML = "";
+  const group = (label, options) => {
+    const optgroup = document.createElement("optgroup");
+    optgroup.label = label;
+    optgroup.append(...options);
+    select.append(optgroup);
+  };
+  const builtIn = providers.filter((p) => !TEMPLATES.includes(p.id));
+  for (const label of new Set(builtIn.map((p) => p.group))) {
+    group(label, builtIn.filter((p) => p.group === label).map((p) => new Option(p.name, p.id)));
+  }
+  group("自定义", [...config.ai.customProviders.map((c) => new Option(c.name || "未命名", c.id)), new Option("＋ 添加服务商", ADD)]);
+  select.value = provider().id;
+}
+
+function switchProvider(id) {
+  config.ai.provider = id;
+  fetchedModels = null;
+  baseOpen = false;
+  showAi();
+  save();
+}
+
+function addProvider() {
+  const mine = { id: `my-${Date.now().toString(36)}`, name: "我的服务商", kind: "custom" };
+  config.ai.customProviders.push(mine);
+  switchProvider(mine.id);
+  $("ai-name").focus();
+  $("ai-name").select();
+}
+
+/** Deleting takes a second click within a moment. */
+function deleteProvider() {
+  const button = $("ai-provider-delete");
+  if (!button.classList.contains("armed")) {
+    button.classList.add("armed");
+    button.textContent = "再点一次删除";
+    clearTimeout(deleteProviderTimer);
+    deleteProviderTimer = setTimeout(disarmProviderDelete, 2500);
+    return;
+  }
+  const id = provider().id;
+  config.ai.customProviders = config.ai.customProviders.filter((c) => c.id !== id);
+  delete config.ai.profiles[id];
+  switchProvider("deepseek"); // the default (config.rs)
+}
+
+function disarmProviderDelete() {
+  clearTimeout(deleteProviderTimer);
+  $("ai-provider-delete").classList.remove("armed");
+  $("ai-provider-delete").textContent = "删除";
+}
+
 function showAi() {
   const [p, mine] = [provider(), profile()];
-  $("ai-provider").value = p.id;
-  $("ai-provider-note").textContent = p.wire === "anthropic" ? "Anthropic Messages 接口" : "OpenAI 兼容接口";
+  renderProviders();
+  $("ai-name-row").hidden = $("ai-kind-row").hidden = !p.mine;
+  if (p.mine) {
+    $("ai-name").value = p.mine.name;
+    for (const radio of document.querySelectorAll("input[name=ai-kind]")) radio.checked = radio.value === (p.mine.kind === "custom-anthropic" ? "custom-anthropic" : "custom");
+  }
+  disarmProviderDelete();
   $("ai-key").value = mine.apiKey;
   $("ai-key").placeholder = p.needsKey ? "必填" : "不需要就留空";
   $("ai-key-link").hidden = !p.keyUrl;
   $("ai-base").value = mine.baseUrl;
   $("ai-base").placeholder = p.baseUrl || "必填，如 https://example.com/v1";
-  $("ai-base-note").textContent = p.baseUrl ? "留空就用官方地址" : "服务的接口地址";
-  $("ai-model").value = mine.model;
-  $("ai-model").placeholder = p.model || "选一个，或直接填";
-  $("ai-model-note").textContent = "点「获取模型」从服务商那里拉列表，也可以直接填";
+  $("ai-fetch").disabled = false; // a fetch for the provider before is ignored when it comes back
+  $("ai-model-note").textContent = "";
   $("ai-model-note").classList.remove("bad");
+  $("ai-model-input").hidden = true;
   renderModels();
-  $("ai-search-note").textContent = p.search
-    ? "问到新闻、天气、最新版本这类事，或者它拿不准的事，它会用服务商自带的联网搜索自己去查，回复上会标出「搜了一下」。有的服务商按次收费"
-    : `${p.name} 没有自带的联网搜索，开着也搜不了，可以改用下面的 Exa。自带搜索的有：${providers.filter((x) => x.search).map((x) => x.name).join("、")}`;
   showBase();
   showReasoning();
+  showSummary();
+}
+
+function showSummary() {
+  const p = provider();
+  $("provider-summary").textContent = `${p.name} · ${profile().model || p.model || "还没选模型"}`;
+  $("ai-search-note").textContent = p.search ? "问到新闻、天气这类事会自己去查，有的服务商按次收费" : `${p.name} 没有自带的联网搜索，可以用 Exa`;
 }
 
 /** The address row stays folded away while the provider's own address is used. */
@@ -424,7 +743,9 @@ function showReasoning() {
   const level = list.includes(mine.reasoning) ? mine.reasoning : "";
   const box = $("ai-reasoning");
   box.innerHTML = "";
-  box.hidden = !list.length;
+  $("ai-reasoning-row").hidden = !list.length;
+  // What the provider's levels mean, for whoever wonders.
+  $("ai-reasoning-row").title = p.reasoningNote;
   for (const value of ["", ...list]) {
     const label = el("label");
     const radio = el("input");
@@ -439,54 +760,61 @@ function showReasoning() {
     label.append(radio, el("span", "", { "": "默认", off: "关" }[value] ?? value));
     box.append(label);
   }
-  $("ai-reasoning-note").textContent =
-    (list.length
-      ? "想得越多答得越准，也越慢、越费 token。「默认」什么都不发，按服务商自己的默认。"
-      : "这个模型没有能调的档位，按它自己的来。") + p.reasoningNote;
   // DeepSeek turns down its screenshot tool beside its own search unless it thinks.
   const clash = p.id === "deepseek" && level === "off" && config.ai.screen && config.ai.search && !config.ai.exa && p.search;
-  $("ai-reasoning-warn").hidden = !clash;
-  $("ai-reasoning-warn").textContent = clash
-    ? "推理关着，又同时开着看屏幕和 DeepSeek 自带的搜索：DeepSeek 会拒绝这样的请求，聊天时会报错。给推理换一档，或者改用 Exa 搜索。"
-    : "";
+  // Shown both beside the levels and beside the switches, whichever page is open.
+  for (const warn of document.querySelectorAll(".clash-warn")) {
+    warn.hidden = !clash;
+    warn.textContent = clash ? "推理关着时，DeepSeek 不让看屏幕和它自带的搜索一起用，聊天会报错。换一档推理，或者改用 Exa 搜索。" : "";
+  }
 }
 
-/** The models to pick from, narrowed down by what is typed in the box. */
+function modelChanged() {
+  showReasoning();
+  showSummary();
+  save();
+}
+
+/** The models to pick from, with the one in use among them even if typed in. */
 function renderModels() {
+  const select = $("ai-model");
   const list = fetchedModels || provider().models;
   const current = profile().model || provider().model;
-  const typed = $("ai-model").value.trim().toLowerCase();
-  const shown = typed && !list.some((m) => m.toLowerCase() === typed) ? list.filter((m) => m.toLowerCase().includes(typed)) : list;
-  $("ai-models").innerHTML = "";
-  for (const m of shown) {
-    const chip = el("button", m === current ? "active" : "", m);
-    chip.onclick = () => {
-      profile().model = m;
-      $("ai-model").value = m;
-      renderModels();
-      showReasoning();
-      save();
-    };
-    $("ai-models").append(chip);
-  }
+  select.innerHTML = "";
+  const none = new Option("选一个模型", "");
+  none.hidden = true;
+  select.append(none);
+  for (const m of current && !list.includes(current) ? [current, ...list] : list) select.append(new Option(m, m));
+  const manual = new Option("自己填…", MANUAL);
+  manual.dataset.keep = "";
+  select.append(manual);
+  select.value = current;
 }
 
 async function fetchModels() {
   const [button, note] = [$("ai-fetch"), $("ai-model-note")];
-  const p = provider();
+  // What the list is for: the provider, its address, and for one of the user's own, its kind.
+  const which = () => `${provider().id} ${provider().mine?.kind ?? ""} ${profile().baseUrl}`;
+  const asked = which();
   button.disabled = true;
   note.classList.remove("bad");
-  note.textContent = "正在问服务商要列表…";
+  note.textContent = "正在获取…";
+  let list;
   try {
-    const list = await invoke("ai_models", { ai: config.ai, provider: p.id });
-    if (provider() !== p) return; // switched away meanwhile
-    fetchedModels = list;
-    note.textContent = list.length ? `找到 ${list.length} 个模型，点一个用它` : "服务商没给出模型列表，直接填名字吧";
+    list = await invoke("ai_models", { ai: config.ai, provider: provider().id });
   } catch (e) {
-    note.textContent = String(e);
+    list = e;
+  }
+  // Switched away meanwhile: the page has moved on (and freed the button), so neither
+  // the list nor an error belongs to it.
+  if (which() !== asked) return;
+  button.disabled = false;
+  if (Array.isArray(list)) {
+    fetchedModels = list;
+    note.textContent = list.length ? `找到 ${list.length} 个模型` : "服务商没给出列表，选「自己填」吧";
+  } else {
+    note.textContent = String(list);
     note.classList.add("bad");
-  } finally {
-    button.disabled = false;
   }
   renderModels();
 }
@@ -519,7 +847,7 @@ async function initIdentity() {
 function showIdentityNote() {
   const empty = !$("ai-identity").value.trim();
   $("ai-identity-reset").hidden = !config.ai.identity && !empty;
-  $("ai-identity-note").textContent = empty ? "空着就按默认的身份" : config.ai.identity ? "改过了，点「恢复默认」回到原样" : "默认的身份，可以直接改";
+  $("ai-identity-note").textContent = empty ? "空着就按默认的身份" : "";
 }
 
 // Personas: the presets come from ai.rs, and the user may rewrite any of them (kept
@@ -575,6 +903,7 @@ function renderPersonas() {
   const box = $("ai-personas");
   const { custom, preset } = currentPersona();
   const active = (custom || preset).id;
+  $("persona-summary").textContent = `人设：${(custom || preset).name || "未命名"}`;
   box.innerHTML = "";
   for (const p of [...personas, ...config.ai.customPersonas]) {
     const chip = el("button", p.id === active ? "active" : "", p.name || "未命名");
@@ -608,13 +937,7 @@ function showPersonaNote() {
   const empty = !$("ai-persona-prompt").value.trim();
   const edited = !custom && preset.id in config.ai.personaPrompts;
   $("ai-persona-reset").hidden = !!custom || (!edited && !empty);
-  $("ai-persona-note").textContent = custom
-    ? "你自己加的人设，名字和内容都能改"
-    : empty
-      ? "空着就按预设的人设"
-      : edited
-        ? "改过了，点「恢复默认」回到原样"
-        : "预设的人设，可以直接改";
+  $("ai-persona-note").textContent = !custom && empty ? "空着就按预设的人设" : "";
 }
 
 function addPersona() {
@@ -699,7 +1022,6 @@ function noteInfo() {
 
 function initMemory() {
   $("memory-open").onclick = () => showTab("memory", "ai");
-  $("memory-back").onclick = () => showTab("ai");
   const box = $("memory-note");
   box.oninput = noteInfo;
   box.onchange = () => invoke("memory_edit", { op: "save", note: box.value });
@@ -747,7 +1069,7 @@ async function initAutostart() {
   const [available, enabled] = await invoke("autostart_get");
   box.checked = enabled;
   box.disabled = !available;
-  if (!available) $("autostart-note").textContent = "开发模式下不可用，打包后的正式版才能开机自启";
+  if (!available) $("autostart-note").textContent = "只有打包后的正式版能开机自启";
   box.onchange = async () => {
     try {
       box.checked = await invoke("autostart_set", { enable: box.checked });
@@ -799,6 +1121,7 @@ async function initGallery() {
 // ---------------------------------------------------------------- boot
 
 async function boot() {
+  document.querySelectorAll("select").forEach(dropdown);
   config = await invoke("get_config");
   config.sys.folders ??= [];
   known = structuredClone(config);
