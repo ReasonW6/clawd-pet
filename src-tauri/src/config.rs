@@ -106,6 +106,18 @@ pub struct AiProfile {
     pub reasoning: String,
 }
 
+/// A provider the user added: a name over an address and key of their own (kept in
+/// `AiConfig::profiles` under its id, as for the built-in ones).
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CustomProvider {
+    pub id: String,
+    pub name: String,
+    /// The built-in template it works like: "custom" (OpenAI-compatible) or
+    /// "custom-anthropic".
+    pub kind: String,
+}
+
 /// A persona the user added for the chat.
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -121,9 +133,10 @@ pub struct CustomPersona {
 pub struct AiConfig {
     /// A double click opens the chat instead of a random act.
     pub enabled: bool,
-    /// An id from `ai::PROVIDERS`.
+    /// An id from `ai::PROVIDERS`, or of one in `custom_providers`.
     pub provider: String,
     pub profiles: BTreeMap<String, AiProfile>,
+    pub custom_providers: Vec<CustomProvider>,
     /// Give the model a tool that takes a screenshot of the pet's monitor.
     pub screen: bool,
     /// Turn on the provider's own web search, where it has one. Off by default, for
@@ -150,6 +163,7 @@ impl Default for AiConfig {
             enabled: false,
             provider: "deepseek".into(),
             profiles: BTreeMap::new(),
+            custom_providers: Vec::new(),
             screen: false,
             search: false,
             exa: false,

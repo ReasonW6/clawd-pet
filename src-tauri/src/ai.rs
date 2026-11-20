@@ -699,8 +699,19 @@ struct Target {
     level: String,
 }
 
+/// The provider `id` names: a built-in one, or one the user added, which works like the
+/// template it names.
+fn provider_of(ai: &AiConfig, id: &str) -> Option<&'static Provider> {
+    let id = match ai.custom_providers.iter().find(|c| c.id == id) {
+        Some(c) if c.kind == "custom-anthropic" => "custom-anthropic",
+        Some(_) => "custom",
+        None => id,
+    };
+    PROVIDERS.iter().find(|p| p.id == id)
+}
+
 fn target(ai: &AiConfig, provider: &str, need_model: bool) -> Result<Target, String> {
-    let p = PROVIDERS.iter().find(|p| p.id == provider).ok_or("不认识这个服务商")?;
+    let p = provider_of(ai, provider).ok_or("不认识这个服务商")?;
     let empty = AiProfile::default();
     let profile = ai.profiles.get(provider).unwrap_or(&empty);
     let own = profile.base_url.trim().trim_end_matches('/');
@@ -2031,9 +2042,7 @@ pub fn without_tools(ai: &AiConfig) -> bool {
 /// closing meanwhile leave it alone. Gives back the text of the reply.
 pub async fn complete(ai: &AiConfig, system: &str, user: &str) -> Result<String, String> {
     let mut t = target(ai, &ai.provider, true)?;
-    t.level = PROVIDERS
-        .iter()
-        .find(|p| p.id == ai.provider)
+    t.level = provider_of(ai, &ai.provider)
         .and_then(|p| levels_for(p, &t.model))
         // "off" comes first where there is one, the lowest level otherwise.
         .and_then(|l| l.levels.first())

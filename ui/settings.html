@@ -36,7 +36,7 @@
             <input type="range" data-key="size" min="120" max="360" step="10" />
           </label>
           <div class="row">
-            <span class="text"><b>活跃度</b><small>两件事之间歇多久：悠闲约 1 分钟，活泼十几秒，闹腾几乎不停；安静就只待着</small></span>
+            <span class="text"><b>活跃度</b><small>越闹腾，空闲时的小动作越多</small></span>
             <span class="segmented" id="liveliness">
               <label><input type="radio" name="liveliness" value="0" /><span>安静</span></label>
               <label><input type="radio" name="liveliness" value="1" /><span>悠闲</span></label>
@@ -47,15 +47,15 @@
         </div>
         <div class="card">
           <label class="row">
-            <span class="text"><b>开机自启</b><small id="autostart-note">登录 Windows 后自动出现在桌面上</small></span>
+            <span class="text"><b>开机自启</b><small id="autostart-note"></small></span>
             <input type="checkbox" class="switch" id="autostart" />
           </label>
           <label class="row">
-            <span class="text"><b>全屏时让开</b><small>游戏或视频全屏（包括无边框窗口）占满它所在的屏幕时自动藏起来，退出全屏就回来</small></span>
+            <span class="text"><b>全屏时让开</b><small>游戏或视频全屏时自动藏起来</small></span>
             <input type="checkbox" class="switch" data-key="hideInFullscreen" />
           </label>
           <div class="row stack">
-            <span class="text"><b>例外的程序</b><small>这些程序全屏时它不躲，陪你看视频。主流浏览器和视频软件已经在里面</small></span>
+            <span class="text"><b>例外的程序</b><small>这些程序全屏时它不躲，已包含常见的浏览器和播放器</small></span>
             <span class="add">
               <input type="text" id="fs-exclude-name" placeholder="进程名，如 chrome.exe" />
               <button id="fs-exclude-add">添加</button>
@@ -73,7 +73,7 @@
             <input type="checkbox" class="switch" data-key="chatty" />
           </label>
           <label class="row">
-            <span class="text"><b>怎么称呼你</b><small>留空就不带称呼</small></span>
+            <span class="text"><b>怎么称呼你</b></span>
             <input type="text" data-key="nickname" maxlength="12" placeholder="比如：老板" />
           </label>
           <div class="row">
@@ -84,7 +84,7 @@
             </span>
           </div>
         </div>
-        <p class="hint">互动小贴士：单击逗它、连点 5 下会生气（开了 AI 聊天时没有）、双击随机表演（开了 AI 聊天就是和它聊天）、鼠标在它身上来回蹭是摸摸、按住可以拎着走、把文件拖到它身上它会接住。</p>
+        <p class="hint">小贴士：单击逗它，双击表演（开了 AI 聊天就是聊天），来回蹭是摸摸，按住能拎着走，拖文件给它会接住。</p>
       </section>
 
       <!-- ------------------------------------------------ 作息 -->
@@ -92,20 +92,20 @@
         <h2>作息</h2>
         <div class="card">
           <label class="row">
-            <span class="text"><b>按时睡觉</b><small>只在下面的时段睡觉；其他空闲时间它按一天的作息过日子：做饭、运动、变装、弹琴、过节…</small></span>
+            <span class="text"><b>按时睡觉</b><small>在下面的时段里睡觉</small></span>
             <input type="checkbox" class="switch" data-key="sleepEnabled" />
           </label>
           <div id="sleep-windows" class="list"></div>
           <div class="row"><button id="add-sleep" class="ghost">＋ 添加睡眠时段</button></div>
         </div>
-        <p class="hint">不超过 3 小时的时段算打盹（看书睡着），更长的算正式睡觉（盖被子）。睡着时 Claude 一开工它会惊醒干活，忙完再接着睡；戳它也会醒，但会有点起床气。</p>
+        <p class="hint">不超过 3 小时的算打盹，更长的算正式睡觉。Claude 开工时它会醒来干活，忙完接着睡。</p>
         <div class="card">
           <label class="row">
-            <span class="text"><b>多久没操作它就自己玩</b><small>键盘鼠标这么久没动（你可能走开了，也可能在看视频），它会多做运动、玩变装，也会无聊、想你</small></span>
+            <span class="text"><b>多久没操作它就自己玩</b><small>键盘鼠标这么久没动，它就自己找乐子</small></span>
             <span class="unit"><input type="number" data-key="aloneMinutes" min="1" max="120" />分钟</span>
           </label>
           <label class="row">
-            <span class="text"><b>久坐提醒</b><small>连续坐这么久就提醒你起来活动；填 0 关闭</small></span>
+            <span class="text"><b>久坐提醒</b><small>填 0 关闭</small></span>
             <span class="unit"><input type="number" data-key="sedentaryMinutes" min="0" max="480" />分钟</span>
           </label>
         </div>
@@ -118,7 +118,7 @@
           <div class="row">
             <span class="text">
               <b>Claude Code 联动 <span id="hook-status" class="pill"></span></b>
-              <small>向 <code>~/.claude/settings.json</code> 写入一组 HTTP hook（会先备份）。终端、Desktop、VS Code 里的 Claude Code 都会生效。</small>
+              <small>在 <code>~/.claude/settings.json</code> 里加一组 hook（会先备份）</small>
             </span>
             <button id="hook-toggle"></button>
           </div>
@@ -126,15 +126,15 @@
         </div>
         <div class="card">
           <label class="row">
-            <span class="text"><b>权限审批气泡</b><small>Claude 请求权限时，直接在桌宠头顶点「允许 / 拒绝」</small></span>
+            <span class="text"><b>权限审批气泡</b><small>直接在它头顶点「允许 / 拒绝」</small></span>
             <input type="checkbox" class="switch" data-key="bubbles" />
           </label>
           <label class="row">
-            <span class="text"><b>头顶显示对话进度</b><small>Claude 每说一段话，头顶就显示它的第一行，完成时打勾；点一下回到桌面版里的那个会话。共享屏幕时可以关掉</small></span>
+            <span class="text"><b>头顶显示对话进度</b><small>显示 Claude 每段话的第一行，点一下回到那个会话</small></span>
             <input type="checkbox" class="switch" data-key="replies" />
           </label>
         </div>
-        <p class="hint">桌宠没运行时 hook 会立即失败，Claude Code 照常工作，不受影响。</p>
+        <p class="hint">桌宠没运行时，Claude Code 照常工作，不受影响。</p>
       </section>
 
       <!-- ------------------------------------------------ AI 聊天 -->
@@ -142,19 +142,85 @@
         <h2>AI 聊天</h2>
         <div class="card">
           <label class="row">
-            <span class="text"><b>和它聊天</b><small>开启后双击它，头顶会弹出对话框；聊天开着时单击它接着说。聊天原文不保存，关掉就没了；打开下面的「记忆」后，它会把值得记住的事整理进一篇笔记</small></span>
+            <span class="text"><b>和它聊天</b><small>双击它开始聊天，聊天原文不保存</small></span>
             <input type="checkbox" class="switch" data-key="ai.enabled" />
           </label>
+          <a class="row more" id="provider-open">
+            <span class="text"><b>服务商与模型</b><small id="provider-summary"></small></span>
+            <i class="chevron right"></i>
+          </a>
+          <a class="row more" id="persona-open">
+            <span class="text"><b>身份与人设</b><small id="persona-summary"></small></span>
+            <i class="chevron right"></i>
+          </a>
         </div>
 
-        <h3>连接</h3>
+        <h3>能做什么</h3>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>允许它看屏幕</b><small>需要时截一张你所在屏幕的图给模型</small></span>
+            <input type="checkbox" class="switch" data-key="ai.screen" />
+          </label>
+          <label class="row">
+            <span class="text"><b>上网搜索：服务商自带</b><small id="ai-search-note"></small></span>
+            <input type="checkbox" class="switch" data-key="ai.search" />
+          </label>
+          <label class="row">
+            <span class="text"><b>上网搜索：Exa</b><small>哪家模型都能用，搜索词会发给 Exa；和上一项二选一</small></span>
+            <input type="checkbox" class="switch" data-key="ai.exa" />
+          </label>
+          <div class="row" id="ai-exa-key-row">
+            <span class="text"><b>Exa API 密钥</b><small>不填用免费额度，每天约 50 次 <a id="ai-exa-link" class="link">去申请 ↗</a></small></span>
+            <span class="secret">
+              <input type="password" id="ai-exa-key" data-key="ai.exaKey" placeholder="可以不填" spellcheck="false" autocomplete="off" />
+              <button id="ai-exa-key-show" class="icon eye" title="显示"><i class="glyph-eye"></i></button>
+            </span>
+          </div>
+        </div>
+
+        <h3>记忆</h3>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>记住我们的事</b><small>记下你的近况、喜好和约定，夜里睡着时再整理</small></span>
+            <input type="checkbox" class="switch" data-key="memory.enabled" />
+          </label>
+          <label class="row">
+            <span class="text"><b>主动提起</b><small>早安或闲下来时，说说它想对你说的话</small></span>
+            <input type="checkbox" class="switch" data-key="memory.proactive" />
+          </label>
+          <a class="row more" id="memory-open">
+            <span class="text"><b>查看记忆</b><small id="memory-summary"></small></span>
+            <i class="chevron right"></i>
+          </a>
+        </div>
+
+        <p class="hint">聊天内容和截图只发给你选的服务商，联网搜索的搜索词交给负责搜索的一方。API 密钥明文保存在 <code>~/.clawd-pet/config.json</code>。网络走系统代理。</p>
+      </section>
+
+      <!-- ------------------------------------------------ 服务商与模型（AI 聊天的子页面） -->
+      <section id="tab-provider">
+        <h2><a class="back" data-back="ai">‹ AI 聊天</a> 服务商与模型</h2>
         <div class="card">
           <div class="row">
-            <span class="text"><b>服务商</b><small><span id="ai-provider-note"></span><a id="ai-base-show" class="link">改 API 地址</a></small></span>
+            <span class="text"><b>服务商</b><small><a id="ai-base-show" class="link">改 API 地址</a></small></span>
             <select id="ai-provider"></select>
           </div>
+          <div class="row" id="ai-name-row">
+            <span class="text"><b>名字</b></span>
+            <span class="unit">
+              <input type="text" id="ai-name" maxlength="20" spellcheck="false" />
+              <button id="ai-provider-delete" class="ghost">删除</button>
+            </span>
+          </div>
+          <div class="row" id="ai-kind-row">
+            <span class="text"><b>接口格式</b></span>
+            <span class="segmented">
+              <label><input type="radio" name="ai-kind" value="custom" /><span>OpenAI 兼容</span></label>
+              <label><input type="radio" name="ai-kind" value="custom-anthropic" /><span>Anthropic 兼容</span></label>
+            </span>
+          </div>
           <div class="row" id="ai-base-row">
-            <span class="text"><b>API 地址</b><small id="ai-base-note">留空就用官方地址</small></span>
+            <span class="text"><b>API 地址</b></span>
             <input type="text" id="ai-base" class="wide" spellcheck="false" />
           </div>
           <div class="row">
@@ -164,56 +230,43 @@
               <button id="ai-key-show" class="icon eye" title="显示"><i class="glyph-eye"></i></button>
             </span>
           </div>
-          <div class="row stack">
-            <span class="text"><b>模型</b><small id="ai-model-note">点「获取模型」从服务商那里拉列表，也可以直接填</small></span>
-            <span class="add">
-              <input type="text" id="ai-model" spellcheck="false" />
-              <button id="ai-fetch">获取模型</button>
+        </div>
+
+        <div class="card">
+          <div class="row">
+            <span class="text"><b>模型</b><small id="ai-model-note"></small></span>
+            <span class="model-pick">
+              <span class="add">
+                <select id="ai-model" data-search></select>
+                <button id="ai-fetch">获取列表</button>
+              </span>
+              <input type="text" id="ai-model-input" class="wide" placeholder="模型名" spellcheck="false" hidden />
             </span>
-            <div id="ai-models" class="chips models"></div>
           </div>
-          <div class="row stack">
-            <span class="text"><b>推理</b><small id="ai-reasoning-note"></small></span>
+          <div class="row stack" id="ai-reasoning-row">
+            <span class="text"><b>推理</b></span>
             <span class="segmented" id="ai-reasoning"></span>
           </div>
           <div id="ai-reasoning-warn" class="error" hidden></div>
         </div>
+      </section>
 
-        <h3>能做什么</h3>
-        <div class="card">
-          <label class="row">
-            <span class="text"><b>允许它看屏幕</b><small>它觉得需要时，会截一张你所在屏幕的图发给模型（截不到它自己和气泡），回复上会标出「看了一眼屏幕」。关掉后它根本拿不到截图；模型不能识图的话，它会说看不了</small></span>
-            <input type="checkbox" class="switch" data-key="ai.screen" />
-          </label>
-          <label class="row">
-            <span class="text"><b>上网搜索：服务商自带</b><small id="ai-search-note"></small></span>
-            <input type="checkbox" class="switch" data-key="ai.search" />
-          </label>
-          <label class="row">
-            <span class="text"><b>上网搜索：Exa</b><small>桌宠自己给模型一个搜索工具，用 Exa 去搜，哪家模型都能用，只要它会调用工具。搜索词会发给 Exa（exa.ai）。一般和上一种只开一个，打开一个会关掉另一个；两个都开着时用 Exa</small></span>
-            <input type="checkbox" class="switch" data-key="ai.exa" />
-          </label>
-          <div class="row" id="ai-exa-key-row">
-            <span class="text"><b>Exa API 密钥</b><small>不填就用免费额度，每个 IP 每天大约 50 次；填了按次计费，每月有 10 美元免费额度 <a id="ai-exa-link" class="link">去申请 ↗</a></small></span>
-            <span class="secret">
-              <input type="password" id="ai-exa-key" data-key="ai.exaKey" placeholder="可以不填" spellcheck="false" autocomplete="off" />
-              <button id="ai-exa-key-show" class="icon eye" title="显示"><i class="glyph-eye"></i></button>
-            </span>
-          </div>
-        </div>
-
-        <h3>它是谁</h3>
+      <!-- ------------------------------------------------ 身份与人设（AI 聊天的子页面） -->
+      <section id="tab-persona">
+        <h2><a class="back" data-back="ai">‹ AI 聊天</a> 身份与人设</h2>
         <div class="card">
           <div class="row stack">
-            <span class="text"><b>身份</b><small>它觉得自己是谁：叫什么、是什么、住在哪儿</small></span>
+            <span class="text"><b>身份</b><small>叫什么、是什么、住在哪儿</small></span>
             <textarea id="ai-identity" rows="2" spellcheck="false"></textarea>
             <div class="persona-foot">
               <small id="ai-identity-note"></small>
               <button id="ai-identity-reset" class="ghost">恢复默认</button>
             </div>
           </div>
+        </div>
+        <div class="card">
           <div class="row stack">
-            <span class="text"><b>人设</b><small>它聊天时的性格和说话风格。每种都能改，也能自己加；不管哪种，回复都会保持简短</small></span>
+            <span class="text"><b>人设</b><small>聊天时的性格和说话风格</small></span>
             <div id="ai-personas" class="chips personas"></div>
             <input type="text" id="ai-persona-name" class="wide" maxlength="12" placeholder="给这个人设起个名字" spellcheck="false" />
             <textarea id="ai-persona-prompt" rows="7" spellcheck="false" placeholder="写下它的性格、说话方式、回应方式，还有它绝不会做的事"></textarea>
@@ -224,28 +277,11 @@
             </div>
           </div>
         </div>
-        <h3>记忆</h3>
-        <div class="card">
-          <label class="row">
-            <span class="text"><b>记住我们的事</b><small>聊天时，它会把值得记住的事（你的近况、喜好、约定）随手记下，回复上标着「记下了」，关掉聊天后整理进一篇笔记；只是闲聊就什么都不记，也不多花钱。夜里睡着时，再把这一天一起经历的事整理一遍</small></span>
-            <input type="checkbox" class="switch" data-key="memory.enabled" />
-          </label>
-          <label class="row">
-            <span class="text"><b>主动提起</b><small>睡觉时准备几句想对你说的话，早安或闲下来时冒出来，一天最多两三次；点一下就能接着聊</small></span>
-            <input type="checkbox" class="switch" data-key="memory.proactive" />
-          </label>
-          <a class="row more" id="memory-open">
-            <span class="text"><b>查看记忆</b><small id="memory-summary"></small></span>
-            <i class="chevron right"></i>
-          </a>
-        </div>
-
-        <p class="hint">聊天内容和截图只发给你选的服务商，桌宠自己不存原文（打开「记忆」后只留一篇整理过的笔记）。开了联网搜索时，模型写的搜索词会交给搜索的一方（服务商自带的由服务商去搜，Exa 的发给 Exa），看过屏幕后的搜索词里可能有屏幕上的字，比如报错信息。API 密钥明文保存在本机的 <code>~/.clawd-pet/config.json</code>。走系统代理设置，本机地址除外；改了代理不用重启。</p>
       </section>
 
       <!-- ------------------------------------------------ 记忆（AI 聊天的子页面） -->
       <section id="tab-memory">
-        <h2><a class="back" id="memory-back">‹ AI 聊天</a> 记忆</h2>
+        <h2><a class="back" data-back="ai">‹ AI 聊天</a> 记忆</h2>
         <p class="hint" id="memory-off" hidden>要先在「AI 聊天」里打开「和它聊天」和「记住我们的事」，它才会记事。</p>
         <div class="card">
           <div class="row">
@@ -259,7 +295,7 @@
         <h3>记忆笔记</h3>
         <div class="card">
           <div class="row stack">
-            <span class="text"><small>它记得的关于你的事，每次聊天都会带上。可以直接改，改完点别处就保存；也可以在聊天里对它说“记住……”“忘掉……”</small></span>
+            <span class="text"><small>每次聊天都会带上。可以直接改，也可以在聊天里对它说“记住……”“忘掉……”</small></span>
             <textarea id="memory-note" rows="14" spellcheck="false" placeholder="还没有记下什么。聊几句，或者在这里写下你想让它知道的事"></textarea>
             <div class="persona-foot">
               <small id="memory-note-info"></small>
@@ -269,13 +305,13 @@
           </div>
           <div id="memory-error" class="error" hidden></div>
         </div>
-        <p class="hint">笔记只记你自己说的事和你们一起经历的事，不记聊天原文、网页和截图里的内容，也不记证件号、账号密码这类信息；健康、信仰这类话题，除非你明确让它记住。每次聊天和整理时，笔记会发给你选的服务商，换了服务商就发给新的那家。记下的事马上存好，退出了也不丢；用不了工具的模型没法随手记，要等聊天关掉后整体看一遍，退出时还开着的那次聊天就来不及了。文件在 <code>~/.clawd-pet/memory</code>。</p>
+        <p class="hint">只记你说的事和你们一起经历的事，不记聊天原文、截图和证件、密码这类信息。整理时笔记会发给你选的服务商。文件在 <code>~/.clawd-pet/memory</code>。</p>
       </section>
 
       <!-- ------------------------------------------------ 系统 -->
       <section id="tab-system">
         <h2>系统联动</h2>
-        <p class="hint">让它对你在电脑上的操作有反应。只感知「发生了什么」，不读取文件内容、剪贴板内容和按键，全部在本机处理。Claude 干活时这些反应会自动让路。</p>
+        <p class="hint">只感知发生了什么，不读文件、剪贴板的内容和按键，全部在本机处理。</p>
         <div class="card">
           <label class="row">
             <span class="text"><b>文件动静</b><small>文件进文件夹、压缩打包、下载完成、截图</small></span>
@@ -290,7 +326,7 @@
             <input type="checkbox" class="switch" data-key="sys.trash" />
           </label>
           <label class="row">
-            <span class="text"><b>复制粘贴</b><small>剪贴板有变化时（最多每分钟一次）</small></span>
+            <span class="text"><b>复制粘贴</b><small>最多每分钟一次</small></span>
             <input type="checkbox" class="switch" data-key="sys.clipboard" />
           </label>
           <label class="row">
@@ -306,23 +342,23 @@
             <input type="checkbox" class="switch" data-key="sys.theme" />
           </label>
           <label class="row">
-            <span class="text"><b>节日</b><small>春节、中秋、万圣节、圣诞、你的生日…当天有专属动画</small></span>
+            <span class="text"><b>节日</b><small>节日和你的生日有专属动画</small></span>
             <input type="checkbox" class="switch" data-key="sys.holidays" />
           </label>
         </div>
         <div class="card">
           <label class="row">
-            <span class="text"><b>前台应用</b><small>切到音乐、视频、游戏、聊天等软件时跟着换花样。只看进程名，默认关闭</small></span>
+            <span class="text"><b>前台应用</b><small>切到音乐、视频、游戏等软件时跟着换花样</small></span>
             <input type="checkbox" class="switch" data-key="sys.apps" />
           </label>
         </div>
         <div class="card">
           <label class="row">
-            <span class="text"><b>Git 操作</b><small id="git-note">任何仓库、任何工具里的提交、合并、拉取、推送、克隆、切分支、撤销，它都有反应，不用逐个添加仓库</small></span>
+            <span class="text"><b>Git 操作</b><small id="git-note">任何仓库里的提交、推送、切分支等，它都有反应</small></span>
             <input type="checkbox" class="switch" id="git-watch" />
           </label>
         </div>
-        <p class="hint">Git 操作的原理：打开后会在你的<b>全局 git 配置</b>里加 4 行 <code>trace2.*</code> 设置，让 git 把每条命令的名字和结果记到桌宠自己的文件夹里；桌宠读完就删，只看命令名，不碰仓库内容。关掉开关即从配置里移除。桌宠没运行时 git 最多攒 200 个小文件就自动停记。</p>
+        <p class="hint">打开 Git 操作会在<b>全局 git 配置</b>里加 4 行 <code>trace2.*</code> 设置，桌宠只看命令名，不碰仓库内容；关掉即移除。</p>
       </section>
 
       <!-- ------------------------------------------------ 图鉴 -->
