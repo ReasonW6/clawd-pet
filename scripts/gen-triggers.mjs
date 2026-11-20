@@ -256,10 +256,14 @@ const life = section(
     row({ when: "睡着时 Claude 开工", how: "收到提问、工具调用、权限请求、完成等事件。醒来干活，忙完 2 分钟后接着睡。", play: ["force", 1000], code: "ANIMS.wakeStartled", slugs: ANIMS.wakeStartled }),
     row({ when: "睡着时被你戳醒", how: "单击它。清醒 1 分钟后接着睡。", play: ["force", 2000], say: "唔…再让我睡会儿嘛…", code: "ANIMS.wakeGrumpy", slugs: ANIMS.wakeGrumpy }),
     row({ when: "时段结束，起床", how: "先拍闹钟，紧接着做下一行的伸展，然后接上早晨的作息。", play: ["polite", 2200], say: "早上好！新的一天开始啦～ / 睡醒啦，继续开工～", code: "ANIMS.wakeAlarm", slugs: ANIMS.wakeAlarm }),
+    row({ when: "做梦", how: "打开了「记忆」时（设置的「AI 聊天」里），每个睡眠时段第一次睡着时在梦里整理记忆：把这些天一起经历的事、聊天时记下的事写进记忆笔记，顺便准备几句接下来想说的话（午睡准备的是当天下午说的）。没有新东西就不整理，也不做梦。整理时，以及整理完后 1 分半钟里，按睡姿轮流演这些梦，每个约 6 秒，之后回到平常的睡觉动画。电脑夜里关着、或者通宵没睡的话，第二天第一次有动静时补上，那时它醒着，不演梦。", play: ["loop"], code: "ANIMS.dreamNight", slugs: ANIMS.dreamNight }),
+    row({ when: "做梦（午睡）", how: "同上，午睡时（捧着书打盹的姿势）。", play: ["loop"], code: "ANIMS.dreamNap", slugs: ANIMS.dreamNap }),
     row({ when: "伸展", how: "起床拍完闹钟之后；以及久坐提醒时（连续在用电脑超过设定的分钟数，默认 60）。", play: ["polite", 2000], say: "已经坐了 N 分钟啦，起来活动一下～", code: "ANIMS.stretch", slugs: ANIMS.stretch }),
 
     sub("问候与提醒"),
     row({ when: "桌宠启动", how: "按钟点说早上好 / 中午好 / 下午好 / 晚上好；当天是节日则改播节日动画。", play: ["polite", 1800], say: "下午好～", code: "ANIMS.hello", slugs: ANIMS.hello }),
+    row({ when: "认识满 7 / 30 / 100 / 365 天", how: "打开了「记忆」才有：从打开记忆后第一次见面算起。达成的那天、它手头的场景演完时庆祝一次；当时在忙、在睡觉或者在聊天，就等闲下来。", play: ["polite", 3500], say: "我们认识一周啦～", code: "ANIMS.milestone", slugs: ANIMS.milestone }),
+    `<div class="note">打开了「记忆」和「主动提起」时，它会说做梦时准备的话：起床时有适合早上说的就用它代替早安（午睡醒来用当天的），平时你在电脑前、它手头的场景演完时也会冒一句（每天最多 2 次，间隔至少 2 小时，每 10 分钟看一次）。点这个气泡会打开聊天，这句话就是开场白。换了人设，旧人设准备的话不再说。关掉「爱说话」则都不说。</div>`,
     ...NUDGES.map((n, i) => row({ when: `${n.at} 提醒`, how: "到点后 10 分钟内、它手头的场景演完时说一次，每天一次。关掉「爱说话」则不提醒。", play: ["polite", 3000], say: n.say, code: `NUDGES[${i}]`, slugs: n.anims })),
   ],
 );

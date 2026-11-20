@@ -66,6 +66,41 @@ const inRange = (t, from, to) => (from < to ? t >= from && t < to : from > to &&
 let config = null;
 const nick = () => (config.nickname ? `，${config.nickname}` : "");
 
+// ---------------------------------------------------------------- memory
+
+// With the AI chat and memory on, the pet keeps a note about the user (memory.rs): it
+// counts what happens here, has what a chat noted down merged in once it closes, dreams
+// over the days at night and brings up what it prepared then.
+
+const memOn = () => config.ai.enabled && config.memory.enabled;
+const nowText = () => new Date().toLocaleString("zh-CN", { dateStyle: "full", timeStyle: "short", hour12: false });
+
+/** The day as memory counts it, "YYYY-MM-DD": days start at 05:00, so a night's work belongs to the day before. */
+function memDay() {
+  const d = new Date(Date.now() - 5 * 60 * MIN);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Milestones reached, as what to say, until a quiet moment to celebrate them. */
+const celebrations = [];
+
+/** Something for memory to count (see `memory::event`). */
+async function remember(kind, detail = null) {
+  if (!memOn()) return;
+  const reply = await invoke("memory_event", { kind, detail, day: memDay(), now: nowText() });
+  celebrations.push(...(reply?.celebrate || []));
+}
+
+/** Shows something the pet prepared to say, `when` "morning", "anytime" or "any"; a click on
+ *  it starts a chat that opens with it. Resolves to whether there was one. */
+async function bringUp(when) {
+  if (!memOn() || !config.memory.proactive || !config.chatty) return false;
+  const text = await invoke("memory_topic", { when });
+  if (!text) return false;
+  toast(text, { ms: 12000, onClick: () => openChat(text) });
+  return true;
+}
+
 // ---------------------------------------------------------------- animations
 
 let manifest = {}; // slug -> { ms, zh }
@@ -156,6 +191,26 @@ let asleep = false;
 let sleepAnim = null;
 let awakeUntil = now() + MIN; // stay up a moment after launch
 let tuckedIn = null;
+let napping = false;
+
+// Dreaming: while a dream goes over its memory (memory.rs says when), and a while after,
+// the sleeping pet plays dream animations for its pose instead of plain sleep.
+const DREAM_AFTER_MS = 90 * 1000;
+const DREAM_EACH_MS = 6400; // two loops of each dream
+let dreamOn = false;
+let dreamUntil = 0;
+
+function dreamSlug() {
+  if (!asleep || (!dreamOn && now() >= dreamUntil)) return null;
+  const pool = (napping ? ANIMS.dreamNap : ANIMS.dreamNight).filter((s) => manifest[s]);
+  return pool.length ? pool[Math.floor(now() / DREAM_EACH_MS) % pool.length] : null;
+}
+
+function onDream(on) {
+  dreamOn = on;
+  if (!on) dreamUntil = now() + DREAM_AFTER_MS;
+  render();
+}
 
 // Left alone = no keyboard or mouse input for a while. The user may be gone, or just
 // watching a video; either way the pet entertains itself.
@@ -324,6 +379,7 @@ function onHook(p) {
       if (!p.is_interrupt) {
         s.fails++;
         if (s.fails === 3) {
+          remember("rough");
           feel("down", 3);
           playOnce(pick(ANIMS.manyErrors), { force: true, minMs: 3000 });
         } else if (toolCategory(p.tool_name, p.tool_input || {}) === "test") {
@@ -396,6 +452,7 @@ function onHook(p) {
       s.subagents = 0;
       s.turnStart = 0;
       feel("down", 3);
+      remember("rough");
       playOnce(pick(ANIMS.apiError), { force: true, minMs: 3000 });
       toast(`呜…出错了（${p.error_type || p.error || "unknown"}）`);
       break;
@@ -431,6 +488,7 @@ function familyDone(s, took) {
     if (config.replies && s.reply) say(s, true);
     return;
   }
+  remember("task", { project: name, minutes: Math.round(took / MIN) });
 
   let [text, ms, anims, minMs] = [`${name} 搞定啦～`, TOAST_MS, ANIMS.done, 2600];
   if (sleepWindowAt(new Date())) {
@@ -574,24 +632,31 @@ function sleepWindowAt(date) {
   const t = minutesOf(date);
   for (const w of config.sleepWindows) {
     const [from, to] = [parseHM(w.start), parseHM(w.end)];
-    if (inRange(t, from, to)) return { key: `${w.start}-${w.end}`, minutes: (to - from + 1440) % 1440 };
+    if (inRange(t, from, to)) return { key: `${w.start}-${w.end}`, start: w.start, minutes: (to - from + 1440) % 1440 };
   }
   return null;
 }
 
 function fallAsleep(win) {
   const nap = win.minutes <= NAP_MAX_MINUTES;
-  const key = `${new Date().toDateString()}|${win.key}`;
+  // Past midnight, a window that started the evening before is still that night's.
+  const d = new Date();
+  const started = minutesOf(d) < parseHM(win.start) ? new Date(d.getTime() - 24 * 60 * MIN) : d;
+  const key = `${started.toDateString()}|${win.key}`;
   // The first time in a window, as opposed to dozing off again after being woken.
   const first = tuckedIn !== key;
   tuckedIn = key;
   if (first && config.chatty) toast(nap ? "午休时间，我眯一会儿～" : `我先睡啦${nick()}，你也早点休息哦～ 💤`);
+  // Its first sleep in a window is when it goes over its memory; the dream animations
+  // play only if that asks the model (the "dream" event).
+  if (first && memOn()) invoke("memory_dream", { day: memDay(), now: nowText(), why: nap ? "nap" : "night" });
   const yawn = () =>
     playOnce(pick(ANIMS.yawn), {
       minMs: 3000,
       then: () => {
         if (anyBusy() || !sleepWindowAt(new Date())) return;
         asleep = true;
+        napping = nap;
         sleepAnim = pick(nap ? ANIMS.sleepNap : ANIMS.sleepNight);
       },
     });
@@ -605,7 +670,10 @@ function wakeUp(date) {
     minMs: 2200,
     then: () => playOnce(pick(ANIMS.stretch), { minMs: 2000 }),
   });
-  if (config.chatty) toast(date.getHours() < 11 ? `早上好${nick()}！新的一天开始啦～` : "睡醒啦，继续开工～");
+  if (!config.chatty) return;
+  const hello = date.getHours() < 11 ? `早上好${nick()}！新的一天开始啦～` : "睡醒啦，继续开工～";
+  // Something it prepared in its dream, if it did.
+  bringUp(date.getHours() < 11 ? "morning" : "anytime").then((said) => said || toast(hello));
 }
 
 function holidaysToday(date) {
@@ -615,6 +683,7 @@ function holidaysToday(date) {
 function celebrate(holiday) {
   playOnce(pick(holiday.anims), { minMs: 3500 });
   toast(holiday.say, { ms: 7000 });
+  remember("holiday", holiday.name);
 }
 
 let greetedDay = null;
@@ -713,6 +782,7 @@ const firedNudges = new Set();
 function tick() {
   const t = now();
   const d = new Date();
+  memoryTick(t, d);
 
   for (const s of [...sessions.values()]) {
     if (s.state === "compacting" && t - s.compactSince > COMPACT_MAX_MS) s.state = afterCompact(s);
@@ -754,6 +824,30 @@ function tick() {
   render();
 }
 
+let memDayNow = null;
+let lateAt = 0;
+
+/** Tells memory about a new day (the pet is around to see it), and about the user still
+ *  at the computer in the small hours. */
+function memoryTick(t, d) {
+  if (!memOn()) return;
+  const day = memDay();
+  if (day !== memDayNow) {
+    memDayNow = day;
+    remember("day");
+  }
+  if (d.getHours() < 5 && !leftAlone && t - lateAt >= 10 * MIN) {
+    lateAt = t;
+    remember("late", `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
+  }
+}
+
+// Things it prepared to say, brought up at most this often.
+const TOPICS_PER_DAY = 2;
+const TOPIC_GAP_MS = 2 * 60 * MIN;
+let topicsSaid = { day: null, n: 0, at: 0 };
+let nextTopicTry = now() + 10 * MIN;
+
 /** What the pet does on its own while nothing is going on. */
 function idleLife(t, d) {
   const today = d.toDateString();
@@ -761,6 +855,26 @@ function idleLife(t, d) {
     greetedDay = today;
     const [holiday] = holidaysToday(d);
     if (holiday) return celebrate(holiday);
+  }
+
+  // A milestone reached while it was busy, asleep or chatting.
+  if (celebrations.length && !toastText) {
+    playOnce(pick(ANIMS.milestone), { minMs: 3500 });
+    return toast(celebrations.shift(), { ms: 8000 });
+  }
+
+  if (!leftAlone && !toastText && t >= nextTopicTry && memOn() && config.memory.proactive) {
+    nextTopicTry = t + 10 * MIN;
+    const day = memDay();
+    if (topicsSaid.day !== day) topicsSaid = { day, n: 0, at: 0 };
+    if (topicsSaid.n < TOPICS_PER_DAY && t - topicsSaid.at >= TOPIC_GAP_MS) {
+      // Before 11 what it meant to say in the morning may still go.
+      bringUp(d.getHours() < 11 ? "any" : "anytime").then((said) => {
+        if (!said) return;
+        topicsSaid.n++;
+        topicsSaid.at = now();
+      });
+    }
   }
 
   const mins = minutesOf(d);
@@ -811,6 +925,7 @@ function onUserEvent({ kind, detail }) {
     if (category && category !== lastAppCategory) reactTo(`app:${category}`, { anims: APP_ANIMS[category], cooldown: 120 });
     lastAppCategory = category;
   } else {
+    if (kind.startsWith("git-")) remember("git", kind.slice(4));
     reactTo(kind, SYS_EVENTS[kind]);
   }
 }
@@ -891,7 +1006,7 @@ function desiredSlug() {
     if (lead.subagents > 0) return ANIMS.subagents[0];
     return lead.anim || ANIMS.thinking[0];
   }
-  if (asleep) return sleepAnim;
+  if (asleep) return dreamSlug() || sleepAnim;
   return idleBase;
 }
 
@@ -920,7 +1035,7 @@ function renderLabel() {
     text = `${sessionName(root)} · ${stateText(lead)}${forks ? ` · 分支 ×${forks}` : ""}`;
   } else if (petHit.matches(":hover")) {
     // What the pet is up to on its own, and how it feels.
-    text = asleep ? "睡觉中 💤" : [manifest[currentSlug]?.zh, MOODS[mood()]?.label].filter(Boolean).join(" · ");
+    text = asleep ? (dreamSlug() ? "做梦中 💭" : "睡觉中 💤") : [manifest[currentSlug]?.zh, MOODS[mood()]?.label].filter(Boolean).join(" · ");
   }
   label.textContent = text;
   label.hidden = !text;
@@ -1176,6 +1291,7 @@ petHit.addEventListener("mousemove", (e) => {
     rub.restUntil = t + 4000;
     clearTimeout(noticeTimer);
     if (!asleep) {
+      remember("petted");
       feel("loved", 0.5);
       playOnce(pick(ANIMS.petted), { force: true, minMs: 1800 });
     }
@@ -1250,6 +1366,7 @@ function onPetClick() {
     clicks = [];
     burst = 0;
     feel("grumpy", 0.5);
+    remember("grumpy");
     ignoreClicksUntil = t + playOnce(pick(ANIMS.clickSpam), { force: true, minMs: 1500 });
     return;
   }
@@ -1338,37 +1455,43 @@ const TAIL_LEFT = tailSvg("left", 2);
 const TAIL_RIGHT = tailSvg("right", -2);
 const SEND_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3.5M3.5 8 8 3.5 12.5 8"/></svg>';
 
-const nowText = () => new Date().toLocaleString("zh-CN", { dateStyle: "full", timeStyle: "short", hour12: false });
-
-function openChat() {
+/** `opener`: what the pet said to start the chat, when it brought something up. */
+function openChat(opener = "") {
   if (chat) return chatPoke();
   stir(AWAKE_AFTER_POKE_MS);
   cancelLife();
   clearTimeout(noticeTimer);
   // looked: it has looked at the screen, so links aren't opened for the rest of the chat.
-  chat = { req: 0, history: [], stack: [], phase: "idle", reply: null, quietSince: now(), looked: false };
+  // log: the whole chat, which history (sent as context) is only the end of, for memory
+  // to go over when the model had no tool to note things down with; searched: it went
+  // online at some point.
+  chat = { req: 0, history: [], stack: [], phase: "idle", reply: null, quietSince: now(), looked: false, opener, log: [], searched: false };
+  if (opener) addMsg("ai").body.append(el("div", "text", opener));
   openCompose();
 }
 
-/** A click on the pet while the chat is open. */
-function chatPoke() {
-  const compose = chat.stack.find((m) => m.kind === "compose");
-  if (compose) return focusCompose(compose);
-  if (chat.phase === "waiting" || chat.phase === "typing") {
-    // Busy answering: the reply just gives a little wobble.
-    chat.reply.sp && (chat.reply.sp.s.vel += 1.6);
-    return animate();
-  }
-  if (chat.standby) {
-    const m = chat.standby;
-    wakeCompose(m);
-    return focusCompose(m);
-  }
-  openCompose();
+/** Turns of a chat kept in its log. */
+const CHAT_LOG_MAX = 60;
+
+/** The chat is closing: what it noted down goes into memory's note. With a model that
+ *  doesn't do tools memory goes over the chat itself, and decides that by itself. */
+function mergeChat() {
+  if (!memOn()) return;
+  invoke("memory_merge", {
+    // Replies may tell what was on the screen or on a page: only the user's words go then.
+    log: { turns: chat.log, private: chat.looked || chat.searched, opener: chat.opener },
+    now: nowText(),
+  });
+}
+
+function logChat(role, text) {
+  chat.log.push({ role, text });
+  if (chat.log.length > CHAT_LOG_MAX) chat.log.splice(0, chat.log.length - CHAT_LOG_MAX);
 }
 
 function closeChat() {
   if (!chat) return;
+  mergeChat();
   invoke("ai_cancel");
   for (const m of chat.stack) leave(m, "down");
   if (chat.standby) leave(chat.standby, "down");
@@ -1388,7 +1511,7 @@ function addMsg(kind, standby = false) {
   const m = { kind, el: node, card, body, sp: null, gone: false };
   if (kind !== "me") {
     const x = el("button", "x");
-    x.title = "关闭聊天（内容不保存）";
+    x.title = "关闭聊天";
     x.onclick = (e) => {
       e.stopPropagation();
       closeChat();
@@ -1560,15 +1683,17 @@ function sendChat(m) {
   m.body.replaceChildren(el("div", "text", text));
   // ...and the reply comes up from below, pushing it up.
   const r = addMsg("ai");
-  Object.assign(r, { full: "", shown: "", buffer: "", chip: null, text: null, looked: false, blind: false, searched: null, ended: false, error: null });
+  Object.assign(r, { full: "", shown: "", buffer: "", chip: null, text: null, looked: false, blind: false, searched: null, remembered: false, ended: false, error: null });
   r.body.append(dots());
   chat.reply = r;
+  if (!chat.log.some((m) => m.role === "user")) remember("chat");
+  logChat("user", text);
   chat.history.push({ role: "user", text });
   chat.history = chat.history.slice(-CHAT_HISTORY);
   while (chat.history[0]?.role !== "user") chat.history.shift();
   chat.phase = "waiting";
   chat.req = ++chatReq;
-  invoke("ai_chat", { id: chat.req, history: chat.history, now: nowText(), looked: chat.looked });
+  invoke("ai_chat", { id: chat.req, history: chat.history, now: nowText(), day: memDay(), looked: chat.looked, opener: chat.opener || null });
   layoutChat();
   render();
 }
@@ -1594,7 +1719,9 @@ function chipFor(r) {
   const done = Boolean(r.text);
   const sight = r.blind ? "🙈 这个模型看不了图" : r.looked && (done ? "👀 看了一眼屏幕" : "👀 瞄一眼屏幕…");
   const web = r.searched === "link" ? (done ? "🔗 看了链接" : "🔗 打开链接…") : r.searched && (done ? "🔎 搜了一下" : "🔎 搜一下…");
-  return [sight, web].filter(Boolean).join(" · ");
+  const memo = r.remembered && "📝 记下了";
+  const set = r.set && "⚙️ 改了设置";
+  return [sight, web, memo, set].filter(Boolean).join(" · ");
 }
 
 function onAi({ id, kind, text }) {
@@ -1623,6 +1750,13 @@ function onAi({ id, kind, text }) {
     setChip(r, chipFor(r));
   } else if (kind === "search") {
     r.searched = text === "link" ? "link" : "search";
+    chat.searched = true;
+    setChip(r, chipFor(r));
+  } else if (kind === "remember") {
+    r.remembered = true;
+    setChip(r, chipFor(r));
+  } else if (kind === "setting") {
+    r.set = true;
     setChip(r, chipFor(r));
   } else if (kind === "done" || kind === "error") {
     r.ended = true;
@@ -1677,6 +1811,7 @@ function finishReply(r) {
     chat.history.pop(); // declined: neither the question nor what it said goes on as context
   } else {
     chat.history.push({ role: "assistant", text: r.full.trim() });
+    logChat("assistant", r.full.trim());
   }
   chat.phase = "idle";
   // Typing straight away carries on the chat, unless the focus went elsewhere at any
@@ -1896,6 +2031,7 @@ async function boot() {
   });
   await listen("user-event", (e) => onUserEvent(e.payload));
   await listen("ai", (e) => onAi(e.payload));
+  await listen("dream", (e) => onDream(e.payload));
   await listen("drag-end", onDragEnd);
   await listen("config", (e) => applyConfig(e.payload));
   await listen("play-random", () => playRandom());

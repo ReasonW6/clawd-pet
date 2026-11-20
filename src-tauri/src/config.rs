@@ -162,6 +162,21 @@ impl Default for AiConfig {
     }
 }
 
+/// What the pet remembers (memory.rs). Only works with the AI chat on as well.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct MemoryConfig {
+    pub enabled: bool,
+    /// Bring up what it remembers in its own bubbles now and then.
+    pub proactive: bool,
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self { enabled: false, proactive: true }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
@@ -194,6 +209,7 @@ pub struct Config {
     pub fullscreen_exclude: Vec<String>,
     pub sys: SysConfig,
     pub ai: AiConfig,
+    pub memory: MemoryConfig,
 }
 
 impl Default for Config {
@@ -219,6 +235,7 @@ impl Default for Config {
             fullscreen_exclude: BROWSERS.iter().chain(VIDEO_PLAYERS).map(|p| p.to_string()).collect(),
             sys: SysConfig::default(),
             ai: AiConfig::default(),
+            memory: MemoryConfig::default(),
         }
     }
 }

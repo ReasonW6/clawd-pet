@@ -886,7 +886,8 @@ a.link[hidden] {
 }
 
 #ai-identity,
-#ai-persona-prompt {
+#ai-persona-prompt,
+#memory-note {
   box-sizing: border-box;
   width: 100%;
   min-height: 52px;
@@ -907,7 +908,8 @@ a.link[hidden] {
 }
 
 #ai-identity:focus,
-#ai-persona-prompt:focus {
+#ai-persona-prompt:focus,
+#memory-note:focus {
   border-color: var(--clawd);
 }
 
@@ -932,7 +934,42 @@ a.link[hidden] {
   display: none;
 }
 
+/* A row that opens a page of its own. */
+.row.more {
+  cursor: pointer;
+  color: inherit;
+  text-decoration: none;
+}
+
+.row.more:hover {
+  background: var(--paper);
+}
+
+/* The chevron above, pointing right. */
+.chevron.right {
+  margin: 0 6px 0 0;
+  color: var(--muted);
+  transform: rotate(-45deg);
+}
+
+a.back {
+  margin-right: 6px;
+  font-size: 13px;
+  font-weight: normal;
+  color: var(--clawd);
+  cursor: pointer;
+}
+
+#memory-note {
+  min-height: 240px;
+}
+
+#memory-milestones-row[hidden] {
+  display: none;
+}
+
 /* Asks for a second click before deleting. */
+#memory-forget.armed,
 #ai-persona-delete.armed {
   border-style: solid;
   border-color: #c0392b;

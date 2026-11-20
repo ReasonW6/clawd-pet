@@ -7,6 +7,7 @@ mod config;
 mod desktop_sessions;
 mod git;
 mod hooks;
+mod memory;
 mod screen;
 mod server;
 mod sysmon;
@@ -84,7 +85,12 @@ fn get_config(state: State<AppState>) -> Config {
 }
 
 #[tauri::command]
-fn set_config(mut config: Config, app: AppHandle, state: State<AppState>) {
+fn set_config(config: Config, app: AppHandle, state: State<AppState>) {
+    apply_config(&app, &state, config);
+}
+
+/// Puts a new config in place: the settings page's, or one the chat changed.
+fn apply_config(app: &AppHandle, state: &AppState, mut config: Config) {
     config.size = config.size.clamp(SIZE_RANGE.0, SIZE_RANGE.1);
     let old = {
         let mut current = state.config.lock().unwrap();
@@ -96,7 +102,7 @@ fn set_config(mut config: Config, app: AppHandle, state: State<AppState>) {
     state.shared.bubbles.store(config.bubbles, Ordering::SeqCst);
     transcript::show_replies(config.replies);
     if old.size != config.size || old.ai.enabled != config.ai.enabled {
-        if let Some(w) = main_window(&app) {
+        if let Some(w) = main_window(app) {
             resize_anchored(&w, window_size(&old), window_size(&config));
         }
     }
@@ -104,10 +110,91 @@ fn set_config(mut config: Config, app: AppHandle, state: State<AppState>) {
         state.rewatch();
     }
     state.save();
+    // To every window: the settings page shows what the chat changed.
     let _ = app.emit("config", config);
-    if let Some(w) = main_window(&app) {
-        step_aside(&app, &state, &w);
+    if let Some(w) = main_window(app) {
+        step_aside(app, state, &w);
     }
+}
+
+/// Changes one of the few settings the chat may change (`ai::SETTING_TOOL`), checked as
+/// strictly as the settings page checks them, and put in place as its changes are.
+/// Gives back what changed, for the model, or `None` if it was so already.
+pub fn change_setting(app: &AppHandle, key: &str, value: &serde_json::Value) -> Result<Option<String>, String> {
+    let state = app.state::<AppState>();
+    let old = state.config.lock().unwrap().clone();
+    let mut config = old.clone();
+    let text = match value {
+        serde_json::Value::String(s) => s.trim().to_owned(),
+        serde_json::Value::Null => String::new(),
+        v => v.to_string(),
+    };
+    let number = |lo: u32, hi: u32| text.parse::<u32>().ok().filter(|n| (lo..=hi).contains(n)).ok_or(format!("{key} 要是 {lo} 到 {hi} 之间的整数"));
+    let switch = || match text.as_str() {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(format!("{key} 要写 \"true\" 或 \"false\"")),
+    };
+    let on_off = |on: bool| if on { "打开" } else { "关掉" };
+    let said = match key {
+        "nickname" => {
+            if text.chars().count() > 12 {
+                return Err("称呼最多 12 个字".into());
+            }
+            config.nickname = text.clone();
+            if text.is_empty() { "不带称呼了".to_owned() } else { format!("称呼改成了「{text}」") }
+        }
+        "birthday" => {
+            config.birthday = if text.is_empty() { String::new() } else { birthday(&text).ok_or("生日要写成 \"03-15\" 这样的月-日")? };
+            match config.birthday.split_once('-') {
+                Some((m, d)) => format!("生日记成了 {} 月 {} 日", m.trim_start_matches('0'), d.trim_start_matches('0')),
+                None => "去掉了生日".to_owned(),
+            }
+        }
+        "chatty" => {
+            config.chatty = switch()?;
+            format!("{}了爱说话", on_off(config.chatty))
+        }
+        "liveliness" => {
+            config.liveliness = number(0, 3)? as u8;
+            format!("活跃度改成了「{}」", ["安静", "悠闲", "活泼", "闹腾"][config.liveliness as usize])
+        }
+        "sedentaryMinutes" => {
+            config.sedentary_minutes = number(0, 480)?;
+            match config.sedentary_minutes {
+                0 => "关掉了久坐提醒".to_owned(),
+                n => format!("久坐提醒改成了 {n} 分钟"),
+            }
+        }
+        "sleepEnabled" => {
+            config.sleep_enabled = switch()?;
+            format!("{}了按时睡觉", on_off(config.sleep_enabled))
+        }
+        "size" => {
+            // In the settings slider's steps.
+            config.size = (number(SIZE_RANGE.0, SIZE_RANGE.1)? + 5) / 10 * 10;
+            format!("大小改成了 {} 像素", config.size)
+        }
+        _ => return Err("这项设置在聊天里改不了，请用户去设置里改".into()),
+    };
+    if serde_json::to_value(&config).ok() == serde_json::to_value(&old).ok() {
+        return Ok(None);
+    }
+    apply_config(app, &state, config);
+    Ok(Some(said))
+}
+
+/// "MM-DD" for a day there is in a year (Feb 29 included), from "3-15" or "03-15".
+fn birthday(s: &str) -> Option<String> {
+    let (m, d) = s.split_once('-')?;
+    let (m, d): (u32, u32) = (m.trim().parse().ok()?, d.trim().parse().ok()?);
+    let days = match m {
+        2 => 29,
+        4 | 6 | 9 | 11 => 30,
+        1..=12 => 31,
+        _ => return None,
+    };
+    (1..=days).contains(&d).then(|| format!("{m:02}-{d:02}"))
 }
 
 /// Brings the Claude desktop app forward, on the session with this title if given.
@@ -214,10 +301,12 @@ fn ai_identity() -> &'static str {
 }
 
 /// Answers the chat `history` (ending with the user's message) as chat `id`, in `ai`
-/// events. `now` is the local date and time, in words; `looked`, that the chat has
-/// looked at the screen before.
+/// events. `now` is the local date and time, in words, and `day` the day as memory
+/// counts it; `looked`, that the chat has looked at the screen before; `opener`, what
+/// the pet said to start the chat, when it did.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
-fn ai_chat(id: u64, history: Vec<ai::Turn>, now: String, looked: bool, app: AppHandle, state: State<AppState>) {
+fn ai_chat(id: u64, history: Vec<ai::Turn>, now: String, day: String, looked: bool, opener: Option<String>, app: AppHandle, state: State<AppState>) {
     let cfg = state.config.lock().unwrap().clone();
     // Where the pet is, if the model may look at the screen it is on.
     let eye = main_window(&app).filter(|_| cfg.ai.screen).and_then(|w| {
@@ -228,7 +317,53 @@ fn ai_chat(id: u64, history: Vec<ai::Turn>, now: String, looked: bool, app: AppH
         let hwnd = 0;
         Some(ai::Eye { hwnd, x: p.x + s.width as i32 / 2, y: p.y + s.height as i32 - 80 })
     });
-    ai::start(app, cfg.ai, cfg.nickname, now, id, history, eye, looked);
+    let memory = memory::for_chat(&day);
+    ai::start(app, cfg.ai, cfg.nickname, cfg.birthday, now, id, history, eye, looked, memory, opener.unwrap_or_default());
+}
+
+/// Something memory counts (`memory::event`). Earlier days the pet never slept on get
+/// dreamed about now.
+#[tauri::command]
+fn memory_event(kind: String, detail: serde_json::Value, day: String, now: String, app: AppHandle) -> memory::Reply {
+    let reply = memory::event(&kind, &detail, &day);
+    if reply.catch_up {
+        tauri::async_runtime::spawn(memory::dream(app, day, memory::Why::CatchUp, now));
+    }
+    reply
+}
+
+/// A chat closed: what it noted down goes into the note, or with a model that doesn't
+/// do tools, the chat itself (`memory::merge`).
+#[tauri::command]
+fn memory_merge(log: Option<memory::ChatLog>, now: String, app: AppHandle) {
+    tauri::async_runtime::spawn(memory::merge(app, log, now));
+}
+
+/// The pet fell asleep for the first time in a sleep window (`why` "night" or "nap"), or
+/// the settings page asks ("manual"): time to dream about the days so far.
+#[tauri::command]
+fn memory_dream(day: String, now: String, why: String, app: AppHandle) {
+    tauri::async_runtime::spawn(memory::dream(app, day, memory::Why::parse(&why), now));
+}
+
+#[tauri::command]
+fn memory_topic(when: String) -> Option<String> {
+    memory::topic(&when)
+}
+
+#[tauri::command]
+fn memory_get(day: String) -> serde_json::Value {
+    memory::snapshot(&day)
+}
+
+/// From the settings page: "save" the user's own `note`, or "forget" everything.
+#[tauri::command]
+fn memory_edit(op: String, note: Option<String>, app: AppHandle) {
+    match op.as_str() {
+        "save" => memory::set_note(&app, note.as_deref().unwrap_or("")),
+        "forget" => memory::forget(&app),
+        _ => {}
+    }
 }
 
 #[tauri::command]
@@ -326,6 +461,7 @@ fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "quit" => {
             app.state::<AppState>().save();
+            memory::flush();
             app.exit(0);
         }
         "toggle_visible" => {
@@ -494,6 +630,7 @@ fn spawn_background_loop(app: AppHandle) {
                 if st.dirty.swap(false, Ordering::SeqCst) {
                     st.save();
                 }
+                memory::flush();
             }
             let dragging = st.dragging.load(Ordering::SeqCst);
             if dragging && !sysmon::left_button_down() {
@@ -543,7 +680,13 @@ fn main() {
             ai_cancel,
             ai_models,
             ai_key_page,
-            chat_focus
+            chat_focus,
+            memory_event,
+            memory_merge,
+            memory_dream,
+            memory_topic,
+            memory_get,
+            memory_edit
         ])
         .setup(|app| {
             // The port doubles as a single-instance lock.
@@ -569,6 +712,7 @@ fn main() {
                 cfg.save(&config_path);
             }
             let config = Arc::new(Mutex::new(cfg.clone()));
+            memory::load(data_dir.join("memory"), config.clone());
             let shared = Arc::new(Shared::default());
             shared.bubbles.store(cfg.bubbles, Ordering::SeqCst);
             transcript::show_replies(cfg.replies);
@@ -596,6 +740,10 @@ fn main() {
             sysmon::spawn_poller(events.clone(), config.clone());
             transcript::init(handle.clone());
             server::serve(listener, handle.clone(), shared);
+            // Noted down in a chat that a quit cut short: into the note now.
+            if memory::has_memos() {
+                tauri::async_runtime::spawn(memory::merge(handle.clone(), None, String::new()));
+            }
 
             let w = main_window(&handle).expect("main window");
             place_initially(&w, &cfg);

@@ -53,12 +53,16 @@ window.ANIMS = {
   bigDone: ["dev_deploy_rocket", "emo_joy_burst", "sport_podium"],
   sleepyDone: ["emo_yawn"],
   hello: ["emo_nihao"], // the pet itself starting up
+  milestone: ["sea_party_popper", "emo_joy_burst"], // how long you've known each other (memory)
 
   // ---------------------------------------------------------- daily life
   bedtime: ["life_brush_teeth"], // before a night's sleep, not a nap
   yawn: ["emo_yawn"],
   sleepNight: ["life_bed_sleep"],
   sleepNap: ["read_doze"],
+  // Dreaming over its memory (memory.rs), in the pose it sleeps in; they take turns.
+  dreamNight: ["dream_night_stars", "dream_night_code", "dream_night_hearts", "dream_night_food", "dream_night_fly"],
+  dreamNap: ["dream_nap_castle", "dream_nap_fish", "dream_nap_tea"],
   wakeAlarm: ["life_alarm_snooze"],
   wakeStartled: ["emo_shock_jump"],
   wakeGrumpy: ["emo_grumpy_pout", "emo_eye_roll"],
@@ -600,7 +604,7 @@ window.MOODS = {
 };
 
 // Never picked as a random "surprise": they'd be mistaken for a real state.
-window.NOT_FOR_FUN = ["life_bed_sleep", "read_doze", "dev_bsod", "emo_pretty_please", "emo_impatient", "walk_out_door", "dev_thinking"];
+window.NOT_FOR_FUN = ["life_bed_sleep", "read_doze", ...window.ANIMS.dreamNight, ...window.ANIMS.dreamNap, "dev_bsod", "emo_pretty_please", "emo_impatient", "walk_out_door", "dev_thinking"];
 
 // Small talk at fixed times ("HH:MM"), once a day.
 window.NUDGES = [
