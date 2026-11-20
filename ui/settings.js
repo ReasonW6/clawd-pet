@@ -16,10 +16,13 @@ const set = (path, value) => {
 
 let saveTimer;
 let savedTimer;
+/** What the last save sent: its echo (the `config` event) is no change from elsewhere. */
+let sent = null;
 
 function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
+    sent = structuredClone(config);
     await invoke("set_config", { config });
     $("saved").classList.add("show");
     clearTimeout(savedTimer);
@@ -125,6 +128,9 @@ const CHAT_KEYS = ["nickname", "birthday", "chatty", "liveliness", "sedentaryMin
 
 /** A config from elsewhere: the page shows what the chat changed, and saves on top of it. */
 function onConfig(c) {
+  // The echo of this page's own save holds what was sent, which typing since may have
+  // moved on from.
+  if (sent && CHAT_KEYS.every((k) => c[k] === sent[k])) return;
   for (const key of CHAT_KEYS) {
     if (c[key] === config[key]) continue;
     config[key] = c[key];
@@ -695,7 +701,7 @@ function initMemory() {
     $("memory-dream").textContent = "整理中…";
     $("memory-dream").disabled = true;
     invoke("memory_dream", { day: memDay(), now: new Date().toLocaleString("zh-CN", { dateStyle: "full", timeStyle: "short", hour12: false }), why: "manual" });
-    // Back once memory tells of a change, or after a while whatever happened.
+    // Back once the dream is done (the "dream" event), or after a while whatever happened.
     clearTimeout(dreamTimer);
     dreamTimer = setTimeout(dreamDone, 120000);
   };
@@ -714,10 +720,8 @@ function initMemory() {
   };
   // Switching memory on or off changes what the page says.
   for (const key of ["memory.enabled", "ai.enabled"]) document.querySelector(`[data-key="${key}"]`).addEventListener("input", showMemory);
-  listen("memory", () => {
-    dreamDone();
-    showMemory();
-  });
+  listen("memory", () => showMemory());
+  listen("dream", (e) => e.payload || dreamDone());
   showMemory();
 }
 

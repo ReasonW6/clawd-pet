@@ -36,7 +36,7 @@ cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得�
 
 Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
-- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）和 `config`；只发给主窗口的还有 `dream`（做梦开始、结束）。
+- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）、`config` 和 `dream`（做梦开始、结束；主窗口也收）。
 - 前端调用的命令都在 `main.rs` 的 `generate_handler!` 里注册；`window.__TAURI__` 是全局对象（`withGlobalTauri`），前端没有打包器和 import。
 
 ### Claude Code 联动
@@ -68,8 +68,9 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
   - 聊天中：记忆开着、模型又不在 `NO_TOOLS` 里时，`Kit` 多一个 `remember` 工具（`memo`），由模型自己判断要不要记；后端 `memory::memo` 把变更追加到 `memos` 并马上写盘，发 `ai { kind: "remember" }`。拼记忆段时 `memos` 附在笔记后面。模型拒绝工具时随截图工具一起去掉。
   - `merge`：前端在聊天关闭时调 `memory_merge`，带上 `chat.log`。`memos` 不为空就合进笔记；模型用不了工具（`ai::without_tools`）时改看聊天记录，先过本地筛选（`worth`）。启动时 `memos` 不为空也补做一次。看过屏幕或上过网的聊天只交用户的话。
   - 合并和做梦都把当时的 `memos` 一起交给模型，应用结果时在同一把锁里删掉这几条。
-  - `dream`（`Why`）：每个睡眠窗口（午睡、夜里）第一次睡着时（`fallAsleep`），或新的一天第一条事件到来而还有更早的日子没整理时（补做，只整理更早的日子）。没有新的天数也没有 `memos` 就不调模型；每次触发只试一次（`rewrite` 内部重试一遍）。午睡的 topics 只有 `anytime`。做梦中的天数先挪到 `dreaming`，失败或中途退出就并回 `pending`。真正调模型时前后各发一次 `dream`（`true` / `false`）给主窗口，睡着的话它按睡姿轮播 `ANIMS.dreamNight` / `dreamNap`，结束后再演 90 秒。
-  - 同一时间只跑一个改写（`JOB`）；拿快照时记下 `version`，回来发现用户在设置里改过笔记就基于新笔记重做一次。`version` 只增不减，「全部忘掉」也不归零。
+  - `dream`（`Why`）：每个睡眠窗口（午睡、夜里）第一次睡着时（`fallAsleep`），或新的一天第一条事件到来而还有更早的日子没整理时（补做，只整理更早的日子）。没有新的天数也没有 `memos` 就不调模型；每次触发只试一次（`rewrite` 内部重试一遍）。午睡的 topics 只有 `anytime`。做梦中的天数先挪到 `dreaming`，失败或中途退出就并回 `pending`。真正调模型时前后各发一次 `dream`（`true` / `false`），设置页的「现在整理一次」看它复原；桌宠睡着的话按睡姿轮播 `ANIMS.dreamNight` / `dreamNap`，结束后再演 90 秒。
+  - 同一时间只跑一个改写（`JOB`）；拿快照时记下 `version`，回来发现用户在设置里改过笔记就基于新笔记重做一次。`version` 只增不减，「全部忘掉」也不归零。「全部忘掉」还会让 `FORGETS` 加一，进行中的改写看到就放弃，不把忘掉前拿到的东西写回去。
+  - 模型回复没有新笔记（`{"changed": false}`）时 `memos` 留着，等下一次合并或做梦。补做的梦不换掉还没说的 topics。
 - 笔记用中立的第三人称写，不带人设口吻；只有 `topics` 按做梦时的人设写，并记下人设 id，换了人设就丢掉。
 - 称呼和生日以设置为准：`remember` 的说明和整理的提示词都不让记这两样，笔记里已有的在下次整理时删掉；聊天的系统提示直接从配置带上它们。聊天里改称呼走 `change_setting`。
 

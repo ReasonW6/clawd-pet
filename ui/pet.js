@@ -452,7 +452,8 @@ function onHook(p) {
       s.subagents = 0;
       s.turnStart = 0;
       feel("down", 3);
-      remember("rough");
+      // Already counted at its third failed tool.
+      if (s.fails < 3) remember("rough");
       playOnce(pick(ANIMS.apiError), { force: true, minMs: 3000 });
       toast(`呜…出错了（${p.error_type || p.error || "unknown"}）`);
       break;
@@ -1467,6 +1468,23 @@ function openChat(opener = "") {
   // online at some point.
   chat = { req: 0, history: [], stack: [], phase: "idle", reply: null, quietSince: now(), looked: false, opener, log: [], searched: false };
   if (opener) addMsg("ai").body.append(el("div", "text", opener));
+  openCompose();
+}
+
+/** A click on the pet while the chat is open. */
+function chatPoke() {
+  const compose = chat.stack.find((m) => m.kind === "compose");
+  if (compose) return focusCompose(compose);
+  if (chat.phase === "waiting" || chat.phase === "typing") {
+    // Busy answering: the reply just gives a little wobble.
+    chat.reply.sp && (chat.reply.sp.s.vel += 1.6);
+    return animate();
+  }
+  if (chat.standby) {
+    const m = chat.standby;
+    wakeCompose(m);
+    return focusCompose(m);
+  }
   openCompose();
 }
 

@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{AppHandle, Emitter};
 
@@ -151,6 +152,9 @@ static STORE: Mutex<Option<Store>> = Mutex::new(None);
 static CONFIG: OnceLock<Arc<Mutex<Config>>> = OnceLock::new();
 /// One rewrite of the note at a time.
 static JOB: OnceLock<tauri::async_runtime::Mutex<()>> = OnceLock::new();
+/// Times everything was forgotten: a rewrite that started before then drops what it
+/// took along (days, memos, the chat) instead of writing it into the emptied memory.
+static FORGETS: AtomicU64 = AtomicU64::new(0);
 
 fn cfg() -> Config {
     CONFIG.get().map(|c| c.lock().unwrap().clone()).unwrap_or_default()
@@ -509,8 +513,11 @@ fn fail(app: &AppHandle, e: String) {
 
 /// Rewrites the note with `ask`, given the note it starts from and the memos it takes in
 /// (the first `memos` of them, which go once it's done); tries again once if the user
-/// changed the note meanwhile. Gives back the reply it went with.
+/// changed the note meanwhile, and gives up if everything was forgotten. Memos go only
+/// with a new note: a reply that changes nothing leaves them for the next rewrite. Gives
+/// back the reply it went with.
 async fn rewrite(app: &AppHandle, system: &str, memos: usize, ask: impl Fn(&str, &str) -> String) -> Result<Value, String> {
+    let forgets = FORGETS.load(Ordering::SeqCst);
     for _ in 0..2 {
         let Some((note, version, taken)) = with(|s| (s.note.clone(), s.state.version, memos_text(&s.state.memos[..memos.min(s.state.memos.len())]))) else { return Err(String::new()) };
         let ai_cfg = cfg().ai;
@@ -521,19 +528,25 @@ async fn rewrite(app: &AppHandle, system: &str, memos: usize, ask: impl Fn(&str,
             return Err(String::new());
         }
         let applied = with(|s| {
-            if s.state.version != version {
-                return false;
+            // Under the store's lock, as `forget` is.
+            if FORGETS.load(Ordering::SeqCst) != forgets {
+                return None;
             }
-            let n = memos.min(s.state.memos.len());
-            s.state.memos.drain(..n);
+            if s.state.version != version {
+                return Some(false);
+            }
             if let Some(n) = note {
+                let taken = memos.min(s.state.memos.len());
+                s.state.memos.drain(..taken);
                 s.save_note(n);
             }
             s.state.last_error.clear();
             s.dirty = true;
-            true
-        });
-        if applied == Some(true) {
+            Some(true)
+        })
+        .flatten();
+        let Some(applied) = applied else { return Err(String::new()) };
+        if applied {
             changed(app);
             return Ok(v);
         }
@@ -575,7 +588,7 @@ pub async fn merge(app: AppHandle, log: Option<ChatLog>, now: String) {
          - 给了聊天记录的话，从中找出值得长期记住的：一周后还有用的（用户的身份、喜好、相处约定、带日期的计划），或者用户明确要求记住、改掉、忘掉、别再做的。一次性的情绪、闲聊、玩笑不记；桌宠自己说过的话和措辞不记。\n\
          - 用户现在说的和笔记冲突时，以现在为准。\n\
          {NOTE_RULES}\n\
-         只输出一个 JSON 对象，不要别的文字：没有要改的，输出 {{\"changed\": false}}（大多数时候是这样）；要改，输出 {{\"note\": \"更新后的完整笔记\"}}。"
+         只输出一个 JSON 对象，不要别的文字：给了“刚记下的变更”就一定要改，输出 {{\"note\": \"更新后的完整笔记\"}}；只给了聊天记录、里面又没有要记的（大多数时候是这样），输出 {{\"changed\": false}}。"
     );
     let ask = |note: &str, memos: &str| {
         let mut s = format!("现在的笔记：\n{}\n", if note.trim().is_empty() { "（空）" } else { note });
@@ -653,10 +666,11 @@ impl Why {
     }
 }
 
-/// Tells the main window a dream is (or is no longer) asking the model, for its dream
-/// animations. Sent only when the model is asked.
+/// Tells the windows a dream is (or is no longer) asking the model: the main one plays
+/// dream animations, the settings page knows its "dream now" is done. Sent only when the
+/// model is asked.
 fn dreaming(app: &AppHandle, on: bool) {
-    let _ = app.emit_to("main", "dream", on);
+    let _ = app.emit("dream", on);
 }
 
 /// Goes over the days since the last dream while the pet sleeps: they go into the note,
@@ -687,6 +701,7 @@ pub async fn dream(app: AppHandle, today: String, why: Why, now: String) {
     })
     .flatten();
     let Some((days, bond, memos)) = taken else { return };
+    let forgets = FORGETS.load(Ordering::SeqCst);
     dreaming(&app, true);
 
     let nick = config.nickname.trim();
@@ -717,6 +732,9 @@ pub async fn dream(app: AppHandle, today: String, why: Why, now: String) {
     };
     let result = rewrite(&app, &system, memos, ask).await;
     with(|s| {
+        if FORGETS.load(Ordering::SeqCst) != forgets {
+            return;
+        }
         let st = &mut s.state;
         match &result {
             Ok(v) => {
@@ -736,7 +754,10 @@ pub async fn dream(app: AppHandle, today: String, why: Why, now: String) {
                     })
                     .take(MAX_TOPICS)
                     .collect();
-                if !topics.is_empty() || v.get("topics").is_some() {
+                // A catch-up comes the morning after a night's dream when the user was up
+                // past midnight: what that dream prepared for the morning stays.
+                let keep = why == Why::CatchUp && !st.topics.is_empty();
+                if !keep && (!topics.is_empty() || v.get("topics").is_some()) {
                     st.topics = topics;
                 }
             }
@@ -821,6 +842,9 @@ pub fn snapshot(day: &str) -> Value {
 
 /// The user's own version of the note, from the settings page.
 pub fn set_note(app: &AppHandle, note: &str) {
+    if !on(&cfg()) {
+        return;
+    }
     let note = note.trim().to_owned();
     with(|s| {
         if s.note.trim() != note {
@@ -834,6 +858,7 @@ pub fn set_note(app: &AppHandle, note: &str) {
 /// on, so that a rewrite under way doesn't bring the old note back.
 pub fn forget(app: &AppHandle) {
     with(|s| {
+        FORGETS.fetch_add(1, Ordering::SeqCst);
         let _ = std::fs::remove_file(s.dir.join("note.md"));
         let version = s.state.version + 1;
         s.state = State { version, ..State::default() };
