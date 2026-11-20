@@ -1715,7 +1715,7 @@ function sendChat(m) {
   m.body.replaceChildren(el("div", "text", text));
   // ...and the reply comes up from below, pushing it up.
   const r = addMsg("ai");
-  Object.assign(r, { full: "", shown: "", buffer: "", chip: null, text: null, looked: false, blind: false, searched: null, read: false, remembered: false, ended: false, error: null });
+  Object.assign(r, { full: "", shown: "", buffer: "", chip: null, text: null, looked: false, blind: false, searched: null, read: false, searching: false, reading: false, remembered: false, ended: false, error: null });
   r.body.append(dots());
   chat.reply = r;
   // Once a chat, even if its first question goes unanswered and out of the log.
@@ -1752,8 +1752,13 @@ function setChip(r, text) {
 function chipFor(r) {
   const done = Boolean(r.text);
   const sight = r.blind ? "🙈 这个模型看不了图" : r.looked && (done ? "👀 看了一眼屏幕" : "👀 瞄一眼屏幕…");
-  const web = r.searched === "link" ? (done ? "🔗 看了链接" : "🔗 打开链接…") : r.searched && (done ? "🔎 搜了一下" : "🔎 搜一下…");
-  const read = r.read && (done ? "📖 读了网页" : "📖 读网页…");
+  // Exa's searches and reads are marked as they start, and only count once one came
+  // back; none did by the end, and the mark says so.
+  const web =
+    r.searched === "link" ? (done ? "🔗 看了链接" : "🔗 打开链接…")
+    : r.searched ? (done ? "🔎 搜了一下" : "🔎 搜一下…")
+    : r.searching && (r.ended ? "🔎 没搜成" : "🔎 搜一下…");
+  const read = r.read ? (done ? "📖 读了网页" : "📖 读网页…") : r.reading && (r.ended ? "📖 没读成" : "📖 读网页…");
   const memo = r.remembered && "📝 记下了";
   const set = r.set && "⚙️ 改了设置";
   return [sight, web, read, memo, set].filter(Boolean).join(" · ");
@@ -1791,6 +1796,11 @@ function onAi({ id, kind, text }) {
     r.read = true;
     chat.searched = true;
     setChip(r, chipFor(r));
+  } else if (kind === "searching" || kind === "reading") {
+    // What it asked went out, whether or not anything came back.
+    r[kind] = true;
+    chat.searched = true;
+    setChip(r, chipFor(r));
   } else if (kind === "remember") {
     r.remembered = true;
     setChip(r, chipFor(r));
@@ -1801,6 +1811,7 @@ function onAi({ id, kind, text }) {
     r.ended = true;
     r.error = kind === "error" ? text : null;
     r.refused = kind === "done" && text === "refused";
+    if (r.chip) setChip(r, chipFor(r));
     finishReply(r);
   }
 }
