@@ -1422,8 +1422,9 @@ const TAIL_INSET = 30;
 const CHAT_REACH = 70;
 let chat = null; // { seq, req, history: [{ role, text }], stack: [msg] top to bottom, phase, reply, quietSince }
 let chatReq = 0;
-/** Numbers the chats, for the pages the backend lets each one open. */
-let chatSeq = 0;
+/** Numbers the chats, for the pages the backend lets each one open. From the time, so
+ * that a reloaded page doesn't count from 1 again into a chat the backend still keeps. */
+let chatSeq = Date.now();
 /** Bubbles on screen, those on their way out included: { kind, el, card, body, sp, gone, ... }. */
 const msgs = new Set();
 
@@ -1748,9 +1749,9 @@ function setChip(r, text) {
   layoutChat();
 }
 
-/** What the reply went and did on the way: under way until its text comes in. */
+/** What the reply went and did on the way: under way until its text comes in, or it ends. */
 function chipFor(r) {
-  const done = Boolean(r.text);
+  const done = Boolean(r.text) || r.ended;
   const sight = r.blind ? "🙈 这个模型看不了图" : r.looked && (done ? "👀 看了一眼屏幕" : "👀 瞄一眼屏幕…");
   // Exa's searches and reads are marked as they start, and only count once one came
   // back; none did by the end, and the mark says so.

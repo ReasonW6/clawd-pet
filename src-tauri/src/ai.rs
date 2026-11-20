@@ -1159,17 +1159,17 @@ fn search_input(deep: bool) -> Value {
     let (modes, how) = if deep {
         (
             json!(["lite", "auto", "deep-lite", "deep"]),
-            "auto 是默认，约 1 秒；lite 最快，只查缓存，适合简单的事实；deep-lite 约 4 秒，会扩展搜索词再综合，适合要对比、综合几个来源的问题；deep 要 4～15 秒，多轮搜索，适合特别复杂的问题。deep-lite 和 deep 一轮合计最多 2 次。",
+            "auto 是默认；lite 最快，只查缓存，适合简单的事实；deep-lite 会扩展搜索词再综合，比 auto 慢几秒，适合要对比、综合几个来源的问题；deep 多轮搜索，最慢（可能十几秒），适合特别复杂的问题。deep-lite 和 deep 一轮合计最多 2 次。",
         )
     } else {
-        (json!(["lite", "auto"]), "auto 是默认，约 1 秒；lite 最快，只查缓存，适合简单的事实。")
+        (json!(["lite", "auto"]), "auto 是默认；lite 最快，只查缓存，适合简单的事实。")
     };
     json!({
         "type": "object",
         "properties": {
             "query": { "type": "string", "description": "要找的网页的描述，用户用什么语言就用什么语言。" },
             "mode": { "type": "string", "enum": modes, "description": how },
-            "fresh": { "type": "boolean", "description": "要不要现在的信息：天气、比分、价格、今天的新闻。不填就是 true；查历史、概念、文档这类不会变的东西时写 false 会快一些。" },
+            "fresh": { "type": "boolean", "description": "要不要现在的信息：天气、比分、价格、今天的新闻。不填就是 true。实时要把太旧的网页重新抓一遍，会多花几秒；查历史、概念、文档这类不会变的东西时写 false。" },
             "count": { "type": "integer", "minimum": 3, "maximum": 20, "description": "要几条结果，不填是 10。简单的问题 3～5 条，要对比、列清单时 15～20 条。" },
         },
         "required": ["query"],
@@ -1553,6 +1553,8 @@ const ENOUGH: &str = "这一轮查到的资料已经够多了，用现有的回�
 /// the model can't make one up that carries what it saw (a screenshot, the chat) off to
 /// whoever reads the logs. Links from pages don't open once the chat has looked at the
 /// screen: a page could list thousands of them for the model to pick from by what it saw.
+/// Left as it is, at three pages a turn: before that, picking by the memory note or the
+/// chat; and after it, a page steering a search and the pick among its results.
 static SEEN: Mutex<(u64, BTreeMap<String, bool>)> = Mutex::new((0, BTreeMap::new()));
 
 /// Starts keeping pages for `chat`, forgetting another chat's.
@@ -1647,8 +1649,10 @@ fn trim_link(mut link: &str) -> &str {
 }
 
 /// The links written out in `s`. Where one runs on into text that isn't ASCII, that may
-/// be part of the link (a Chinese page name) or not (Chinese right after it), so both go
-/// in: up to there, and on to a space or CJK punctuation. Both are in the text as written.
+/// be part of the link (a Chinese page name) or not (Chinese right after it); and what
+/// it ends in may be punctuation after it or part of it (`.../Yahoo!`). So every way of
+/// reading it goes in: up to there or on to a space or CJK punctuation, with what it
+/// ends in or without. All of them are in the text as written.
 fn links_in(s: &str) -> Vec<String> {
     // Lower case ASCII only: the same bytes at the same places.
     let lower = s.to_ascii_lowercase();
@@ -1658,12 +1662,13 @@ fn links_in(s: &str) -> Vec<String> {
     while let Some(at) = ["https://", "http://", "www."].iter().filter_map(|w| lower[i..].find(w)).min().map(|o| i + o) {
         let ascii = s[at..].find(|c: char| stop(c) || !c.is_ascii()).map_or(s.len(), |e| at + e);
         let full = s[at..].find(|c: char| stop(c) || cjk_punct(c)).map_or(s.len(), |e| at + e);
-        let short = norm(trim_link(&s[at..ascii]));
-        let long = norm(trim_link(&s[at..full]));
-        if long != short {
-            links.extend(long);
+        for run in [&s[at..full], &s[at..ascii]] {
+            for link in [trim_link(run), run] {
+                if let Some(link) = norm(link).filter(|l| !links.contains(l)) {
+                    links.push(link);
+                }
+            }
         }
-        links.extend(short);
         // A "www." inside the ASCII part went with it; a link right after the Chinese is
         // looked for on its own.
         i = ascii.max(at + 1);
@@ -1838,8 +1843,10 @@ fn lay_out(text: &str, limit: usize) -> (String, Vec<String>) {
     match serde_json::from_str::<Value>(text) {
         Ok(v) if v["results"].is_array() => lay_out_results(&v, limit),
         _ => {
+            // Only the pages the model gets to see.
+            let text = clip(text, limit);
             let urls = text.lines().filter_map(|l| l.trim().strip_prefix("URL:")).filter_map(norm).collect();
-            (clip(text, limit), urls)
+            (text, urls)
         }
     }
 }
@@ -1868,8 +1875,11 @@ fn lay_out_results(v: &Value, limit: usize) -> (String, Vec<String>) {
         block += &clip(said.trim(), RESULT_CHARS);
         let block = clip(&block, limit - used);
         used += block.chars().count();
+        // Cut off before its link, the model never saw the page.
+        if block.contains(&format!("网址：{url}\n")) {
+            urls.extend(norm(url));
+        }
         out += &block;
-        urls.extend(norm(url));
     }
     (out, urls)
 }
@@ -2038,9 +2048,9 @@ fn system_prompt(nickname: &str, birthday: &str, now: &str, identity: &str, pers
         Web::Locked => "- 这次聊天你看过用户的屏幕，为了不把屏幕上的内容带出去，接下来上不了网，也打不开链接。问到最新消息、天气这类实时的事，直说这次查不了，别编；告诉对方关掉聊天重新开就能搜，或者在设置的「AI 聊天」里改用 Exa 搜索。\n",
     };
     if let Web::Exa { key } = web {
-        s += "- 搜索的参数不填就是 auto、要实时的信息、10 条。简单的事实（某人是谁、某个词什么意思）用 mode=lite 更快，lite 没搜到就换 auto 再搜；查历史、概念、文档这类不会变的东西时写 fresh=false 会快一些；简单的问题 count 写 3～5，要对比、列清单、综合好几个来源时写 15～20。\n";
+        s += "- 搜索的参数不填就是 auto、要实时的信息、10 条。简单的事实（某人是谁、某个词什么意思）用 mode=lite 更快，lite 没搜到就换 auto 再搜；实时要把太旧的网页重新抓一遍，会多花几秒，查历史、概念、文档这类不会变的东西时写 fresh=false；简单的问题 count 写 3～5，要对比、列清单、综合好几个来源时写 15～20。\n";
         s += if key {
-            "- 要对比、综合好几个来源才答得出时用 mode=deep-lite（约 4 秒），特别复杂的用 deep（4～15 秒），一轮合计最多两次；一般的问题别用。\n"
+            "- 要对比、综合好几个来源才答得出时用 mode=deep-lite（比 auto 慢几秒），特别复杂的用 deep（最慢，可能十几秒），一轮合计最多两次；一般的问题别用。\n"
         } else {
             "- 现在用的是 Exa 的免费额度，每天只有几十次：简单的问题搜一次就够了，别为了保险连着搜。\n"
         };
@@ -2315,7 +2325,10 @@ async fn converse(app: &AppHandle, id: u64, chat: u64, t: &Target, system: &str,
                             None => shut.push(u),
                         }
                     }
-                    let room = MAX_PAGES.saturating_sub(pages).min(max_calls.saturating_sub(calls)) as usize;
+                    let pages_left = MAX_PAGES.saturating_sub(pages);
+                    let room = pages_left.min(max_calls.saturating_sub(calls)) as usize;
+                    // Which limit it is, for saying so.
+                    let full = if pages_left as usize == room { "能读的页数" } else { "能查的次数" };
                     let refused = match shut.is_empty() {
                         true => String::new(),
                         false if looked => format!("这些网址打不开：{}。只能读搜索结果和用户消息里原样出现过的网址；看过屏幕以后，读过的网页里提到的网址也不能读。想看就先搜。", shut.join("、")),
@@ -2324,26 +2337,29 @@ async fn converse(app: &AppHandle, id: u64, chat: u64, t: &Target, system: &str,
                     if open.is_empty() {
                         Err(if refused.is_empty() { "没给要读的网址".into() } else { refused })
                     } else if room == 0 {
-                        Err(format!("{refused}这一轮已经读了好几页了，用读到的回答吧"))
+                        Err(format!("{refused}这一轮{full}用完了，用查到的回答吧"))
                     } else if TURN_CHARS.saturating_sub(used) < TURN_FLOOR {
                         Err(format!("{refused}{ENOUGH}"))
                     } else {
                         let (take, left) = open.split_at(open.len().min(room));
                         emit(app, id, "reading", "");
                         let each = PAGE_CHARS.min((TURN_CHARS.saturating_sub(used)) / take.len());
-                        exa_fetch(key, take, each).await.map(|(text, urls)| {
-                            let n = take.len() as u32;
-                            pages += n;
-                            calls += n;
-                            used += text.chars().count();
-                            seen_add(chat, urls, false);
-                            out.read();
-                            let mut note = refused;
-                            if !left.is_empty() {
-                                note += &format!("这一轮能读的页数到上限了，没读：{}。", left.join("、"));
+                        match exa_fetch(key, take, each).await {
+                            Ok((text, urls)) => {
+                                let n = take.len() as u32;
+                                pages += n;
+                                calls += n;
+                                used += text.chars().count();
+                                seen_add(chat, urls, false);
+                                out.read();
+                                let mut note = refused;
+                                if !left.is_empty() {
+                                    note += &format!("这一轮{full}到上限了，没读：{}。", left.join("、"));
+                                }
+                                Ok(Output::Text(if note.is_empty() { text } else { format!("（{note}）\n{text}") }))
                             }
-                            Output::Text(if note.is_empty() { text } else { format!("（{note}）\n{text}") })
-                        })
+                            Err(e) => Err(format!("{refused}{e}")),
+                        }
                     }
                 }
                 (SEARCH_TOOL | FETCH_TOOL, _, None) => Err("现在上不了网".into()),
@@ -2614,8 +2630,18 @@ mod tests {
         let s = "看看https://Example.com/a?b=1，还有 www.foo.org/x. 和 (https://en.wikipedia.org/wiki/Rust_(language)) 以及 **https://bar.io/y**";
         assert_eq!(
             links_in(s),
-            ["https://example.com/a?b=1", "https://www.foo.org/x", "https://en.wikipedia.org/wiki/Rust_(language)", "https://bar.io/y"]
+            [
+                "https://example.com/a?b=1",
+                "https://www.foo.org/x",
+                "https://www.foo.org/x.",
+                "https://en.wikipedia.org/wiki/Rust_(language)",
+                "https://en.wikipedia.org/wiki/Rust_(language))",
+                "https://bar.io/y",
+                "https://bar.io/y**",
+            ]
         );
+        // What a link the user sent ends in may be part of it.
+        assert_eq!(links_in("看 https://en.wikipedia.org/wiki/Yahoo! 这个"), ["https://en.wikipedia.org/wiki/Yahoo", "https://en.wikipedia.org/wiki/Yahoo!"]);
         // A "www." inside a link isn't taken again.
         assert_eq!(links_in("https://www.a.com/p"), ["https://www.a.com/p"]);
         assert!(links_in("今天大阪天气怎么样").is_empty());
@@ -2688,6 +2714,9 @@ mod tests {
         let (text, urls) = lay_out(&v.to_string(), 500);
         assert!(text.chars().count() <= 501 && !text.contains("b.com"));
         assert_eq!(urls, ["https://a.com/1"]);
+        // Cut off before its link: the page doesn't go in.
+        let (_, urls) = lay_out(&v.to_string(), 8);
+        assert!(urls.is_empty());
         // Not what Exa usually sends: as it is, with the pages from its URL lines.
         let (text, urls) = lay_out("Title: X\nURL: https://c.com/x\nHighlights: y", 100);
         assert!(text.starts_with("Title: X"));
