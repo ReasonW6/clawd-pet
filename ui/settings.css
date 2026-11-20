@@ -613,7 +613,9 @@ select.native {
   padding: 4px 8px;
 }
 
+/* Positioned, so that the items' offsetTop counts from it (scrolling to one). */
 .dropdown-list {
+  position: relative;
   overflow-y: auto;
   overscroll-behavior: contain;
 }

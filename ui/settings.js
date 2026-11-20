@@ -79,6 +79,13 @@ function dropdown(select) {
   });
   new MutationObserver(show).observe(select, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
   button.onclick = () => (dropped?.select === select ? closeDropdown() : openDropdown(select, button));
+  // The arrows open it, as they would a select.
+  button.onkeydown = (e) => {
+    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && dropped?.select !== select) {
+      e.preventDefault();
+      openDropdown(select, button);
+    }
+  };
   show();
 }
 
@@ -89,8 +96,9 @@ function openDropdown(select, button) {
   /** Each group's heading and items, to hide the heading of one filtered empty. */
   const groups = [];
   const items = [];
+  // The focus goes back to the button (unless what the change opens takes it).
   const pick = (value) => {
-    closeDropdown();
+    closeDropdown(true);
     if (value === select.value) return;
     select.value = value;
     select.dispatchEvent(new Event("change"));
@@ -482,7 +490,7 @@ function migrateCustom() {
   for (const [kind, name] of [["custom", "自定义"], ["custom-anthropic", "自定义（Anthropic）"]]) {
     const old = config.ai.profiles[kind];
     if (config.ai.provider !== kind && !old?.baseUrl) continue;
-    const mine = { id: `my-${kind}`, name, kind };
+    const mine = { id: `my-${kind}-${Date.now().toString(36)}`, name, kind };
     config.ai.customProviders.push(mine);
     if (old) config.ai.profiles[mine.id] = old;
     delete config.ai.profiles[kind];
@@ -630,7 +638,7 @@ function deleteProvider() {
   const id = provider().id;
   config.ai.customProviders = config.ai.customProviders.filter((c) => c.id !== id);
   delete config.ai.profiles[id];
-  switchProvider(providers[0].id);
+  switchProvider("deepseek"); // the default (config.rs)
 }
 
 function disarmProviderDelete() {
@@ -713,8 +721,11 @@ function showReasoning() {
   }
   // DeepSeek turns down its screenshot tool beside its own search unless it thinks.
   const clash = p.id === "deepseek" && level === "off" && config.ai.screen && config.ai.search && !config.ai.exa && p.search;
-  $("ai-reasoning-warn").hidden = !clash;
-  $("ai-reasoning-warn").textContent = clash ? "推理关着时，DeepSeek 不让看屏幕和它自带的搜索一起用，聊天会报错。换一档推理，或者改用 Exa 搜索。" : "";
+  // Shown both beside the levels and beside the switches, whichever page is open.
+  for (const warn of document.querySelectorAll(".clash-warn")) {
+    warn.hidden = !clash;
+    warn.textContent = clash ? "推理关着时，DeepSeek 不让看屏幕和它自带的搜索一起用，聊天会报错。换一档推理，或者改用 Exa 搜索。" : "";
+  }
 }
 
 function modelChanged() {
@@ -739,13 +750,15 @@ function renderModels() {
 
 async function fetchModels() {
   const [button, note] = [$("ai-fetch"), $("ai-model-note")];
-  const id = provider().id;
+  // What the list is for: the provider, and for one of the user's own, its kind.
+  const which = () => `${provider().id} ${provider().mine?.kind ?? ""}`;
+  const asked = which();
   button.disabled = true;
   note.classList.remove("bad");
   note.textContent = "正在获取…";
   try {
-    const list = await invoke("ai_models", { ai: config.ai, provider: id });
-    if (provider().id !== id) return; // switched away meanwhile
+    const list = await invoke("ai_models", { ai: config.ai, provider: provider().id });
+    if (which() !== asked) return; // switched away meanwhile
     fetchedModels = list;
     note.textContent = list.length ? `找到 ${list.length} 个模型` : "服务商没给出列表，选「自己填」吧";
   } catch (e) {
