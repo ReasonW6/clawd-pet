@@ -1820,6 +1820,7 @@ function finishReply(r) {
   r.finished = true;
   if (r.error || !r.full.trim()) {
     chat.history.pop(); // the question goes unanswered
+    chat.log.pop(); // nor is it gone over for memory
     const err = el("div", "err", r.error || "唔…一时不知道说啥了");
     if (r.error) {
       const fix = el("a", "", "去设置看看");
@@ -1830,6 +1831,7 @@ function finishReply(r) {
     r.body.replaceChildren(err);
   } else if (r.refused) {
     chat.history.pop(); // declined: neither the question nor what it said goes on as context
+    chat.log.pop();
   } else {
     chat.history.push({ role: "assistant", text: r.full.trim() });
     logChat("assistant", r.full.trim());

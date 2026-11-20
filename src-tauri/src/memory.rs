@@ -60,7 +60,7 @@ pub struct Bond {
 }
 
 /// What happened on one day, as counts.
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Day {
     /// Claude Code turns finished, by project folder: [turns, minutes].
@@ -81,6 +81,11 @@ pub struct Day {
 }
 
 impl Day {
+    /// Nothing counted.
+    fn is_empty(&self) -> bool {
+        *self == Day::default()
+    }
+
     fn absorb(&mut self, o: Day) {
         for (k, [n, m]) in o.projects {
             let e = self.projects.entry(k).or_default();
@@ -287,7 +292,12 @@ pub fn event(kind: &str, detail: &Value, day: &str) -> Reply {
                     reply.celebrate.push(say.to_string());
                 }
             }
-            reply.catch_up = st.pending.keys().any(|d| d.as_str() < day);
+            reply.catch_up = st.pending.iter().any(|(d, v)| d.as_str() < day && !v.is_empty());
+        }
+        // A day with nothing counted ("day" is only the pet starting) gives a dream
+        // nothing to go over.
+        if !matches!(kind, "task" | "rough" | "git" | "late" | "petted" | "grumpy" | "chat" | "holiday") {
+            return;
         }
         let d = st.pending.entry(day.to_owned()).or_default();
         match kind {
@@ -455,6 +465,8 @@ pub fn memo(app: &AppHandle, action: &str, text: &str) -> Result<String, String>
     }
     with(|s| {
         s.state.memos.push(Memo { action: action.to_owned(), text });
+        // Something new to merge: the memos get their tries afresh.
+        s.state.unmerged = 0;
         s.save_state();
     });
     changed(app);
@@ -681,11 +693,10 @@ impl Why {
     }
 }
 
-/// Tells the windows a dream is (or is no longer) asking the model: the main one plays
-/// dream animations, the settings page knows its "dream now" is done. Sent only when the
-/// model is asked.
+/// Tells the main window a dream is (or is no longer) asking the model, for its dream
+/// animations. Sent only when the model is asked.
 fn dreaming(app: &AppHandle, on: bool) {
-    let _ = app.emit("dream", on);
+    let _ = app.emit_to("main", "dream", on);
 }
 
 /// Goes over the days since the last dream while the pet sleeps: they go into the note,
@@ -700,6 +711,7 @@ pub async fn dream(app: AppHandle, today: String, why: Why, now: String) {
     let _one = job().lock().await;
     let taken = with(|s| {
         let st = &mut s.state;
+        st.pending.retain(|_, d| !d.is_empty());
         let days: Vec<String> = st.pending.keys().filter(|d| d.as_str() < today.as_str() || (why != Why::CatchUp && **d == today)).cloned().collect();
         if days.is_empty() && st.memos.is_empty() && why != Why::Manual {
             return None;

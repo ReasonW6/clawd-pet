@@ -16,14 +16,14 @@ const set = (path, value) => {
 
 let saveTimer;
 let savedTimer;
-/** What each save in flight sent, oldest first: its echo (the `config` event) is no
- *  change from elsewhere. */
-const sent = [];
+/** The config as the backend last had it, by this page's saves and the chat's changes:
+ *  a chat change shows only in the keys it changed, not over an edit still unsaved. */
+let known;
 
 function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
-    sent.push(structuredClone(config));
+    known = structuredClone(config);
     await invoke("set_config", { config });
     $("saved").classList.add("show");
     clearTimeout(savedTimer);
@@ -127,16 +127,11 @@ function showBirthday() {
 /** What the chat may change (`change_setting` in main.rs). */
 const CHAT_KEYS = ["nickname", "birthday", "chatty", "liveliness", "sedentaryMinutes", "sleepEnabled", "size"];
 
-/** A config from elsewhere: the page shows what the chat changed, and saves on top of it. */
+/** The chat changed a setting (the `config` event comes only for that): the page shows
+ *  it, and saves on top of it. */
 function onConfig(c) {
-  // The echo of this page's own save holds what was sent, which typing since may have
-  // moved on from.
-  if (sent.length && CHAT_KEYS.every((k) => c[k] === sent[0][k])) {
-    sent.shift();
-    return;
-  }
   for (const key of CHAT_KEYS) {
-    if (c[key] === config[key]) continue;
+    if (c[key] === known[key]) continue;
     config[key] = c[key];
     const input = document.querySelector(`[data-key="${key}"]`);
     if (input?.type === "checkbox") input.checked = c[key];
@@ -145,6 +140,7 @@ function onConfig(c) {
   for (const radio of document.querySelectorAll("input[name=liveliness]")) radio.checked = Number(radio.value) === config.liveliness;
   showBirthday();
   refreshOutputs();
+  known = structuredClone(c);
 }
 
 // ---------------------------------------------------------------- sleep windows
@@ -663,10 +659,8 @@ function memDay() {
 
 let memory = null;
 let forgetTimer;
-let dreamTimer;
-/** The dream asked for with the button has begun: one that was under way when it was
- *  clicked ends first, and isn't it. */
-let dreamStarted = false;
+/** The button's dream is under way (its call comes back when it is over). */
+let dreaming = false;
 
 async function showMemory() {
   memory = await invoke("memory_get", { day: memDay() });
@@ -690,7 +684,7 @@ async function showMemory() {
   noteInfo();
   $("memory-error").hidden = !memory.lastError;
   $("memory-error").textContent = memory.lastError ? `上次整理没成功：${memory.lastError}` : "";
-  if (!dreamTimer) $("memory-dream").disabled = !on;
+  if (!dreaming) $("memory-dream").disabled = !on;
 }
 
 function noteInfo() {
@@ -709,11 +703,8 @@ function initMemory() {
   $("memory-dream").onclick = () => {
     $("memory-dream").textContent = "整理中…";
     $("memory-dream").disabled = true;
-    dreamStarted = false;
-    invoke("memory_dream", { day: memDay(), now: new Date().toLocaleString("zh-CN", { dateStyle: "full", timeStyle: "short", hour12: false }), why: "manual" });
-    // Back once the dream is done (the "dream" event), or after a while whatever happened.
-    clearTimeout(dreamTimer);
-    dreamTimer = setTimeout(dreamDone, 120000);
+    dreaming = true;
+    invoke("memory_dream", { day: memDay(), now: new Date().toLocaleString("zh-CN", { dateStyle: "full", timeStyle: "short", hour12: false }), why: "manual" }).finally(dreamDone);
   };
   $("memory-forget").onclick = () => {
     const b = $("memory-forget");
@@ -731,17 +722,11 @@ function initMemory() {
   // Switching memory on or off changes what the page says.
   for (const key of ["memory.enabled", "ai.enabled"]) document.querySelector(`[data-key="${key}"]`).addEventListener("input", showMemory);
   listen("memory", () => showMemory());
-  listen("dream", (e) => {
-    if (!dreamTimer) return;
-    if (e.payload) dreamStarted = true;
-    else if (dreamStarted) dreamDone();
-  });
   showMemory();
 }
 
 function dreamDone() {
-  clearTimeout(dreamTimer);
-  dreamTimer = null;
+  dreaming = false;
   $("memory-dream").textContent = "现在整理一次";
   $("memory-dream").disabled = !(config.ai.enabled && config.memory.enabled);
 }
@@ -813,6 +798,7 @@ async function initGallery() {
 async function boot() {
   config = await invoke("get_config");
   config.sys.folders ??= [];
+  known = structuredClone(config);
   bindFields();
   refreshOutputs();
   bindBirthday();

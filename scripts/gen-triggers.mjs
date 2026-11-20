@@ -256,7 +256,7 @@ const life = section(
     row({ when: "睡着时 Claude 开工", how: "收到提问、工具调用、权限请求、完成等事件。醒来干活，忙完 2 分钟后接着睡。", play: ["force", 1000], code: "ANIMS.wakeStartled", slugs: ANIMS.wakeStartled }),
     row({ when: "睡着时被你戳醒", how: "单击它。清醒 1 分钟后接着睡。", play: ["force", 2000], say: "唔…再让我睡会儿嘛…", code: "ANIMS.wakeGrumpy", slugs: ANIMS.wakeGrumpy }),
     row({ when: "时段结束，起床", how: "先拍闹钟，紧接着做下一行的伸展，然后接上早晨的作息。", play: ["polite", 2200], say: "早上好！新的一天开始啦～ / 睡醒啦，继续开工～", code: "ANIMS.wakeAlarm", slugs: ANIMS.wakeAlarm }),
-    row({ when: "做梦", how: "打开了「记忆」时（设置的「AI 聊天」里），每个睡眠时段第一次睡着时在梦里整理记忆：把这些天一起经历的事、聊天时记下的事写进记忆笔记，顺便准备几句接下来想说的话（午睡准备的是当天下午说的）。没有新东西就不整理，也不做梦。整理时，以及整理完后 1 分半钟里，按睡姿轮流演这些梦，每个约 6 秒，之后回到平常的睡觉动画。电脑夜里关着、或者通宵没睡的话，第二天第一次有动静时补上，那时它醒着，不演梦。", play: ["loop"], code: "ANIMS.dreamNight", slugs: ANIMS.dreamNight }),
+    row({ when: "做梦", how: "打开了「记忆」时（设置的「AI 聊天」里），每个睡眠时段第一次睡着时在梦里整理记忆：把这些天一起经历的事、聊天时记下的事写进记忆笔记，顺便准备几句接下来想说的话（午睡准备的是当天下午说的）。没有新东西就不整理，也不做梦。整理时，以及整理完后 1 分半钟里，按睡姿轮流演这些梦，每个约 6 秒，之后回到平常的睡觉动画。还有更早的日子没整理的话（电脑夜里关着、通宵没睡，或者熬过了零点），过了凌晨 5 点第一次有动静时补上：那时还睡着就照样演梦，醒着就不演。", play: ["loop"], code: "ANIMS.dreamNight", slugs: ANIMS.dreamNight }),
     row({ when: "做梦（午睡）", how: "同上，午睡时（捧着书打盹的姿势）。", play: ["loop"], code: "ANIMS.dreamNap", slugs: ANIMS.dreamNap }),
     row({ when: "伸展", how: "起床拍完闹钟之后；以及久坐提醒时（连续在用电脑超过设定的分钟数，默认 60）。", play: ["polite", 2000], say: "已经坐了 N 分钟啦，起来活动一下～", code: "ANIMS.stretch", slugs: ANIMS.stretch }),
 

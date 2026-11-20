@@ -86,11 +86,12 @@ fn get_config(state: State<AppState>) -> Config {
 
 #[tauri::command]
 fn set_config(config: Config, app: AppHandle, state: State<AppState>) {
-    apply_config(&app, &state, config);
+    apply_config(&app, &state, config, false);
 }
 
-/// Puts a new config in place: the settings page's, or one the chat changed.
-fn apply_config(app: &AppHandle, state: &AppState, mut config: Config) {
+/// Puts a new config in place: the settings page's, or one the chat changed. The page
+/// hears of it only for the chat's (`settings`): it has what it saved itself.
+fn apply_config(app: &AppHandle, state: &AppState, mut config: Config, settings: bool) {
     config.size = config.size.clamp(SIZE_RANGE.0, SIZE_RANGE.1);
     let old = {
         let mut current = state.config.lock().unwrap();
@@ -110,8 +111,7 @@ fn apply_config(app: &AppHandle, state: &AppState, mut config: Config) {
         state.rewatch();
     }
     state.save();
-    // To every window: the settings page shows what the chat changed.
-    let _ = app.emit("config", config);
+    let _ = if settings { app.emit("config", config) } else { app.emit_to("main", "config", config) };
     if let Some(w) = main_window(app) {
         step_aside(app, state, &w);
     }
@@ -180,7 +180,7 @@ pub fn change_setting(app: &AppHandle, key: &str, value: &serde_json::Value) -> 
     if serde_json::to_value(&config).ok() == serde_json::to_value(&old).ok() {
         return Ok(None);
     }
-    apply_config(app, &state, config);
+    apply_config(app, &state, config, true);
     Ok(Some(said))
 }
 
@@ -340,10 +340,17 @@ fn memory_merge(log: Option<memory::ChatLog>, now: String, app: AppHandle) {
 }
 
 /// The pet fell asleep for the first time in a sleep window (`why` "night" or "nap"), or
-/// the settings page asks ("manual"): time to dream about the days so far.
+/// the settings page asks ("manual"): time to dream about the days so far. The page's
+/// call comes back once that dream is over (or the dream ahead of it in line, and then
+/// it).
 #[tauri::command]
-fn memory_dream(day: String, now: String, why: String, app: AppHandle) {
-    tauri::async_runtime::spawn(memory::dream(app, day, memory::Why::parse(&why), now));
+async fn memory_dream(day: String, now: String, why: String, app: AppHandle) {
+    let why = memory::Why::parse(&why);
+    if why == memory::Why::Manual {
+        memory::dream(app, day, why, now).await;
+    } else {
+        tauri::async_runtime::spawn(memory::dream(app, day, why, now));
+    }
 }
 
 #[tauri::command]
