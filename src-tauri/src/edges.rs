@@ -42,11 +42,14 @@ pub fn set_body(w: &WebviewWindow, body: [f64; 4]) {
 /// Tells the page how much of the window is off screen, if that changed.
 pub fn tell(w: &WebviewWindow) {
     let edges = current(w);
-    let mut sent = SENT.lock().unwrap();
-    if *sent != Some(edges) {
+    {
+        let mut sent = SENT.lock().unwrap();
+        if *sent == Some(edges) {
+            return;
+        }
         *sent = Some(edges);
-        let _ = w.emit_to(w.label(), "edges", edges);
     }
+    let _ = w.emit_to(w.label(), "edges", edges);
 }
 
 #[cfg(windows)]
@@ -73,7 +76,7 @@ mod imp {
     use windows_sys::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         GetCursorPos, GetWindowRect, SetWindowPos, SPI_SETWORKAREA, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER,
-        WM_DISPLAYCHANGE, WM_MOVING, WM_SETTINGCHANGE,
+        WM_DISPLAYCHANGE, WM_DPICHANGED, WM_MOVING, WM_SETTINGCHANGE,
     };
 
     static APP: OnceLock<AppHandle> = OnceLock::new();
@@ -109,8 +112,12 @@ mod imp {
                 }
                 return 1;
             }
-            // A monitor or the taskbar changed.
-            WM_DISPLAYCHANGE | WM_SETTINGCHANGE if msg == WM_DISPLAYCHANGE || wp == SPI_SETWORKAREA as usize => {
+            // A monitor or the taskbar changed; or the window's DPI did, which tao
+            // answers with its own SetWindowPos inside DefSubclassProc, so only now is
+            // the window where it ends up.
+            WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE
+                if msg != WM_SETTINGCHANGE || wp == SPI_SETWORKAREA as usize =>
+            {
                 if let Some(w) = APP.get().and_then(|a| a.get_webview_window("main")) {
                     fit(&w);
                     super::tell(&w);
@@ -158,9 +165,11 @@ mod imp {
             0
         };
         let mut dy = (area.bottom - body.bottom).min(0);
-        // The top wins: the bubbles' room matters more than the label under the pet.
+        // The window's top stays on screen too, for the bubbles' room, as far as that
+        // leaves the body above the bottom: a window taller than the work area keeps
+        // its body in it, and the page pulls the bubbles in from the top instead.
         if win.top + dy < area.top {
-            dy = area.top - win.top;
+            dy = (area.top - win.top).min(area.bottom - body.bottom);
         }
         Some((dx, dy))
     }

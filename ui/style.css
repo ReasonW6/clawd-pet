@@ -88,7 +88,8 @@ body {
   filter: drop-shadow(2px 3px 0 rgba(0, 0, 0, 0.13));
   pointer-events: auto;
   /* Pops out of, and shrinks back into, the tail. */
-  transform-origin: var(--tail-x, calc(100% - 40px)) 100%;
+  /* --tail-x is from the padding box's left; the origin is from the border box's. */
+  transform-origin: calc(var(--tail-x, calc(100% - 42px)) + 2px) 100%;
   animation: pop 0.18s ease-out;
 }
 
@@ -621,6 +622,8 @@ body {
 }
 
 .md table {
+  /* Not the card's "anywhere", which lets columns shrink to a letter each. */
+  overflow-wrap: normal;
   border-collapse: collapse;
   font-size: 12px;
   line-height: 1.45;
@@ -645,6 +648,15 @@ body {
   font-size: 1.1em;
 }
 
+/* A formula within a line doesn't wrap: a wide one scrolls on its own. */
+.md .katex:not(.math .katex) {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  vertical-align: middle;
+}
+
 /* A formula's source, while KaTeX loads or if it can't. */
 .md code.tex {
   padding: 0;
@@ -652,12 +664,14 @@ body {
 }
 
 .md .table::-webkit-scrollbar,
-.md .math::-webkit-scrollbar {
+.md .math::-webkit-scrollbar,
+.md .katex::-webkit-scrollbar {
   height: 6px;
 }
 
 .md .table::-webkit-scrollbar-thumb,
-.md .math::-webkit-scrollbar-thumb {
+.md .math::-webkit-scrollbar-thumb,
+.md .katex::-webkit-scrollbar-thumb {
   background: rgba(43, 43, 43, 0.22);
   border-radius: 999px;
 }

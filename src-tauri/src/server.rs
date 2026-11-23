@@ -27,10 +27,16 @@ const PERMISSION_MAX_WAIT: Duration = Duration::from_secs(590);
 const CALLS_KEPT: usize = 64;
 /// Tools that run a shell command, each run with an output file of its own (`ShellRuns`).
 const SHELL_TOOLS: &[&str] = &["Bash", "PowerShell"];
+/// Tools whose runs also make such a file. A held request for one of these makes a new
+/// file ambiguous for a held shell request of the same session.
+const OUTPUT_TOOLS: &[&str] = &["Bash", "PowerShell", "Monitor"];
+/// Calls that only wait for a subagent. Its own calls have their PreToolUse, which
+/// `ShellRuns` counts, so they don't need to hold back the early release.
+const SUBAGENT_TOOLS: &[&str] = &["Agent", "Task"];
 
 /// How a held request was answered in Claude Code itself, when that shows.
-const ALLOWED: Option<&str> = Some("allow");
-const DENIED: Option<&str> = Some("deny");
+pub const ALLOWED: Option<&str> = Some("allow");
+pub const DENIED: Option<&str> = Some("deny");
 
 /// A tool call from its PreToolUse, until a permission request claims it or it ends.
 struct Call {
@@ -39,6 +45,8 @@ struct Call {
     agent: Option<String>,
     tool: String,
     input: Value,
+    /// `Shared::begun` for its session, counting this call.
+    begun: u64,
 }
 
 /// How a held request ended.
@@ -68,6 +76,9 @@ pub struct Shared {
     pending: Mutex<HashMap<u64, Pending>>,
     /// Oldest first.
     calls: Mutex<VecDeque<Call>>,
+    /// session id -> how many PreToolUse it has had. Tells `ShellRuns` whether another
+    /// call started since it last looked, even one that was over before the next look.
+    begun: Mutex<HashMap<String, u64>>,
 }
 
 /// For transcript.rs, which sees what no hook reports.
@@ -95,20 +106,26 @@ impl Shared {
     }
 
     /// Whether a shell command that just started in the session of held request `id`
-    /// can only be its own: no other shell request of the session is held, and no
-    /// other call of the session is under way (calls that never ended count too,
-    /// until their thread's turn is over).
+    /// can only be its own: no other request of the session for a tool that makes an
+    /// output file is held, and no other call of the session is under way (calls that
+    /// never ended count too, until their thread's turn is over; a call that only waits
+    /// for a subagent doesn't). That no call started since is `ShellRuns`' part.
     fn alone(&self, id: u64) -> bool {
         let session = {
             let pending = self.pending.lock().unwrap();
             let Some(me) = pending.get(&id) else { return false };
-            let shell = |p: &Pending| SHELL_TOOLS.contains(&p.tool.as_str());
-            if pending.iter().any(|(&k, p)| k != id && p.session == me.session && shell(p)) {
+            let output = |p: &Pending| OUTPUT_TOOLS.contains(&p.tool.as_str());
+            if pending.iter().any(|(&k, p)| k != id && p.session == me.session && output(p)) {
                 return false;
             }
             me.session.clone()
         };
-        !self.calls.lock().unwrap().iter().any(|c| c.session == session)
+        !self.calls.lock().unwrap().iter().any(|c| c.session == session && !SUBAGENT_TOOLS.contains(&c.tool.as_str()))
+    }
+
+    /// How many calls the session has started so far.
+    fn begun(&self, session: &str) -> u64 {
+        self.begun.lock().unwrap().get(session).copied().unwrap_or(0)
     }
 
     /// Keeps track of tool calls, and lets go of the requests an event shows were
@@ -122,6 +139,12 @@ impl Shared {
         let call = e["tool_use_id"].as_str();
         match e["hook_event_name"].as_str().unwrap_or_default() {
             "PreToolUse" => {
+                let begun = {
+                    let mut all = self.begun.lock().unwrap();
+                    let n = all.entry(session.to_string()).or_default();
+                    *n += 1;
+                    *n
+                };
                 let Some(id) = call else { return };
                 let mut calls = self.calls.lock().unwrap();
                 if calls.len() >= CALLS_KEPT {
@@ -133,6 +156,7 @@ impl Shared {
                     agent: agent.map(str::to_string),
                     tool: e["tool_name"].as_str().unwrap_or_default().to_string(),
                     input: e["tool_input"].clone(),
+                    begun,
                 });
             }
             // The tool ran, so it was allowed.
@@ -148,6 +172,7 @@ impl Shared {
             }
             "SessionEnd" => {
                 self.calls.lock().unwrap().retain(|c| c.session != session);
+                self.begun.lock().unwrap().remove(session);
                 self.release(None, |p| p.session == session);
             }
             _ => {}
@@ -157,8 +182,8 @@ impl Shared {
     /// The call a permission request is for: the earliest unclaimed one of the same
     /// thread, tool and input (identical calls in parallel ask in the order they were
     /// made); or, if a hook changed the input on the way, the only unclaimed one of that
-    /// thread and tool.
-    fn claim(&self, p: &Value) -> Option<String> {
+    /// thread and tool. With the call's id, how many calls its session had started then.
+    fn claim(&self, p: &Value) -> Option<(String, u64)> {
         let (session, agent, tool) = (p["session_id"].as_str()?, p["agent_id"].as_str(), p["tool_name"].as_str()?);
         let mut calls = self.calls.lock().unwrap();
         let ours = |c: &Call| c.session == session && c.agent.as_deref() == agent && c.tool == tool;
@@ -169,7 +194,7 @@ impl Shared {
                 _ => None,
             }
         })?;
-        calls.remove(i).map(|c| c.id)
+        calls.remove(i).map(|c| (c.id, c.begun))
     }
 }
 
@@ -180,20 +205,23 @@ pub fn asking(session: &str) -> Vec<String> {
     pending.values().filter(|p| p.session == session).filter_map(|p| p.call.clone()).collect()
 }
 
-/// From the session's transcript: the call got its result, so it was answered: denied,
-/// or allowed and run. Denying with a note in the Desktop app lets the turn go on with
-/// no hook for it.
-pub fn answered(call: &str, denied: bool) {
+/// From the session's transcript: the call got its result, so it was answered:
+/// `DENIED`, `ALLOWED` and run, or `None` when the result doesn't show which (the call
+/// was cancelled, or ended without running). Denying with a note in the Desktop app
+/// lets the turn go on with no hook for it.
+pub fn answered(call: &str, outcome: Option<&'static str>) {
     if let Some(shared) = SHARED.get() {
-        shared.release(if denied { DENIED } else { ALLOWED }, |p| p.call.as_deref() == Some(call));
+        shared.release(outcome, |p| p.call.as_deref() == Some(call));
     }
 }
 
 /// From the session's transcript: the main thread's turn was interrupted. Subagents'
 /// requests go too: they stop with it, and how they were answered shows in their own
-/// transcripts, which aren't watched.
+/// transcripts, which aren't watched. So do the session's calls: those that were
+/// running stopped, and those that never ran won't end.
 pub fn interrupted(session: &str) {
     if let Some(shared) = SHARED.get() {
+        shared.calls.lock().unwrap().retain(|c| c.session != session);
         shared.release(None, |p| p.session == session);
     }
 }
@@ -204,16 +232,26 @@ pub fn interrupted(session: &str) {
 /// comes once it is done, which for a long one is minutes later; the new file shows
 /// at once that it started. This is Claude Code's own layout: where it isn't found,
 /// PostToolUse still settles the request.
+///
+/// Other threads of the session (and subagents, whose files go into the session's
+/// folder too) make such files as well, and a background command or Monitor keeps its
+/// file after returning at once. So a new file only counts while the session has
+/// started no other call since the last look (`begun`).
 struct ShellRuns {
     session: String,
     dirs: Vec<PathBuf>,
     seen: HashSet<OsString>,
     looked: Instant,
+    /// `Shared::begun` for the session, read before the last look at the files.
+    begun: u64,
 }
 
 impl ShellRuns {
-    fn new(session: &str) -> Self {
-        let mut runs = ShellRuns { session: session.to_string(), dirs: Vec::new(), seen: HashSet::new(), looked: Instant::now() };
+    /// `begun`: as counted at the request's own PreToolUse, so that a call started
+    /// between that and the request counts as another; or now, if it wasn't found.
+    fn new(session: &str, shared: &Shared, begun: Option<u64>) -> Self {
+        let begun = begun.unwrap_or_else(|| shared.begun(session));
+        let mut runs = ShellRuns { session: session.to_string(), dirs: Vec::new(), seen: HashSet::new(), looked: Instant::now(), begun };
         runs.find();
         runs.seen = runs.outputs();
         runs
@@ -239,8 +277,9 @@ impl ShellRuns {
             .collect()
     }
 
-    /// Whether a command of the session started since the last look.
-    fn started(&mut self) -> bool {
+    /// Whether a command of the session started since the last look, with no other
+    /// call of the session started meanwhile.
+    fn started(&mut self, shared: &Shared) -> bool {
         if self.dirs.is_empty() {
             // The session's first command makes the folder.
             if self.looked.elapsed() < Duration::from_secs(1) {
@@ -248,10 +287,16 @@ impl ShellRuns {
             }
             self.find();
         }
+        // Read before the files: a call starting while they are listed shows next time.
+        let before = shared.begun(&self.session);
         let now = self.outputs();
+        // Read after them: any file listed was made by a call counted by now.
+        let after = shared.begun(&self.session);
         let new = now.iter().any(|n| !self.seen.contains(n));
+        let ours = new && after == self.begun;
         self.seen.extend(now);
-        new
+        self.begun = before;
+        ours
     }
 }
 
@@ -451,14 +496,15 @@ fn permission(stream: TcpStream, app: &AppHandle, shared: &Shared, payload: Valu
 
     let id = shared.next_id.fetch_add(1, Ordering::SeqCst) + 1;
     let (tx, rx) = mpsc::channel();
+    let claimed = shared.claim(&payload);
     let held = Pending {
         tx,
         session: payload["session_id"].as_str().unwrap_or_default().to_string(),
         agent: payload["agent_id"].as_str().map(str::to_string),
         tool: tool.to_string(),
-        call: shared.claim(&payload),
+        call: claimed.as_ref().map(|(call, _)| call.clone()),
     };
-    let mut runs = SHELL_TOOLS.contains(&tool).then(|| ShellRuns::new(&held.session));
+    let mut runs = SHELL_TOOLS.contains(&tool).then(|| ShellRuns::new(&held.session, shared, claimed.map(|(_, n)| n)));
     shared.pending.lock().unwrap().insert(id, held);
     let _ = app.emit("permission-request", json!({ "id": id, "payload": payload }));
 
@@ -475,7 +521,7 @@ fn permission(stream: TcpStream, app: &AppHandle, shared: &Shared, payload: Valu
             break (Answer::Elsewhere(None), true);
         }
         // Looked at every time, so that a run that wasn't ours isn't taken for it later.
-        if runs.as_mut().is_some_and(ShellRuns::started) && shared.alone(id) {
+        if runs.as_mut().is_some_and(|r| r.started(shared)) && shared.alone(id) {
             break (Answer::Elsewhere(ALLOWED), true);
         }
         if started.elapsed() > PERMISSION_MAX_WAIT {

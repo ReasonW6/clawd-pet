@@ -1281,12 +1281,12 @@ function onEdges(e) {
 function placeBubble() {
   if (bubble.hidden) return;
   const area = bubble.parentElement;
-  bubble.style.setProperty("--shift", "0px");
-  // Layout sizes, which the pop and shrink animations don't scale.
+  // Layout sizes, which the pop and shrink animations don't scale. Unshifted, the
+  // bubble sits in the middle of its area.
   const w = bubble.offsetWidth;
   const over = innerWidth / 2 - area.offsetLeft - w / 2;
   const left = clamp(over, 0, area.clientWidth - w);
-  bubble.style.setProperty("--shift", `${left - bubble.offsetLeft}px`);
+  bubble.style.setProperty("--shift", `${left - (area.clientWidth - w) / 2}px`);
   // From the padding box's left, as the tail is placed.
   bubble.style.setProperty("--tail-x", `${clamp(over + w - 42 - left, 24, w - 28)}px`);
 }
@@ -1890,11 +1890,17 @@ function typeStep() {
 /** What of the reply is typed out so far, with its Markdown drawn. Formulas show as
  *  source until KaTeX has loaded, then the reply is drawn again. */
 function showReply(r) {
-  r.text.innerHTML = renderMarkdown(r.shown, () => {
+  // One per reply, so that KaTeX coming in draws it once, however many frames waited.
+  r.redraw ||= () => {
     if (!r.text?.isConnected) return;
     showReply(r);
     layoutChat();
-  });
+  };
+  try {
+    r.text.innerHTML = renderMarkdown(r.shown, r.redraw);
+  } catch {
+    r.text.textContent = r.shown; // whatever trips the renderer, the reply still shows
+  }
 }
 
 /** Once the reply has come in and been typed out: the message it answers floats off. */
@@ -1990,8 +1996,9 @@ function layoutChat() {
     const h = m.kind === "ai" ? clamp(height - CHAT_TOP_ROOM - (total - m.nh), 56, m.nh) : m.nh;
     const scroll = h < m.nh;
     m.card.classList.toggle("scroll", scroll);
-    // Scrolled while the card was catching up with what is in it.
-    if (!scroll) m.card.scrollTop = 0;
+    // Scrolled while the card was catching up with what is in it. Up and down the
+    // browser brings it back itself as the card grows: with its border counted it has
+    // nothing left to scroll at rest, and setting it here would jump to the top.
     m.card.scrollLeft = 0;
     const w = m.nw + (scroll ? 8 : 0);
     const to = { y, w, h, s: 1, o: 1 };

@@ -22,6 +22,10 @@ use tauri::{AppHandle, Emitter};
 const MARKER: &str = "[Request interrupted by user";
 /// How the result of a denied call starts: on the main thread, and in a subagent.
 const DENIALS: [&str; 2] = ["The user doesn't want to proceed with this tool use", "Permission for this tool use was denied"];
+/// Added to a denial's text when the call had in fact been allowed and was then stopped.
+const CORRECTION: &str = "Correction to the text above";
+/// How the result of a call that was cancelled starts, rather than denied.
+const CANCELLED: &str = "The user doesn't want to take this action";
 /// How much of a transcript's end, then of its start, is searched for the title.
 const TITLE_TAIL: u64 = 512 * 1024;
 const TITLE_HEAD: u64 = 64 * 1024;
@@ -140,8 +144,13 @@ pub fn init(app: AppHandle) {
 }
 
 fn report(app: &AppHandle, session: &str, found: Found) {
-    for (call, denied) in &found.answered {
-        crate::server::answered(call, *denied);
+    // An interrupt writes a denial's text into the result of a call that was waiting
+    // (or running) just before its marker; what the call got is the interrupt's.
+    if found.interrupt.is_some() {
+        crate::server::interrupted(session);
+    }
+    for (call, outcome) in &found.answered {
+        crate::server::answered(call, *outcome);
     }
     if let Some((text, ts)) = found.reply {
         let _ = app.emit(
@@ -150,7 +159,6 @@ fn report(app: &AppHandle, session: &str, found: Found) {
         );
     }
     if let Some(ts) = found.interrupt {
-        crate::server::interrupted(session);
         let _ = app.emit(
             "hook-event",
             json!({ "hook_event_name": "Interrupt", "session_id": session, "timestamp": ts }),
@@ -241,8 +249,8 @@ struct Found {
     reply: Option<(String, String)>,
     /// When the turn was interrupted.
     interrupt: Option<String>,
-    /// Calls waiting for permission that got their result, and whether it was a denial.
-    answered: Vec<(String, bool)>,
+    /// Calls waiting for permission that got their result, and how they were answered.
+    answered: Vec<(String, Option<&'static str>)>,
 }
 
 /// Looks through the complete lines appended since `offset`.
@@ -264,8 +272,8 @@ fn scan(path: &Path, session: &str, offset: &mut u64) -> Found {
                 continue;
             }
             let v = parsed.get_or_insert_with(|| serde_json::from_str(l).unwrap_or(Value::Null));
-            if let Some(denied) = answers(v, call) {
-                found.answered.push((call.clone(), denied));
+            if let Some(outcome) = answers(v, call) {
+                found.answered.push((call.clone(), outcome));
             }
         }
         let interrupt = l.contains(MARKER);
@@ -284,8 +292,11 @@ fn scan(path: &Path, session: &str, offset: &mut u64) -> Found {
     found
 }
 
-/// In a user message with the result of tool call `call`: whether the call was denied.
-fn answers(v: &Value, call: &str) -> Option<bool> {
+/// In a user message with the result of tool call `call`: how the call was answered,
+/// `ALLOWED` (it ran), `DENIED`, or `None` when it didn't run and wasn't denied either
+/// (cancelled, expired, interrupted, skipped, or stopped after it was allowed).
+fn answers(v: &Value, call: &str) -> Option<Option<&'static str>> {
+    use crate::server::{ALLOWED, DENIED};
     if v["type"] != "user" && v["message"]["role"] != "user" {
         return None;
     }
@@ -296,7 +307,23 @@ fn answers(v: &Value, call: &str) -> Option<bool> {
         Value::Array(items) => items.iter().find_map(|i| i["text"].as_str()).unwrap_or_default(),
         _ => "",
     };
-    Some(result["is_error"] == true && DENIALS.iter().any(|d| text.trim_start().starts_with(d)))
+    let text = text.trim_start();
+    let denial = || DENIALS.iter().any(|d| text.starts_with(d)) && !text.contains(CORRECTION);
+    // Recent versions put why a call didn't run on the record.
+    if let Some(kind) = v["toolDenialKind"].as_str() {
+        return Some(if kind == "user-rejected" && denial() { DENIED } else { None });
+    }
+    // Without it: the call ran, or an older version only says so in the text.
+    if result["is_error"] != true {
+        return Some(ALLOWED);
+    }
+    Some(if denial() {
+        DENIED
+    } else if text.starts_with('[') || text.starts_with(CANCELLED) || DENIALS.iter().any(|d| text.starts_with(d)) {
+        None
+    } else {
+        ALLOWED
+    })
 }
 
 fn read_from(path: &Path, offset: &mut u64) -> Option<String> {

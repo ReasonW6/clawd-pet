@@ -546,7 +546,6 @@ fn resize_anchored(w: &WebviewWindow, old: LogicalSize<f64>, new: LogicalSize<f6
         let y = pos.y as f64 + (a.height - b.height);
         let _ = w.set_size(new);
         let _ = w.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
-        edges::fit(w);
     }
 }
 
@@ -809,10 +808,9 @@ fn main() {
                 st.dirty.store(true, Ordering::SeqCst);
             }
             if let Some(w) = main_window(window.app_handle()) {
-                match event {
-                    tauri::WindowEvent::ScaleFactorChanged { .. } => edges::fit(&w),
-                    tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => edges::tell(&w),
-                    _ => {}
+                // A DPI change is fitted in edges.rs, after tao has moved the window.
+                if let tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) = event {
+                    edges::tell(&w);
                 }
             }
         })
