@@ -49,6 +49,9 @@ struct Call {
     input: Value,
     /// `Shared::stirred` for its session, counting this call.
     stir: u64,
+    /// Its permission request was let go while the call may still run or wait in
+    /// Claude Code: kept only so that `alone` sees it under way, never claimed again.
+    let_go: bool,
 }
 
 /// How a held request ended.
@@ -95,27 +98,48 @@ impl Shared {
     /// Answer a held permission request. `body` is the raw JSON response for Claude Code
     /// (empty string = no decision).
     pub fn resolve(&self, id: u64, body: String) -> bool {
-        match self.take(id) {
+        let denied = serde_json::from_str::<Value>(&body)
+            .is_ok_and(|v| v.pointer("/hookSpecificOutput/decision/behavior").and_then(Value::as_str) == Some("deny"));
+        match self.take(id, !denied) {
             Some(p) => p.tx.send(Answer::Bubble(body)).is_ok(),
             None => false,
         }
     }
 
-    /// Takes held request `id` off the list.
-    fn take(&self, id: u64) -> Option<Pending> {
+    /// Takes held request `id` off the list. `going`: its call may run, or still wait
+    /// in Claude Code, from now on (it wasn't denied, and nothing showed it ended).
+    fn take(&self, id: u64, going: bool) -> Option<Pending> {
         let mut pending = self.pending.lock().unwrap();
         let p = pending.remove(&id)?;
-        self.let_go(&p);
+        self.let_go(&p, going);
         Some(p)
     }
 
     /// For a request just taken off the list: once a request for a tool that makes an
     /// output file isn't held any more, a new file may be its run. Called with
-    /// `pending` locked, so that no look at the files sees it gone and not yet stirred.
-    fn let_go(&self, p: &Pending) {
-        if OUTPUT_TOOLS.contains(&p.tool.as_str()) {
-            self.stir(&p.session, false);
+    /// `pending` locked, so that no look at the files sees it gone and not yet stirred
+    /// or not yet under way. `going`: its call stays under way for `alone` until it
+    /// ends (PostToolUse, its thread's turn over, an interrupt), since its file may
+    /// come at any time; a call that wasn't claimed, until its thread's turn is over.
+    fn let_go(&self, p: &Pending, going: bool) {
+        if !OUTPUT_TOOLS.contains(&p.tool.as_str()) {
+            return;
         }
+        self.stir(&p.session, false);
+        if going {
+            let id = p.call.clone().unwrap_or_else(|| format!("let-go-{}", self.last_stir.load(Ordering::SeqCst)));
+            let call = Call { id, session: p.session.clone(), agent: p.agent.clone(), tool: p.tool.clone(), input: Value::Null, stir: 0, let_go: true };
+            self.remember(&mut self.calls.lock().unwrap(), call);
+        }
+    }
+
+    /// Adds a call; past `CALLS_KEPT`, the oldest one not let go is forgotten first.
+    fn remember(&self, calls: &mut VecDeque<Call>, call: Call) {
+        if calls.len() >= CALLS_KEPT {
+            let i = calls.iter().position(|c| !c.let_go).unwrap_or(0);
+            calls.remove(i);
+        }
+        calls.push_back(call);
     }
 
     /// Lets go of the held requests `stale` picks, as answered elsewhere with `outcome`.
@@ -123,7 +147,8 @@ impl Shared {
         self.pending.lock().unwrap().retain(|_, p| {
             let drop = stale(p);
             if drop {
-                self.let_go(p);
+                // Released by what showed the call ended, or its thread's turn did.
+                self.let_go(p, false);
                 let _ = p.tx.send(Answer::Elsewhere(outcome));
             }
             !drop
@@ -196,18 +221,16 @@ impl Shared {
             "PreToolUse" => {
                 let stir = self.stir(session, true);
                 let Some(id) = call else { return };
-                let mut calls = self.calls.lock().unwrap();
-                if calls.len() >= CALLS_KEPT {
-                    calls.pop_front();
-                }
-                calls.push_back(Call {
+                let call = Call {
                     id: id.to_string(),
                     session: session.to_string(),
                     agent: agent.map(str::to_string),
                     tool: e["tool_name"].as_str().unwrap_or_default().to_string(),
                     input: e["tool_input"].clone(),
                     stir,
-                });
+                    let_go: false,
+                };
+                self.remember(&mut self.calls.lock().unwrap(), call);
             }
             // The tool ran, so it was allowed.
             "PostToolUse" | "PostToolUseFailure" => {
@@ -239,7 +262,7 @@ impl Shared {
     fn claim(&self, p: &Value) -> Option<(String, u64)> {
         let (session, agent, tool) = (p["session_id"].as_str()?, p["agent_id"].as_str(), p["tool_name"].as_str()?);
         let mut calls = self.calls.lock().unwrap();
-        let ours = |c: &Call| c.session == session && c.agent.as_deref() == agent && c.tool == tool;
+        let ours = |c: &Call| !c.let_go && c.session == session && c.agent.as_deref() == agent && c.tool == tool;
         let i = calls.iter().position(|c| ours(c) && c.input == p["tool_input"]).or_else(|| {
             let mut same = calls.iter().enumerate().filter(|(_, c)| ours(c)).map(|(i, _)| i);
             match (same.next(), same.next()) {
@@ -303,9 +326,12 @@ struct ShellRuns {
 
 impl ShellRuns {
     /// `stir`: as of the request's own PreToolUse, so that a call started between that
-    /// and the request counts as another; or now, if that call wasn't found.
-    fn new(session: &str, shared: &Shared, stir: Option<u64>) -> Self {
-        let base = stir.unwrap_or_else(|| shared.stirred(session));
+    /// and the request counts as another; or now, if that call wasn't found. Only taken
+    /// when nothing else is under way now (as `started` moves it); otherwise something
+    /// earlier may make its file after the look below, and no file counts until a look
+    /// when the session is quiet sets the base. `id`: the held request, already listed.
+    fn new(session: &str, shared: &Shared, stir: Option<u64>, id: u64) -> Self {
+        let base = if shared.alone(id) { stir.unwrap_or_else(|| shared.stirred(session)) } else { u64::MAX };
         let mut runs = ShellRuns { session: session.to_string(), dirs: Vec::new(), seen: HashSet::new(), looked: Instant::now(), base };
         runs.find();
         runs.seen = runs.outputs();
@@ -363,9 +389,10 @@ impl ShellRuns {
     }
 }
 
-/// A session id as Claude Code makes them (a UUID), not just anything an event says.
+/// A session id as Claude Code makes them (a UUID, 8-4-4-4-12 hex digits), not just
+/// anything an event says.
 fn is_session_id(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 64 && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    s.len() == 36 && s.char_indices().all(|(i, c)| if matches!(i, 8 | 13 | 18 | 23) { c == '-' } else { c.is_ascii_hexdigit() })
 }
 
 pub fn bind() -> io::Result<TcpListener> {
@@ -572,8 +599,9 @@ fn permission(stream: TcpStream, app: &AppHandle, shared: &Shared, payload: Valu
         tool: tool.to_string(),
         call: claimed.as_ref().map(|(call, _)| call.clone()),
     };
-    let mut runs = SHELL_TOOLS.contains(&tool).then(|| ShellRuns::new(&held.session, shared, claimed.map(|(_, n)| n)));
+    let session = held.session.clone();
     shared.pending.lock().unwrap().insert(id, held);
+    let mut runs = SHELL_TOOLS.contains(&tool).then(|| ShellRuns::new(&session, shared, claimed.map(|(_, n)| n), id));
     let _ = app.emit("permission-request", json!({ "id": id, "payload": payload }));
 
     let started = Instant::now();
@@ -596,7 +624,9 @@ fn permission(stream: TcpStream, app: &AppHandle, shared: &Shared, payload: Valu
             break (Answer::Elsewhere(None), false);
         }
     };
-    shared.take(id);
+    // Still listed only when nothing here answered it: it was allowed and started, the
+    // user answered in the terminal, or we gave up while Claude Code still asks.
+    shared.take(id, true);
     stream.set_nonblocking(false)?;
 
     match answer {

@@ -393,22 +393,32 @@ fn ai_key_page(provider: String) {
 }
 
 /// Opens a link from a chat reply in the default browser; only web and mail links.
+/// On a thread of its own: starting a browser or mail client can take a moment, and
+/// the main thread draws and drags the pet.
 #[tauri::command]
 fn open_link(url: String) {
     let Some(url) = safe_link(&url) else { return };
     #[cfg(windows)]
-    unsafe {
+    std::thread::spawn(move || unsafe {
+        use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE};
         use windows_sys::Win32::UI::Shell::ShellExecuteW;
         use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        // ShellExecute may hand the link to a shell extension, which wants COM.
+        let com = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE).is_ok();
         let wide = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
         let (verb, url) = (wide("open"), wide(&url));
         ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), url.as_ptr(), std::ptr::null(), std::ptr::null(), SW_SHOWNORMAL);
-    }
+        if com {
+            CoUninitialize();
+        }
+    });
 }
 
 /// A link from a reply as it may be opened: parsed and written out again, http(s)
 /// with a host, or mailto with only a subject and body (a mail client takes other
-/// fields too, attachments among them).
+/// fields too, attachments among them). Those two keep their text as it was encoded:
+/// written out again as a form, a space would come back as "+", which a mail client
+/// shows as it is.
 fn safe_link(raw: &str) -> Option<String> {
     if raw.len() > 4096 {
         return None;
@@ -417,15 +427,13 @@ fn safe_link(raw: &str) -> Option<String> {
     match url.scheme() {
         "http" | "https" if url.host_str().is_some_and(|h| !h.is_empty()) => {}
         "mailto" => {
-            let kept: Vec<(String, String)> = url
-                .query_pairs()
-                .filter(|(k, _)| k.eq_ignore_ascii_case("subject") || k.eq_ignore_ascii_case("body"))
-                .map(|(k, v)| (k.into_owned(), v.into_owned()))
-                .collect();
-            url.set_query(None);
-            if !kept.is_empty() {
-                url.query_pairs_mut().extend_pairs(kept);
-            }
+            let field = |part: &&str| {
+                let key = part.split('=').next().unwrap_or_default();
+                key.eq_ignore_ascii_case("subject") || key.eq_ignore_ascii_case("body")
+            };
+            let kept: Vec<&str> = url.query().unwrap_or_default().split('&').filter(field).collect();
+            let kept = kept.join("&");
+            url.set_query((!kept.is_empty()).then_some(kept.as_str()));
             url.set_fragment(None);
         }
         _ => return None,

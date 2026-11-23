@@ -49,6 +49,8 @@ struct Followed {
     session: String,
     /// Bytes already read.
     offset: u64,
+    /// Results read with nothing after them yet that shows how to take them (`scan`).
+    unsettled: Vec<(String, Option<&'static str>)>,
     touched: Instant,
 }
 
@@ -132,7 +134,7 @@ pub fn init(app: AppHandle) {
             let mut files = f.lock().unwrap();
             let Some(t) = files.get_mut(&key(path)) else { continue };
             t.touched = Instant::now();
-            let found = scan(path, &t.session, &mut t.offset);
+            let found = scan(path, &t.session, &mut t.offset, &mut t.unsettled, false);
             report(&a, &t.session, found);
         }
     }) else {
@@ -143,7 +145,8 @@ pub fn init(app: AppHandle) {
 
 fn report(app: &AppHandle, session: &str, found: Found) {
     // Results the interrupt wrote are already None (`scan`); answered ones before it
-    // keep what they were, so they go first.
+    // keep what they were, so they go first. (Results read with the interrupt still to
+    // come wait in `unsettled`, so none was let go as it read.)
     for (call, outcome) in &found.answered {
         crate::server::answered(call, *outcome);
     }
@@ -188,12 +191,13 @@ pub fn on_hook(p: &Value) {
                         t.touched = Instant::now();
                         if restart {
                             t.offset = end();
+                            t.unsettled.clear();
                             t.session = session;
                         }
                         false
                     }
                     None if main => {
-                        let t = Followed { path: path.clone(), session, offset: end(), touched: Instant::now() };
+                        let t = Followed { path: path.clone(), session, offset: end(), unsettled: Vec::new(), touched: Instant::now() };
                         files.insert(k.clone(), t);
                         true
                     }
@@ -212,7 +216,7 @@ pub fn on_hook(p: &Value) {
             if let Some(mut t) = removed {
                 // The reply's last words are written just before Stop, and the watcher
                 // may not have reported them yet. This runs before Stop reaches the pet.
-                report(&st.app, &t.session, scan(&path, &t.session, &mut t.offset));
+                report(&st.app, &t.session, scan(&path, &t.session, &mut t.offset, &mut t.unsettled, true));
                 let _ = st.watcher.lock().unwrap().unwatch(&t.path);
             }
         }
@@ -252,14 +256,16 @@ struct Found {
 }
 
 /// Looks through the complete lines appended since `offset`.
-fn scan(path: &Path, session: &str, offset: &mut u64) -> Found {
+///
+/// A result only counts once what follows it shows how to take it: Claude writing
+/// again keeps it as it reads; an interrupt first means the interrupt wrote it (a
+/// denial without a note, or a stop while a call waited or ran), so it says nothing of
+/// how the call was answered. Until then it waits in `unsettled`, across reads, since
+/// the two may be written apart. `last`: the turn is over, so what waits counts as it reads.
+fn scan(path: &Path, session: &str, offset: &mut u64, unsettled: &mut Vec<(String, Option<&'static str>)>, last: bool) -> Found {
     let mut found = Found::default();
-    let Some(text) = read_from(path, offset) else { return found };
+    let text = read_from(path, offset).unwrap_or_default();
     let replies = REPLIES.load(Ordering::SeqCst);
-    // Results since Claude last wrote anything: an interrupt right after them wrote them
-    // (a denial without a note, or a stop while a call waited or ran), so how they read
-    // isn't how they were answered.
-    let mut since_reply = 0;
     // A result names its call this way; the call itself has it as "id".
     let asking: Vec<(String, String)> = crate::server::asking(session)
         .into_iter()
@@ -270,18 +276,17 @@ fn scan(path: &Path, session: &str, offset: &mut u64) -> Found {
         // user message carrying the result counts. The substring is just the cheap check.
         let mut parsed: Option<Value> = None;
         for (needle, call) in &asking {
-            if !l.contains(needle.as_str()) || found.answered.iter().any(|(c, _)| c == call) {
+            if !l.contains(needle.as_str()) || found.answered.iter().chain(unsettled.iter()).any(|(c, _)| c == call) {
                 continue;
             }
             let v = parsed.get_or_insert_with(|| serde_json::from_str(l).unwrap_or(Value::Null));
             if let Some(outcome) = answers(v, call) {
-                found.answered.push((call.clone(), outcome));
-                since_reply += 1;
+                unsettled.push((call.clone(), outcome));
             }
         }
         // Unescaped, so the record's own type and not text quoting one.
         if l.contains(r#""type":"assistant""#) {
-            since_reply = 0;
+            found.answered.append(unsettled);
         }
         let interrupt = l.contains(MARKER);
         let reply = replies && l.contains(r#""assistant""#) && l.contains(r#""text""#);
@@ -292,14 +297,13 @@ fn scan(path: &Path, session: &str, offset: &mut u64) -> Found {
         let ts = || v["timestamp"].as_str().unwrap_or_default().to_string();
         if interrupt && is_interrupt(&v) {
             found.interrupt = Some(ts());
-            let n = found.answered.len();
-            for (_, outcome) in &mut found.answered[n - since_reply..] {
-                *outcome = None;
-            }
-            since_reply = 0;
+            found.answered.extend(unsettled.drain(..).map(|(call, _)| (call, None)));
         } else if let Some(line) = reply.then(|| said(&v)).flatten() {
             found.reply = Some((line, ts()));
         }
+    }
+    if last {
+        found.answered.append(unsettled);
     }
     found
 }

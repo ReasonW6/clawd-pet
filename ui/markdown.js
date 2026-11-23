@@ -70,8 +70,12 @@
   const SAFE_URL = /^(https?:\/\/|mailto:)/i;
   /** What usually ends a sentence rather than a bare link. */
   const URL_TAIL = new Set(".,;:!?'\"。，、；：！？）」』】》*_");
-  /** Text that reads as a formula, not as \(…\) or \[…\] in a regex or a path. */
+  /** Text that reads as a formula, not as \(…\) or \[…\] in a regex or a path: with
+   *  a formula's marks, or short letters, digits and brackets without a word in them
+   *  ("\(n\)", "\(O(n)\)", but not "\(foo\)"). */
   const TEXY = /[\\^_{}=+<>\s]/;
+  const SHORT_TEX = /^(?!.*[A-Za-z]{3})[\p{L}\p{N}(),.']{1,12}$/u;
+  const texy = (tex) => TEXY.test(tex) || SHORT_TEX.test(tex);
   const PLACEHOLDER = /\u0000/;
   /** A line longer than this shows as plain text: some of the marks' patterns take
    *  the square of a line's length when left open, and a reply is drawn every frame. */
@@ -103,8 +107,11 @@
     const keep = (html) => `\u0000${kept.push(html) - 1}\u0000`;
     if (text.length > MAX_LINE) return esc(text);
     // A formula with code in it, or a link with a marker in its address, stays text.
-    const formula = (display, test) => (m, tex) => (PLACEHOLDER.test(tex) || (test && !TEXY.test(tex)) ? m : keep(math(tex, display, onReady)));
+    const formula = (display, test) => (m, tex) => (PLACEHOLDER.test(tex) || (test && !texy(tex)) ? m : keep(math(tex, display, onReady)));
     let s = text;
+    // A "`" that is a face's eye, not code: after a mark that isn't Latin or Chinese
+    // and before the closing bracket, as in "(´・ω・`)".
+    s = s.replace(/(?<=[^\x00-\x7f\u3400-\u9fff]|-)`(?=\*?[)）])/g, () => keep("`"));
     s = s.replace(/(`+)([\s\S]+?)\1(?!`)/g, (_, __, code) => keep(`<code>${esc(code)}</code>`));
     s = s.replace(/\\\$/g, () => keep("$"));
     s = s.replace(/\$\$([\s\S]+?)\$\$/g, formula(true));
@@ -120,7 +127,7 @@
     s = s.replace(/^(\s*\d*)\\([#+\-.>!])/, (_, lead, c) => lead + keep(esc(c)));
     s = s.replace(/\\([\\`*_{}[\]~|]|!(?=\[))/g, (_, c) => keep(esc(c)));
     const url = String.raw`((?:[^\s()\u0000]|\([^\s()\u0000]*\))+)(?:\s+"[^"\n]*")?\)`;
-    s = s.replace(new RegExp(String.raw`!\[([^\[\]\n]{0,300})\]\(` + url, "g"), (_, alt, href) => keep(link(href, esc(`🖼 ${alt || "图片"}`))));
+    s = s.replace(new RegExp(String.raw`!\[([^\[\]\n]{0,300})\]\(` + url, "g"), (_, alt, href) => keep(link(href, `🖼 ${alt ? inline(alt, onReady, kept, true) : "图片"}`)));
     s = s.replace(new RegExp(String.raw`\[([^\[\]\n]{1,300})\]\(` + url, "g"), (_, label, href) => keep(link(href, inline(label, onReady, kept, true))));
     if (!inLink) {
       s = s.replace(/<((?:https?:\/\/|mailto:)[^\s<>\u0000]+)>/gi, (_, href) => keep(link(href, esc(href))));
@@ -134,10 +141,14 @@
     // Letters and digits of any script count as part of a word round underscores.
     s = s.replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, "<strong>$1</strong>");
     s = s.replace(/(^|[^\p{L}\p{N}_])__(?=\S)([\s\S]*?\S)__(?![\p{L}\p{N}_])/gu, "$1<strong>$2</strong>");
-    s = s.replace(/~~(?=\S)([\s\S]*?\S)~~/g, "<del>$1</del>");
+    // Not after Chinese or full-width text, where "~~" draws a word out ("嗯嗯~~知道啦~~").
+    s = s.replace(/(^|[^\u3000-\u9fff\uff00-\uffef])~~(?=\S)([\s\S]*?\S)~~/g, "$1<del>$2</del>");
     // Faces: a "*" right inside brackets isn't emphasis ("(*^▽^*)"), and "_" only
     // emphasises text that starts and ends with a letter or digit ("_(:з」∠)_", "^_^").
-    s = s.replace(/(^|[^\w*(（])\*([^\s*)）](?:[^*\n]*?[^\s*(（])?)\*(?![\w*)）])/g, "$1<em>$2</em>");
+    // Nor is one round a face with no letter or digit in it ("*_*", "*^_^*").
+    s = s.replace(/(^|[^\w*(（])\*([^\s*)）](?:[^*\n]*?[^\s*(（])?)\*(?![\w*)）])/g, (m, lead, body) =>
+      /[\p{L}\p{N}\u0000]/u.test(body.replace(/&\w+;/g, "")) ? `${lead}<em>${body}</em>` : m,
+    );
     s = s.replace(/(^|[^\p{L}\p{N}_])_([\p{L}\p{N}\u0000](?:[^_\n]*?[\p{L}\p{N}\u0000])?)_(?![\p{L}\p{N}_])/gu, "$1<em>$2</em>");
     return s.replace(/\u0000(\d+)\u0000/g, (_, i) => kept[i]);
   }
@@ -149,7 +160,8 @@
 
   // ---- blocks
 
-  const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+  // A "`" fence's info string has no "`" in it: "```npm i```" is code within a line.
+  const FENCE = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/;
   const HEADING = /^ {0,3}(#{1,6})\s+(.*)$/;
   const RULE = /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/;
   // ">" then a space, another ">" or nothing: ">_<" starts a line, not a quote.
@@ -160,7 +172,7 @@
   /** Quotes and lists inside each other this deep are shown as plain text. */
   const MAX_DEPTH = 12;
 
-  /** A row's cells; "\|" is a "|" inside one (inline() drops the backslash). */
+  /** A row's cells; "\|" is a "|" inside one, also inside code (cells() drops the backslash). */
   const cellsOf = (l) => l.trim().replace(/^\|/, "").replace(/(?<!\\)\|$/, "").split(/(?<!\\)\|/);
   /** A table's header: its next line is a rule with as many columns. */
   const isTable = (line, next) => line.includes("|") && TABLE_RULE.test(next.trim()) && cellsOf(line).length === cellsOf(next).length;
@@ -212,7 +224,7 @@
         i = items(lines, i, (html) => (out += html), onReady, depth);
       } else if (isTable(line, lines[i + 1] || "")) {
         flush();
-        const cells = (l) => cellsOf(l).map((c) => inline(c.trim(), onReady));
+        const cells = (l) => cellsOf(l).map((c) => inline(c.trim().replace(/\\\|/g, "|"), onReady));
         let t = `<div class="table"><table><thead><tr>${cells(line).map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>`;
         for (i += 2; i < lines.length && lines[i].includes("|"); i++) t += `<tr>${cells(lines[i]).map((c) => `<td>${c}</td>`).join("")}</tr>`;
         i--;
@@ -266,13 +278,18 @@
     let m;
     for (; i < lines.length; i++) {
       const l = lines[i];
+      let body = null;
       if ((m = ITEM.exec(l))) {
         const indent = width(m[1]);
         found.push({ indent, marker: m[2], col: indent + m[2].length + width(m[3]), lines: [m[4]] });
+        body = m[4];
       } else if (l.trim() && /^\s/.test(l)) {
+        body = dedent(l, found.at(-1).col);
+        found.at(-1).lines.push(body);
+      }
+      if (body !== null) {
+        // A fence, on the marker's line too, runs to its close whatever is in it.
         const it = found.at(-1);
-        const body = dedent(l, it.col);
-        it.lines.push(body);
         const fence = FENCE.exec(body);
         if (fence) {
           const close = new RegExp(`^ {0,3}\\${fence[1][0]}{${fence[1].length},}\\s*$`);

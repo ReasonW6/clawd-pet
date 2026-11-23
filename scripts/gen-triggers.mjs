@@ -1,7 +1,8 @@
 // Generates docs/triggers.html: every animation trigger, how it fires and what plays.
 // The animation lists come straight from ui/anims.js; the descriptions of when and
-// how each one fires are written here and mirror the logic in ui/pet.js and
-// src-tauri/src/sysmon.rs — update them together.
+// how each one fires are written here and mirror the logic in ui/pet.js,
+// src-tauri/src/sysmon.rs, and for permissions src-tauri/src/server.rs and
+// src-tauri/src/transcript.rs — update them together.
 // Usage: node scripts/gen-triggers.mjs
 import fs from "node:fs";
 import path from "node:path";
