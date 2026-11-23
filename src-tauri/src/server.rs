@@ -30,6 +30,8 @@ const SHELL_TOOLS: &[&str] = &["Bash", "PowerShell"];
 /// Tools whose runs also make such a file. A held request for one of these makes a new
 /// file ambiguous for a held shell request of the same session.
 const OUTPUT_TOOLS: &[&str] = &["Bash", "PowerShell", "Monitor"];
+/// Sessions whose stirs are remembered at most; past it, those with no held request go.
+const STIRS_KEPT: usize = 512;
 /// Calls that only wait for a subagent. Its own calls have their PreToolUse, which
 /// `ShellRuns` counts, so they don't need to hold back the early release.
 const SUBAGENT_TOOLS: &[&str] = &["Agent", "Task"];
@@ -45,8 +47,8 @@ struct Call {
     agent: Option<String>,
     tool: String,
     input: Value,
-    /// `Shared::begun` for its session, counting this call.
-    begun: u64,
+    /// `Shared::stirred` for its session, counting this call.
+    stir: u64,
 }
 
 /// How a held request ended.
@@ -76,9 +78,14 @@ pub struct Shared {
     pending: Mutex<HashMap<u64, Pending>>,
     /// Oldest first.
     calls: Mutex<VecDeque<Call>>,
-    /// session id -> how many PreToolUse it has had. Tells `ShellRuns` whether another
-    /// call started since it last looked, even one that was over before the next look.
-    begun: Mutex<HashMap<String, u64>>,
+    /// session id -> when something last happened in it that can make a shell output
+    /// file: a call started (PreToolUse), or a held request for a tool that makes one
+    /// was let go, which it may then run. Tells `ShellRuns` whether such a thing
+    /// happened since it last looked, even one that was over before the next look.
+    /// Values come from `last_stir`, so they only grow, also across a session's entry
+    /// being dropped and made again.
+    stirs: Mutex<HashMap<String, u64>>,
+    last_stir: AtomicU64,
 }
 
 /// For transcript.rs, which sees what no hook reports.
@@ -88,9 +95,26 @@ impl Shared {
     /// Answer a held permission request. `body` is the raw JSON response for Claude Code
     /// (empty string = no decision).
     pub fn resolve(&self, id: u64, body: String) -> bool {
-        match self.pending.lock().unwrap().remove(&id) {
+        match self.take(id) {
             Some(p) => p.tx.send(Answer::Bubble(body)).is_ok(),
             None => false,
+        }
+    }
+
+    /// Takes held request `id` off the list.
+    fn take(&self, id: u64) -> Option<Pending> {
+        let mut pending = self.pending.lock().unwrap();
+        let p = pending.remove(&id)?;
+        self.let_go(&p);
+        Some(p)
+    }
+
+    /// For a request just taken off the list: once a request for a tool that makes an
+    /// output file isn't held any more, a new file may be its run. Called with
+    /// `pending` locked, so that no look at the files sees it gone and not yet stirred.
+    fn let_go(&self, p: &Pending) {
+        if OUTPUT_TOOLS.contains(&p.tool.as_str()) {
+            self.stir(&p.session, false);
         }
     }
 
@@ -99,17 +123,53 @@ impl Shared {
         self.pending.lock().unwrap().retain(|_, p| {
             let drop = stale(p);
             if drop {
+                self.let_go(p);
                 let _ = p.tx.send(Answer::Elsewhere(outcome));
             }
             !drop
         });
     }
 
+    /// Notes that something happened in the session that can make an output file;
+    /// returns its mark. Session ids that aren't UUID-like aren't kept. `trim`: may drop
+    /// other sessions' entries when there are too many, which looks at `pending`, so
+    /// never with it locked.
+    fn stir(&self, session: &str, trim: bool) -> u64 {
+        let mark = self.last_stir.fetch_add(1, Ordering::SeqCst) + 1;
+        if !is_session_id(session) {
+            return mark;
+        }
+        let mut stirs = self.stirs.lock().unwrap();
+        if trim && stirs.len() >= STIRS_KEPT && !stirs.contains_key(session) {
+            // `let_go` takes the locks the other way round.
+            drop(stirs);
+            let held: HashSet<String> = self.pending.lock().unwrap().values().map(|p| p.session.clone()).collect();
+            stirs = self.stirs.lock().unwrap();
+            stirs.retain(|k, _| held.contains(k));
+        }
+        stirs.insert(session.to_string(), mark);
+        mark
+    }
+
+    /// The session's last stir, or 0.
+    fn stirred(&self, session: &str) -> u64 {
+        self.stirs.lock().unwrap().get(session).copied().unwrap_or(0)
+    }
+
+    /// Forgets the session's stirs when it has no held request, which may still be
+    /// looking at them.
+    fn forget_stirs(&self, session: &str) {
+        let held = self.pending.lock().unwrap().values().any(|p| p.session == session);
+        if !held {
+            self.stirs.lock().unwrap().remove(session);
+        }
+    }
+
     /// Whether a shell command that just started in the session of held request `id`
     /// can only be its own: no other request of the session for a tool that makes an
     /// output file is held, and no other call of the session is under way (calls that
     /// never ended count too, until their thread's turn is over; a call that only waits
-    /// for a subagent doesn't). That no call started since is `ShellRuns`' part.
+    /// for a subagent doesn't). That nothing else stirred since is `ShellRuns`' part.
     fn alone(&self, id: u64) -> bool {
         let session = {
             let pending = self.pending.lock().unwrap();
@@ -123,11 +183,6 @@ impl Shared {
         !self.calls.lock().unwrap().iter().any(|c| c.session == session && !SUBAGENT_TOOLS.contains(&c.tool.as_str()))
     }
 
-    /// How many calls the session has started so far.
-    fn begun(&self, session: &str) -> u64 {
-        self.begun.lock().unwrap().get(session).copied().unwrap_or(0)
-    }
-
     /// Keeps track of tool calls, and lets go of the requests an event shows were
     /// answered in Claude Code itself: the Desktop app asks there at the same time as
     /// the hook runs, and leaves the hook running when the user answers there.
@@ -139,12 +194,7 @@ impl Shared {
         let call = e["tool_use_id"].as_str();
         match e["hook_event_name"].as_str().unwrap_or_default() {
             "PreToolUse" => {
-                let begun = {
-                    let mut all = self.begun.lock().unwrap();
-                    let n = all.entry(session.to_string()).or_default();
-                    *n += 1;
-                    *n
-                };
+                let stir = self.stir(session, true);
                 let Some(id) = call else { return };
                 let mut calls = self.calls.lock().unwrap();
                 if calls.len() >= CALLS_KEPT {
@@ -156,7 +206,7 @@ impl Shared {
                     agent: agent.map(str::to_string),
                     tool: e["tool_name"].as_str().unwrap_or_default().to_string(),
                     input: e["tool_input"].clone(),
-                    begun,
+                    stir,
                 });
             }
             // The tool ran, so it was allowed.
@@ -169,11 +219,14 @@ impl Shared {
             "Stop" | "StopFailure" | "SubagentStop" | "UserPromptSubmit" => {
                 self.calls.lock().unwrap().retain(|c| !(c.session == session && c.agent.as_deref() == agent));
                 self.release(None, |p| p.session == session && p.agent.as_deref() == agent);
+                if agent.is_none() {
+                    self.forget_stirs(session);
+                }
             }
             "SessionEnd" => {
                 self.calls.lock().unwrap().retain(|c| c.session != session);
-                self.begun.lock().unwrap().remove(session);
                 self.release(None, |p| p.session == session);
+                self.forget_stirs(session);
             }
             _ => {}
         }
@@ -182,7 +235,7 @@ impl Shared {
     /// The call a permission request is for: the earliest unclaimed one of the same
     /// thread, tool and input (identical calls in parallel ask in the order they were
     /// made); or, if a hook changed the input on the way, the only unclaimed one of that
-    /// thread and tool. With the call's id, how many calls its session had started then.
+    /// thread and tool. With the call's id, its session's stir as of the call.
     fn claim(&self, p: &Value) -> Option<(String, u64)> {
         let (session, agent, tool) = (p["session_id"].as_str()?, p["agent_id"].as_str(), p["tool_name"].as_str()?);
         let mut calls = self.calls.lock().unwrap();
@@ -194,7 +247,7 @@ impl Shared {
                 _ => None,
             }
         })?;
-        calls.remove(i).map(|c| (c.id, c.begun))
+        calls.remove(i).map(|c| (c.id, c.stir))
     }
 }
 
@@ -217,11 +270,12 @@ pub fn answered(call: &str, outcome: Option<&'static str>) {
 
 /// From the session's transcript: the main thread's turn was interrupted. Subagents'
 /// requests go too: they stop with it, and how they were answered shows in their own
-/// transcripts, which aren't watched. So do the session's calls: those that were
-/// running stopped, and those that never ran won't end.
+/// transcripts, which aren't watched. So do the main thread's calls: those that were
+/// running stopped, and those that never ran won't end. A background subagent's may
+/// outlive the turn; they end with their PostToolUse or its SubagentStop.
 pub fn interrupted(session: &str) {
     if let Some(shared) = SHARED.get() {
-        shared.calls.lock().unwrap().retain(|c| c.session != session);
+        shared.calls.lock().unwrap().retain(|c| !(c.session == session && c.agent.is_none()));
         shared.release(None, |p| p.session == session);
     }
 }
@@ -235,23 +289,24 @@ pub fn interrupted(session: &str) {
 ///
 /// Other threads of the session (and subagents, whose files go into the session's
 /// folder too) make such files as well, and a background command or Monitor keeps its
-/// file after returning at once. So a new file only counts while the session has
-/// started no other call since the last look (`begun`).
+/// file after returning at once. So a new file only counts while nothing else that can
+/// make one has happened in the session (`Shared::stirred`) since a moment when every
+/// such thing before it was over, and so had made its file already.
 struct ShellRuns {
     session: String,
     dirs: Vec<PathBuf>,
     seen: HashSet<OsString>,
     looked: Instant,
-    /// `Shared::begun` for the session, read before the last look at the files.
-    begun: u64,
+    /// The session's stir as of the last moment nothing else was under way.
+    base: u64,
 }
 
 impl ShellRuns {
-    /// `begun`: as counted at the request's own PreToolUse, so that a call started
-    /// between that and the request counts as another; or now, if it wasn't found.
-    fn new(session: &str, shared: &Shared, begun: Option<u64>) -> Self {
-        let begun = begun.unwrap_or_else(|| shared.begun(session));
-        let mut runs = ShellRuns { session: session.to_string(), dirs: Vec::new(), seen: HashSet::new(), looked: Instant::now(), begun };
+    /// `stir`: as of the request's own PreToolUse, so that a call started between that
+    /// and the request counts as another; or now, if that call wasn't found.
+    fn new(session: &str, shared: &Shared, stir: Option<u64>) -> Self {
+        let base = stir.unwrap_or_else(|| shared.stirred(session));
+        let mut runs = ShellRuns { session: session.to_string(), dirs: Vec::new(), seen: HashSet::new(), looked: Instant::now(), base };
         runs.find();
         runs.seen = runs.outputs();
         runs
@@ -260,7 +315,7 @@ impl ShellRuns {
     fn find(&mut self) {
         self.looked = Instant::now();
         // A session id is a UUID; anything else isn't looked for on disk.
-        if self.session.is_empty() || !self.session.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        if !is_session_id(&self.session) {
             return;
         }
         let Ok(hashes) = std::fs::read_dir(std::env::temp_dir().join("claude")) else { return };
@@ -269,6 +324,7 @@ impl ShellRuns {
 
     fn outputs(&self) -> HashSet<OsString> {
         let shell = |n: &OsString| n.to_str().is_some_and(|n| n.starts_with('b') && n.ends_with(".output"));
+        // (A session id is checked in `find`, before any folder is listed.)
         self.dirs
             .iter()
             .filter_map(|d| std::fs::read_dir(d).ok())
@@ -277,9 +333,10 @@ impl ShellRuns {
             .collect()
     }
 
-    /// Whether a command of the session started since the last look, with no other
-    /// call of the session started meanwhile.
-    fn started(&mut self, shared: &Shared) -> bool {
+    /// Whether a command of the session started since the last look, with nothing else
+    /// that can make an output file happening in the session meanwhile. `id`: the held
+    /// request this is for.
+    fn started(&mut self, shared: &Shared, id: u64) -> bool {
         if self.dirs.is_empty() {
             // The session's first command makes the folder.
             if self.looked.elapsed() < Duration::from_secs(1) {
@@ -287,17 +344,28 @@ impl ShellRuns {
             }
             self.find();
         }
-        // Read before the files: a call starting while they are listed shows next time.
-        let before = shared.begun(&self.session);
+        let before = shared.stirred(&self.session);
+        // With nothing else under way or held now, all that `before` counts is over and
+        // has made its file, which the look below lists; so later files can be compared
+        // with `before`. Otherwise something counted may make its file later, and the
+        // base stays where it was.
+        let quiet = shared.alone(id);
         let now = self.outputs();
-        // Read after them: any file listed was made by a call counted by now.
-        let after = shared.begun(&self.session);
+        // Read after the look: any file listed was made by something counted by now.
+        let after = shared.stirred(&self.session);
         let new = now.iter().any(|n| !self.seen.contains(n));
-        let ours = new && after == self.begun;
+        let ours = new && after == self.base;
         self.seen.extend(now);
-        self.begun = before;
+        if quiet {
+            self.base = before;
+        }
         ours
     }
+}
+
+/// A session id as Claude Code makes them (a UUID), not just anything an event says.
+fn is_session_id(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 64 && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 pub fn bind() -> io::Result<TcpListener> {
@@ -521,14 +589,14 @@ fn permission(stream: TcpStream, app: &AppHandle, shared: &Shared, payload: Valu
             break (Answer::Elsewhere(None), true);
         }
         // Looked at every time, so that a run that wasn't ours isn't taken for it later.
-        if runs.as_mut().is_some_and(|r| r.started(shared)) && shared.alone(id) {
+        if runs.as_mut().is_some_and(|r| r.started(shared, id)) && shared.alone(id) {
             break (Answer::Elsewhere(ALLOWED), true);
         }
         if started.elapsed() > PERMISSION_MAX_WAIT {
             break (Answer::Elsewhere(None), false);
         }
     };
-    shared.pending.lock().unwrap().remove(&id);
+    shared.take(id);
     stream.set_nonblocking(false)?;
 
     match answer {

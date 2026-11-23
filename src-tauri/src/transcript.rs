@@ -24,8 +24,6 @@ const MARKER: &str = "[Request interrupted by user";
 const DENIALS: [&str; 2] = ["The user doesn't want to proceed with this tool use", "Permission for this tool use was denied"];
 /// Added to a denial's text when the call had in fact been allowed and was then stopped.
 const CORRECTION: &str = "Correction to the text above";
-/// How the result of a call that was cancelled starts, rather than denied.
-const CANCELLED: &str = "The user doesn't want to take this action";
 /// How much of a transcript's end, then of its start, is searched for the title.
 const TITLE_TAIL: u64 = 512 * 1024;
 const TITLE_HEAD: u64 = 64 * 1024;
@@ -144,13 +142,13 @@ pub fn init(app: AppHandle) {
 }
 
 fn report(app: &AppHandle, session: &str, found: Found) {
-    // An interrupt writes a denial's text into the result of a call that was waiting
-    // (or running) just before its marker; what the call got is the interrupt's.
-    if found.interrupt.is_some() {
-        crate::server::interrupted(session);
-    }
+    // Results the interrupt wrote are already None (`scan`); answered ones before it
+    // keep what they were, so they go first.
     for (call, outcome) in &found.answered {
         crate::server::answered(call, *outcome);
+    }
+    if found.interrupt.is_some() {
+        crate::server::interrupted(session);
     }
     if let Some((text, ts)) = found.reply {
         let _ = app.emit(
@@ -258,6 +256,10 @@ fn scan(path: &Path, session: &str, offset: &mut u64) -> Found {
     let mut found = Found::default();
     let Some(text) = read_from(path, offset) else { return found };
     let replies = REPLIES.load(Ordering::SeqCst);
+    // Results since Claude last wrote anything: an interrupt right after them wrote them
+    // (a denial without a note, or a stop while a call waited or ran), so how they read
+    // isn't how they were answered.
+    let mut since_reply = 0;
     // A result names its call this way; the call itself has it as "id".
     let asking: Vec<(String, String)> = crate::server::asking(session)
         .into_iter()
@@ -274,7 +276,12 @@ fn scan(path: &Path, session: &str, offset: &mut u64) -> Found {
             let v = parsed.get_or_insert_with(|| serde_json::from_str(l).unwrap_or(Value::Null));
             if let Some(outcome) = answers(v, call) {
                 found.answered.push((call.clone(), outcome));
+                since_reply += 1;
             }
+        }
+        // Unescaped, so the record's own type and not text quoting one.
+        if l.contains(r#""type":"assistant""#) {
+            since_reply = 0;
         }
         let interrupt = l.contains(MARKER);
         let reply = replies && l.contains(r#""assistant""#) && l.contains(r#""text""#);
@@ -285,6 +292,11 @@ fn scan(path: &Path, session: &str, offset: &mut u64) -> Found {
         let ts = || v["timestamp"].as_str().unwrap_or_default().to_string();
         if interrupt && is_interrupt(&v) {
             found.interrupt = Some(ts());
+            let n = found.answered.len();
+            for (_, outcome) in &mut found.answered[n - since_reply..] {
+                *outcome = None;
+            }
+            since_reply = 0;
         } else if let Some(line) = reply.then(|| said(&v)).flatten() {
             found.reply = Some((line, ts()));
         }
@@ -313,17 +325,13 @@ fn answers(v: &Value, call: &str) -> Option<Option<&'static str>> {
     if let Some(kind) = v["toolDenialKind"].as_str() {
         return Some(if kind == "user-rejected" && denial() { DENIED } else { None });
     }
-    // Without it: the call ran, or an older version only says so in the text.
+    // Without it: the call ran, or an older version only says so in the text. An
+    // error that isn't a denial may be a call that never ran (cancelled, expired, a
+    // sibling call's error...); one that did run has its PostToolUseFailure anyway.
     if result["is_error"] != true {
         return Some(ALLOWED);
     }
-    Some(if denial() {
-        DENIED
-    } else if text.starts_with('[') || text.starts_with(CANCELLED) || DENIALS.iter().any(|d| text.starts_with(d)) {
-        None
-    } else {
-        ALLOWED
-    })
+    Some(if denial() { DENIED } else { None })
 }
 
 fn read_from(path: &Path, offset: &mut u64) -> Option<String> {

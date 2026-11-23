@@ -73,6 +73,9 @@
   /** Text that reads as a formula, not as \(…\) or \[…\] in a regex or a path. */
   const TEXY = /[\\^_{}=+<>\s]/;
   const PLACEHOLDER = /\u0000/;
+  /** A line longer than this shows as plain text: some of the marks' patterns take
+   *  the square of a line's length when left open, and a reply is drawn every frame. */
+  const MAX_LINE = 4000;
 
   /** A bare link without what follows it: the end of the sentence, the bold or italic
    *  marks round it, or a ")" it doesn't open. */
@@ -98,6 +101,7 @@
     // Bits already turned into HTML wait behind a marker that escaping leaves alone
     // (renderMarkdown takes any such marker out of the source first).
     const keep = (html) => `\u0000${kept.push(html) - 1}\u0000`;
+    if (text.length > MAX_LINE) return esc(text);
     // A formula with code in it, or a link with a marker in its address, stays text.
     const formula = (display, test) => (m, tex) => (PLACEHOLDER.test(tex) || (test && !TEXY.test(tex)) ? m : keep(math(tex, display, onReady)));
     let s = text;
@@ -110,7 +114,11 @@
     // either side: "$5 and $10" stays money, and "$PATH:$HOME" a path; Chinese text
     // right next to a formula is usual.
     s = s.replace(/(?<![A-Za-z0-9])\$([^\s$](?:[^$\n]*?[^\s$\\])?)\$(?![A-Za-z0-9])/g, formula(false));
-    s = s.replace(/\\([\\`*_{}[\]()#+\-.!~|>])/g, (_, c) => keep(esc(c)));
+    // Backslash escapes. Not "(" and ")", which only escape as formula delimiters:
+    // "\(^o^)/" is a face. Marks that only mean something at the start of a line only
+    // escape there, so a path keeps its "\.".
+    s = s.replace(/^(\s*\d*)\\([#+\-.>!])/, (_, lead, c) => lead + keep(esc(c)));
+    s = s.replace(/\\([\\`*_{}[\]~|]|!(?=\[))/g, (_, c) => keep(esc(c)));
     const url = String.raw`((?:[^\s()\u0000]|\([^\s()\u0000]*\))+)(?:\s+"[^"\n]*")?\)`;
     s = s.replace(new RegExp(String.raw`!\[([^\[\]\n]{0,300})\]\(` + url, "g"), (_, alt, href) => keep(link(href, esc(`🖼 ${alt || "图片"}`))));
     s = s.replace(new RegExp(String.raw`\[([^\[\]\n]{1,300})\]\(` + url, "g"), (_, label, href) => keep(link(href, inline(label, onReady, kept, true))));
@@ -127,8 +135,10 @@
     s = s.replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, "<strong>$1</strong>");
     s = s.replace(/(^|[^\p{L}\p{N}_])__(?=\S)([\s\S]*?\S)__(?![\p{L}\p{N}_])/gu, "$1<strong>$2</strong>");
     s = s.replace(/~~(?=\S)([\s\S]*?\S)~~/g, "<del>$1</del>");
-    s = s.replace(/(^|[^\w*])\*([^\s*](?:[^*\n]*?[^\s*])?)\*(?![\w*])/g, "$1<em>$2</em>");
-    s = s.replace(/(^|[^\p{L}\p{N}_])_([^\s_](?:[^_\n]*?[^\s_])?)_(?![\p{L}\p{N}_])/gu, "$1<em>$2</em>");
+    // Faces: a "*" right inside brackets isn't emphasis ("(*^▽^*)"), and "_" only
+    // emphasises text that starts and ends with a letter or digit ("_(:з」∠)_", "^_^").
+    s = s.replace(/(^|[^\w*(（])\*([^\s*)）](?:[^*\n]*?[^\s*(（])?)\*(?![\w*)）])/g, "$1<em>$2</em>");
+    s = s.replace(/(^|[^\p{L}\p{N}_])_([\p{L}\p{N}\u0000](?:[^_\n]*?[\p{L}\p{N}\u0000])?)_(?![\p{L}\p{N}_])/gu, "$1<em>$2</em>");
     return s.replace(/\u0000(\d+)\u0000/g, (_, i) => kept[i]);
   }
 
@@ -150,7 +160,8 @@
   /** Quotes and lists inside each other this deep are shown as plain text. */
   const MAX_DEPTH = 12;
 
-  const cellsOf = (l) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|");
+  /** A row's cells; "\|" is a "|" inside one (inline() drops the backslash). */
+  const cellsOf = (l) => l.trim().replace(/^\|/, "").replace(/(?<!\\)\|$/, "").split(/(?<!\\)\|/);
   /** A table's header: its next line is a rule with as many columns. */
   const isTable = (line, next) => line.includes("|") && TABLE_RULE.test(next.trim()) && cellsOf(line).length === cellsOf(next).length;
   const width = (s) => s.replace(/\t/g, "    ").length;
@@ -291,6 +302,9 @@
     for (const it of items) {
       const tag = /\d/.test(it.marker) ? "ol" : "ul";
       while (open.length && it.indent < open.at(-1).indent) html += `</li></${open.pop().tag}>`;
+      // A bulleted item at the same indent as a numbered one, or the other way round,
+      // starts a list of its own, as in CommonMark.
+      if (open.length && it.indent === open.at(-1).indent && open.at(-1).tag !== tag) html += `</li></${open.pop().tag}>`;
       if (!open.length || it.indent > open.at(-1).indent) {
         const n = parseInt(it.marker, 10);
         html += `<${tag}${tag === "ol" && n !== 1 ? ` start="${n}"` : ""}>`;

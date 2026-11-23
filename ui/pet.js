@@ -1897,10 +1897,25 @@ function showReply(r) {
     layoutChat();
   };
   try {
-    r.text.innerHTML = renderMarkdown(r.shown, r.redraw);
+    drawBlocks(r.text, renderMarkdown(r.shown, r.redraw));
   } catch {
     r.text.textContent = r.shown; // whatever trips the renderer, the reply still shows
   }
+}
+
+/** Puts html into box, keeping the blocks at the start that are the same as before, so
+ *  that while a reply types out, a table's or formula's scroll and a link being pressed
+ *  are not lost to every frame. Only the blocks from the first one that changed on are
+ *  replaced, which is usually the last. */
+function drawBlocks(box, html) {
+  const t = document.createElement("template");
+  t.innerHTML = html;
+  const fresh = [...t.content.childNodes];
+  const old = [...box.childNodes];
+  let same = 0;
+  while (same < fresh.length && same < old.length && old[same].isEqualNode(fresh[same])) same++;
+  for (const n of old.slice(same)) n.remove();
+  box.append(...fresh.slice(same));
 }
 
 /** Once the reply has come in and been typed out: the message it answers floats off. */

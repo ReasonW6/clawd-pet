@@ -395,10 +395,7 @@ fn ai_key_page(provider: String) {
 /// Opens a link from a chat reply in the default browser; only web and mail links.
 #[tauri::command]
 fn open_link(url: String) {
-    let safe = ["https://", "http://", "mailto:"].iter().any(|p| url.get(..p.len()).is_some_and(|s| s.eq_ignore_ascii_case(p)));
-    if !safe || url.len() > 4096 || url.chars().any(char::is_control) {
-        return;
-    }
+    let Some(url) = safe_link(&url) else { return };
     #[cfg(windows)]
     unsafe {
         use windows_sys::Win32::UI::Shell::ShellExecuteW;
@@ -407,6 +404,34 @@ fn open_link(url: String) {
         let (verb, url) = (wide("open"), wide(&url));
         ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), url.as_ptr(), std::ptr::null(), std::ptr::null(), SW_SHOWNORMAL);
     }
+}
+
+/// A link from a reply as it may be opened: parsed and written out again, http(s)
+/// with a host, or mailto with only a subject and body (a mail client takes other
+/// fields too, attachments among them).
+fn safe_link(raw: &str) -> Option<String> {
+    if raw.len() > 4096 {
+        return None;
+    }
+    let mut url = tauri::Url::parse(raw).ok()?;
+    match url.scheme() {
+        "http" | "https" if url.host_str().is_some_and(|h| !h.is_empty()) => {}
+        "mailto" => {
+            let kept: Vec<(String, String)> = url
+                .query_pairs()
+                .filter(|(k, _)| k.eq_ignore_ascii_case("subject") || k.eq_ignore_ascii_case("body"))
+                .map(|(k, v)| (k.into_owned(), v.into_owned()))
+                .collect();
+            url.set_query(None);
+            if !kept.is_empty() {
+                url.query_pairs_mut().extend_pairs(kept);
+            }
+            url.set_fragment(None);
+        }
+        _ => return None,
+    }
+    let out = url.to_string();
+    (!out.chars().any(char::is_control)).then_some(out)
 }
 
 /// Lets the chat's text box take the keyboard.
