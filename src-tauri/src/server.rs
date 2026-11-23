@@ -4,14 +4,16 @@
 //! - `POST /clawd-pet/permission` PermissionRequest; the connection is held until
 //!   the user answers in the bubble, or answers in Claude Code itself instead. The
 //!   terminal closes the connection then; the Desktop app leaves the hook running, so
-//!   there it shows in what follows (see `Shared::observe` and `answered`).
+//!   there it shows in what follows (see `Shared::observe`, `answered` and `ShellRuns`).
 //!
 //! Hand-rolled on std so we can watch the socket for that disconnect.
 
 use serde_json::{json, Value};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -23,6 +25,12 @@ const MAX_BODY: usize = 16 * 1024 * 1024;
 const PERMISSION_MAX_WAIT: Duration = Duration::from_secs(590);
 /// How many tool calls not yet claimed by a permission request are remembered.
 const CALLS_KEPT: usize = 64;
+/// Tools that run a shell command, each run with an output file of its own (`ShellRuns`).
+const SHELL_TOOLS: &[&str] = &["Bash", "PowerShell"];
+
+/// How a held request was answered in Claude Code itself, when that shows.
+const ALLOWED: Option<&str> = Some("allow");
+const DENIED: Option<&str> = Some("deny");
 
 /// A tool call from its PreToolUse, until a permission request claims it or it ends.
 struct Call {
@@ -33,13 +41,21 @@ struct Call {
     input: Value,
 }
 
+/// How a held request ended.
+enum Answer {
+    /// From the bubble: the raw JSON response for Claude Code (empty: no decision).
+    Bubble(String),
+    /// Answered in Claude Code itself: `ALLOWED`, `DENIED`, or `None` when that doesn't show.
+    Elsewhere(Option<&'static str>),
+}
+
 /// A permission request whose connection is being held.
 struct Pending {
-    /// `Some(body)`: the answer from the bubble. `None`: it was answered elsewhere.
-    tx: mpsc::Sender<Option<String>>,
+    tx: mpsc::Sender<Answer>,
     session: String,
     /// The subagent asking, if it isn't the main thread.
     agent: Option<String>,
+    tool: String,
     /// The `tool_use_id` of the call asking: PermissionRequest doesn't carry it, the
     /// PreToolUse just before does.
     call: Option<String>,
@@ -62,20 +78,37 @@ impl Shared {
     /// (empty string = no decision).
     pub fn resolve(&self, id: u64, body: String) -> bool {
         match self.pending.lock().unwrap().remove(&id) {
-            Some(p) => p.tx.send(Some(body)).is_ok(),
+            Some(p) => p.tx.send(Answer::Bubble(body)).is_ok(),
             None => false,
         }
     }
 
-    /// Lets go of the held requests `stale` picks, as answered elsewhere.
-    fn release(&self, stale: impl Fn(&Pending) -> bool) {
+    /// Lets go of the held requests `stale` picks, as answered elsewhere with `outcome`.
+    fn release(&self, outcome: Option<&'static str>, stale: impl Fn(&Pending) -> bool) {
         self.pending.lock().unwrap().retain(|_, p| {
             let drop = stale(p);
             if drop {
-                let _ = p.tx.send(None);
+                let _ = p.tx.send(Answer::Elsewhere(outcome));
             }
             !drop
         });
+    }
+
+    /// Whether a shell command that just started in the session of held request `id`
+    /// can only be its own: no other shell request of the session is held, and no
+    /// other call of the session is under way (calls that never ended count too,
+    /// until their thread's turn is over).
+    fn alone(&self, id: u64) -> bool {
+        let session = {
+            let pending = self.pending.lock().unwrap();
+            let Some(me) = pending.get(&id) else { return false };
+            let shell = |p: &Pending| SHELL_TOOLS.contains(&p.tool.as_str());
+            if pending.iter().any(|(&k, p)| k != id && p.session == me.session && shell(p)) {
+                return false;
+            }
+            me.session.clone()
+        };
+        !self.calls.lock().unwrap().iter().any(|c| c.session == session)
     }
 
     /// Keeps track of tool calls, and lets go of the requests an event shows were
@@ -106,16 +139,16 @@ impl Shared {
             "PostToolUse" | "PostToolUseFailure" => {
                 let Some(id) = call else { return };
                 self.calls.lock().unwrap().retain(|c| c.id != id);
-                self.release(|p| p.call.as_deref() == Some(id));
+                self.release(ALLOWED, |p| p.call.as_deref() == Some(id));
             }
             // The turn of that thread is over: it ended, or a new prompt ended it.
             "Stop" | "StopFailure" | "SubagentStop" | "UserPromptSubmit" => {
                 self.calls.lock().unwrap().retain(|c| !(c.session == session && c.agent.as_deref() == agent));
-                self.release(|p| p.session == session && p.agent.as_deref() == agent);
+                self.release(None, |p| p.session == session && p.agent.as_deref() == agent);
             }
             "SessionEnd" => {
                 self.calls.lock().unwrap().retain(|c| c.session != session);
-                self.release(|p| p.session == session);
+                self.release(None, |p| p.session == session);
             }
             _ => {}
         }
@@ -147,11 +180,12 @@ pub fn asking(session: &str) -> Vec<String> {
     pending.values().filter(|p| p.session == session).filter_map(|p| p.call.clone()).collect()
 }
 
-/// From the session's transcript: the call got its result, so it was answered. Denying
-/// with a note in the Desktop app lets the turn go on with no hook for it.
-pub fn answered(call: &str) {
+/// From the session's transcript: the call got its result, so it was answered: denied,
+/// or allowed and run. Denying with a note in the Desktop app lets the turn go on with
+/// no hook for it.
+pub fn answered(call: &str, denied: bool) {
     if let Some(shared) = SHARED.get() {
-        shared.release(|p| p.call.as_deref() == Some(call));
+        shared.release(if denied { DENIED } else { ALLOWED }, |p| p.call.as_deref() == Some(call));
     }
 }
 
@@ -160,7 +194,64 @@ pub fn answered(call: &str) {
 /// transcripts, which aren't watched.
 pub fn interrupted(session: &str) {
     if let Some(shared) = SHARED.get() {
-        shared.release(|p| p.session == session);
+        shared.release(None, |p| p.session == session);
+    }
+}
+
+/// Each shell command Claude Code runs gets an output file of its own as it starts,
+/// `b<id>.output` in `<temp>\claude\<hash>\<session id>\tasks`. In the Desktop app a
+/// command allowed there starts while the hook is still held, and its PostToolUse only
+/// comes once it is done, which for a long one is minutes later; the new file shows
+/// at once that it started. This is Claude Code's own layout: where it isn't found,
+/// PostToolUse still settles the request.
+struct ShellRuns {
+    session: String,
+    dirs: Vec<PathBuf>,
+    seen: HashSet<OsString>,
+    looked: Instant,
+}
+
+impl ShellRuns {
+    fn new(session: &str) -> Self {
+        let mut runs = ShellRuns { session: session.to_string(), dirs: Vec::new(), seen: HashSet::new(), looked: Instant::now() };
+        runs.find();
+        runs.seen = runs.outputs();
+        runs
+    }
+
+    fn find(&mut self) {
+        self.looked = Instant::now();
+        // A session id is a UUID; anything else isn't looked for on disk.
+        if self.session.is_empty() || !self.session.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+            return;
+        }
+        let Ok(hashes) = std::fs::read_dir(std::env::temp_dir().join("claude")) else { return };
+        self.dirs = hashes.flatten().map(|h| h.path().join(&self.session).join("tasks")).filter(|d| d.is_dir()).collect();
+    }
+
+    fn outputs(&self) -> HashSet<OsString> {
+        let shell = |n: &OsString| n.to_str().is_some_and(|n| n.starts_with('b') && n.ends_with(".output"));
+        self.dirs
+            .iter()
+            .filter_map(|d| std::fs::read_dir(d).ok())
+            .flat_map(|files| files.flatten().map(|f| f.file_name()))
+            .filter(shell)
+            .collect()
+    }
+
+    /// Whether a command of the session started since the last look.
+    fn started(&mut self) -> bool {
+        if self.dirs.is_empty() {
+            // The session's first command makes the folder.
+            if self.looked.elapsed() < Duration::from_secs(1) {
+                return false;
+            }
+            self.find();
+        }
+        let now = self.outputs();
+        let new = now.iter().any(|n| !self.seen.contains(n));
+        self.seen.extend(now);
+        new
     }
 }
 
@@ -364,8 +455,10 @@ fn permission(stream: TcpStream, app: &AppHandle, shared: &Shared, payload: Valu
         tx,
         session: payload["session_id"].as_str().unwrap_or_default().to_string(),
         agent: payload["agent_id"].as_str().map(str::to_string),
+        tool: tool.to_string(),
         call: shared.claim(&payload),
     };
+    let mut runs = SHELL_TOOLS.contains(&tool).then(|| ShellRuns::new(&held.session));
     shared.pending.lock().unwrap().insert(id, held);
     let _ = app.emit("permission-request", json!({ "id": id, "payload": payload }));
 
@@ -375,23 +468,27 @@ fn permission(stream: TcpStream, app: &AppHandle, shared: &Shared, payload: Valu
     let (answer, answered) = loop {
         match rx.recv_timeout(Duration::from_millis(200)) {
             Ok(answer) => break (answer, true),
-            Err(mpsc::RecvTimeoutError::Disconnected) => break (None, true),
+            Err(mpsc::RecvTimeoutError::Disconnected) => break (Answer::Elsewhere(None), true),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
         if !client_alive(&stream) {
-            break (None, true);
+            break (Answer::Elsewhere(None), true);
+        }
+        // Looked at every time, so that a run that wasn't ours isn't taken for it later.
+        if runs.as_mut().is_some_and(ShellRuns::started) && shared.alone(id) {
+            break (Answer::Elsewhere(ALLOWED), true);
         }
         if started.elapsed() > PERMISSION_MAX_WAIT {
-            break (None, false);
+            break (Answer::Elsewhere(None), false);
         }
     };
     shared.pending.lock().unwrap().remove(&id);
     stream.set_nonblocking(false)?;
 
     match answer {
-        Some(body) => respond(&stream, 200, &body),
-        None => {
-            let _ = app.emit("permission-closed", json!({ "id": id, "answered": answered }));
+        Answer::Bubble(body) => respond(&stream, 200, &body),
+        Answer::Elsewhere(outcome) => {
+            let _ = app.emit("permission-closed", json!({ "id": id, "answered": answered, "outcome": outcome }));
             let _ = respond(&stream, 200, "");
             Ok(())
         }

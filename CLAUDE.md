@@ -36,7 +36,7 @@ cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得�
 
 Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
-- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）和 `config`（只在聊天改了设置时）；只发给主窗口的还有 `dream`（做梦开始、结束）。
+- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），`edges`（来自 `edges.rs`），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）和 `config`（只在聊天改了设置时）；只发给主窗口的还有 `dream`（做梦开始、结束）。
 - 前端调用的命令都在 `main.rs` 的 `generate_handler!` 里注册；`window.__TAURI__` 是全局对象（`withGlobalTauri`），前端没有打包器和 import。
 
 ### Claude Code 联动
@@ -47,10 +47,11 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
   - `/clawd-pet/permission` 一直挂着连接，直到前端调用 `resolve_permission`，或者用户在原界面先作答了，这时发 `permission-closed`。`permission-request` 带的是完整的请求内容，气泡要显示 `tool_input`。
   - 终端里在原界面作答，Claude Code 会断开连接。桌面版不会：它让钩子和应用内的弹窗同时跑，用户在应用里答完也不取消钩子，连接要挂到超时。所以要从后面发生的事看出请求已经答过了：
     - 对应到具体调用：PermissionRequest 不带 `tool_use_id`，紧挨在它前面的 `PreToolUse` 带。`Shared::observe` 记下最近的 `PreToolUse`，请求到来时按会话、子代理 `agent_id`、工具名和输入认领一个（`claim`）。之后同一个 `tool_use_id` 的 `PostToolUse` / `PostToolUseFailure` 到了，就放掉请求。
+    - Bash / PowerShell 在应用里允许后马上开跑，`PostToolUse` 要等命令跑完。Claude Code 每次跑命令都在 `<temp>\claude\<hash>\<会话 id>\tasks` 里新建一个 `b*.output`（`a*.output` 是子代理的，不算），`ShellRuns` 在等待循环里每 200 ms 看一眼，出现新文件就当已允许。只在这个会话没有别的挂着的命令请求、也没有别的进行中的调用（`calls` 里没认领的）时才算数，免得把并行的另一条命令当成它；看到的文件不管算不算都记下，之后不再算。这是 Claude Code 内部的目录结构，找不到就照旧等 `PostToolUse`。
     - 在应用里拒绝并留言时，这一轮接着跑，没有任何 hook；`transcript.rs` 看到用户消息里那次调用的 `tool_result`（按 JSON 认，不只是字符串里出现 id）就调 `server::answered`。中断时调 `server::interrupted`，放掉整个会话的请求，子代理的也算（子代理的 transcript 不监听）。
     - 这一轮结束也放掉（`Stop`、`SubagentStop`、`UserPromptSubmit`，只放同一个线程的；`SessionEnd` 放掉整个会话的）。
     - `/event` 先 `observe` 再回包：Claude Code 等着这个回包，所以下一个请求不会抢在这个事件之前。
-    - `permission-closed` 带 `answered`：只是等满超时放弃的为 false，这时 Claude Code 还在原界面等着，前端保持「等你确认」。
+    - `permission-closed` 带 `answered`：只是等满超时放弃的为 false，这时 Claude Code 还在原界面等着，前端保持「等你确认」。还带 `outcome`：调用跑起来或跑完了（`ShellRuns`、`PostToolUse`、transcript 里的结果不是拒绝）为 `"allow"`；transcript 里的结果以拒绝的固定文字开头（`transcript.rs` 的 `DENIALS`）为 `"deny"`；终端断开、一轮结束、被叫停时看不出来，为 null。前端按它播和在气泡里作答一样的动画。
 - `transcript.rs` 从一轮的第一个事件到 `Stop` 之间监听该会话的 transcript，补上 hook 不报的两样东西，都作为合成的 `hook-event` 发出。不是每一轮都从 `UserPromptSubmit` 开始（后台任务回来、桌面版唤醒会话都会自己开一轮），所以 `PreToolUse` 等事件也会开始监听；`UserPromptSubmit` 则把读取位置挪到文件末尾，免得把上一轮的中断标记算进来。只有主线程的事件（不带 `agent_id`）会开始监听和挪位置。两小时既没有事件、文件也没写入的，就停止监听（桌面版退出时，会话没有 `Stop` 就没了）。
   - `Interrupt`：中断（Esc、Desktop 停止按钮）不触发任何 hook，Desktop 也收不到 `idle_prompt`；读到 `[Request interrupted by user` 开头的用户消息就发。
   - `Reply`：Claude 每写完一个文本块，transcript 就追加一条 assistant 记录；只取第一行（去掉 Markdown 记号，截到 80 字）放进 `text`。这是唯一转发的回复内容，设置里的 `replies` 关掉时不读。收到 `Stop` 时先把文件再读一遍再停止监听，最后一句才不会漏，所以 `Reply` 总在 `Stop` 之前到前端。
@@ -82,6 +83,8 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 ### 前端（`ui/`）
 
 - `anims.js` 是「剧本」：全部用 `window.XXX = ...` 定义成全局（`ANIMS`、`LIFE`、`ROUTINE`、`MOODS`、`SYS_EVENTS` 等），按 slug 引用 clawd-400 的动画。`scripts/gen-triggers.mjs` 用 `node:vm` 执行这个文件来读取这些全局，所以它必须保持为普通脚本，不能改成 ES module。
+- `markdown.js` 定义 `window.renderMarkdown`，把聊天回复画成 HTML（回复每打出几个字就整段重画一次）。它先转义全部文字，只输出自己拼的标签：回复可能转述网页内容，不能把模型的 HTML 放进页面（页面能调后端命令）。链接只放行 http(s) 和 mailto，点击走 `open_link` 用默认浏览器打开；图片只画成链接，不加载（加载远程图片能把内容带出去）。`**粗体**` 用宽松匹配，挨着中文标点也能闭合。公式交给 `ui/vendor/katex/katex.min.js`（从 npm 的 katex 包原样复制，带 LICENSE），第一次遇到公式才插 `<script>` 加载，输出 MathML，不需要 KaTeX 的样式和字体；加载完回调重画那条回复。
+- 聊天气泡的尺寸由弹簧控制，目标是 `.body` 的尺寸加上卡片两侧的边框（`CARD_BORDER`）。少算边框的话卡片比内容小，能被滚动（输入法、光标会把它滚上去），停下后橙色底就够不到卡片底部。
 - `pet.js` 是状态机：
   - 多会话状态，忙碌程度 waiting > compacting > working > thinking。
   - 空闲生活：场景由一串动画步骤组成，场景之间按活跃度休息，九个作息时段调整各类活动的权重。
@@ -97,6 +100,10 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 ### 窗口和鼠标穿透（`main.rs`）
 
 - 主窗口透明、置顶、整体默认鼠标穿透。前端用 `set_hit_rects` 上报可点区域（小螃蟹、气泡）。后台线程读光标位置来切换 `set_ignore_cursor_events`：光标在附近时每 40 ms 一次，远时每 200 ms 一次。
+- 屏幕边缘（`edges.rs`）：
+  - `set_hit_rects` 同时带上 `body`（`#pet-hit` 的位置）。窗口被子类化，在 `WM_MOVING` 里改系统要移到的位置：小螃蟹的身体不出光标所在显示器的工作区，窗口顶端也不出（上面是气泡的地方）。所以拖到边上就停住，而不是松手后再弹回来。
+  - 不经过拖动的移动（改大小后的 `resize_anchored`、身体位置变了、DPI 变了、显示器或任务栏变了）由 `fit` 挪回来。
+  - 窗口比小螃蟹宽，靠左右边时有一部分在屏幕外，拖到任务栏上时底部也在外面。`edges` 事件告诉前端每边各有多少（逻辑像素，只在变了时发；页面启动时用 `get_edges` 取一次），前端写进 CSS 变量 `--off-*`：气泡区、聊天栏缩进能看见的部分，状态标签变窄、抬高。`placeBubble` 把气泡尽量放在小螃蟹正上方，尾巴位置（`--tail-x`）跟着算；聊天栏由 `fitChat` 定位，`placeX` 按小螃蟹在栏里的位置（`petX`，不一定是栏的正中）放尾巴。
 - 全屏让开（`step_aside`）：
   - 判定：前台窗口铺满小螃蟹所在的显示器、没有标题栏、不是 explorer，也不在例外名单里。
   - 显示和隐藏一律走 `sysmon::set_shown`（原生 `ShowWindow`），不要用 `w.hide()` / `w.show()`。那两个会改掉用户自己选择的显示状态，`show()` 还会抢走焦点；而且混用会让 tao 记录的可见状态跟实际不一致。

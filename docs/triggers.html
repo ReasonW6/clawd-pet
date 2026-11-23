@@ -442,7 +442,7 @@
 <div class="row">
   <div class="info">
     <h4>Claude 请求权限（开着审批气泡）</h4>
-    <p><code>PermissionRequest</code>。头顶弹出「拒绝 / 总是允许 / 允许」，直到你作答，或你在原界面答了：终端里答完马上收起；桌面版不告诉钩子，允许了要等那次调用跑完，拒绝了要等会话记录里出现它的结果，这一轮结束或被叫停时也收起。等满约 10 分钟气泡自己放弃，这时仍算等你确认。优先级仅次于被拎起来。</p>
+    <p><code>PermissionRequest</code>。头顶弹出「拒绝 / 总是允许 / 允许」，直到你作答，或你在原界面答了：终端里答完马上收起；桌面版不告诉钩子，允许了 Bash / PowerShell 命令，它一开始跑就收起（看 Claude Code 给每次运行建的输出文件），别的工具要等那次调用跑完；拒绝了要等会话记录里出现它的结果，这一轮结束或被叫停时也收起。等满约 10 分钟气泡自己放弃，这时仍算等你确认。优先级仅次于被拎起来。</p>
     <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
     <code>ANIMS.permission</code>
   </div>
@@ -450,8 +450,8 @@
 </div>
 <div class="row">
   <div class="info">
-    <h4>你在气泡里点了允许</h4>
-    <p>点「允许」或「总是允许」。</p>
+    <h4>你允许了权限请求</h4>
+    <p>在气泡里点「允许」或「总是允许」；或在原界面允许了、看得出来的时候（那次调用跑起来或跑完了，或会话记录里有它的结果）。</p>
     <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">1.6 秒</span></p>
     <code>ANIMS.allowed</code>
   </div>
@@ -459,8 +459,8 @@
 </div>
 <div class="row">
   <div class="info">
-    <h4>你在气泡里点了拒绝</h4>
-    <p>点「拒绝」。</p>
+    <h4>你拒绝了权限请求</h4>
+    <p>在气泡里点「拒绝」；或在原界面拒绝并留言（会话记录里那次调用的结果是拒绝）。不留言直接拒绝会叫停这一轮，播的是叫停的动画。</p>
     <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">3.2–3.8 秒</span></p>
     <code>ANIMS.denied</code>
   </div>

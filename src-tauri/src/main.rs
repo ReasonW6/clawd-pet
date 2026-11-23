@@ -5,6 +5,7 @@ mod autostart;
 mod claude_app;
 mod config;
 mod desktop_sessions;
+mod edges;
 mod git;
 mod hooks;
 mod memory;
@@ -203,9 +204,17 @@ fn focus_claude(title: Option<String>) {
     claude_app::focus(title);
 }
 
+/// `body`: where the pet itself is, which is kept on the screen (edges.rs).
 #[tauri::command]
-fn set_hit_rects(rects: Vec<[f64; 4]>, state: State<AppState>) {
+fn set_hit_rects(rects: Vec<[f64; 4]>, body: [f64; 4], window: WebviewWindow, state: State<AppState>) {
     *state.hit_rects.lock().unwrap() = rects;
+    edges::set_body(&window, body);
+}
+
+/// How much of the pet's window is off its screen on each side.
+#[tauri::command]
+fn get_edges(window: WebviewWindow) -> edges::Edges {
+    edges::current(&window)
 }
 
 #[tauri::command]
@@ -383,6 +392,23 @@ fn ai_key_page(provider: String) {
     ai::open_key_page(&provider);
 }
 
+/// Opens a link from a chat reply in the default browser; only web and mail links.
+#[tauri::command]
+fn open_link(url: String) {
+    let safe = ["https://", "http://", "mailto:"].iter().any(|p| url.get(..p.len()).is_some_and(|s| s.eq_ignore_ascii_case(p)));
+    if !safe || url.len() > 4096 || url.chars().any(char::is_control) {
+        return;
+    }
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::UI::Shell::ShellExecuteW;
+        use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        let wide = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
+        let (verb, url) = (wide("open"), wide(&url));
+        ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), url.as_ptr(), std::ptr::null(), std::ptr::null(), SW_SHOWNORMAL);
+    }
+}
+
 /// Lets the chat's text box take the keyboard.
 #[tauri::command]
 fn chat_focus(window: WebviewWindow) {
@@ -520,6 +546,7 @@ fn resize_anchored(w: &WebviewWindow, old: LogicalSize<f64>, new: LogicalSize<f6
         let y = pos.y as f64 + (a.height - b.height);
         let _ = w.set_size(new);
         let _ = w.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
+        edges::fit(w);
     }
 }
 
@@ -661,6 +688,7 @@ fn main() {
             get_config,
             set_config,
             set_hit_rects,
+            get_edges,
             focus_claude,
             drag_started,
             resolve_permission,
@@ -681,6 +709,7 @@ fn main() {
             ai_cancel,
             ai_models,
             ai_key_page,
+            open_link,
             chat_focus,
             memory_event,
             memory_merge,
@@ -748,6 +777,7 @@ fn main() {
 
             let w = main_window(&handle).expect("main window");
             place_initially(&w, &cfg);
+            edges::install(&handle, &w);
             w.show()?;
 
             TrayIconBuilder::with_id("main")
@@ -777,6 +807,13 @@ fn main() {
                 cfg.x = Some(p.x);
                 cfg.y = Some(p.y);
                 st.dirty.store(true, Ordering::SeqCst);
+            }
+            if let Some(w) = main_window(window.app_handle()) {
+                match event {
+                    tauri::WindowEvent::ScaleFactorChanged { .. } => edges::fit(&w),
+                    tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => edges::tell(&w),
+                    _ => {}
+                }
             }
         })
         .run(tauri::generate_context!())

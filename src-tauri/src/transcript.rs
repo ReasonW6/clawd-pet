@@ -6,7 +6,8 @@
 //!   as it is complete. Only its first line goes to the pet, and only while the user
 //!   has that turned on;
 //! - a tool call that is waiting for permission getting its result: in the Desktop
-//!   app the user may have answered there, denying with a note goes on with no hook.
+//!   app the user may have answered there, denying with a note goes on with no hook;
+//!   the result's text tells a denial from a call that ran.
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde_json::{json, Value};
@@ -19,6 +20,8 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 const MARKER: &str = "[Request interrupted by user";
+/// How the result of a denied call starts: on the main thread, and in a subagent.
+const DENIALS: [&str; 2] = ["The user doesn't want to proceed with this tool use", "Permission for this tool use was denied"];
 /// How much of a transcript's end, then of its start, is searched for the title.
 const TITLE_TAIL: u64 = 512 * 1024;
 const TITLE_HEAD: u64 = 64 * 1024;
@@ -137,8 +140,8 @@ pub fn init(app: AppHandle) {
 }
 
 fn report(app: &AppHandle, session: &str, found: Found) {
-    for call in &found.answered {
-        crate::server::answered(call);
+    for (call, denied) in &found.answered {
+        crate::server::answered(call, *denied);
     }
     if let Some((text, ts)) = found.reply {
         let _ = app.emit(
@@ -238,8 +241,8 @@ struct Found {
     reply: Option<(String, String)>,
     /// When the turn was interrupted.
     interrupt: Option<String>,
-    /// Calls waiting for permission that got their result.
-    answered: Vec<String>,
+    /// Calls waiting for permission that got their result, and whether it was a denial.
+    answered: Vec<(String, bool)>,
 }
 
 /// Looks through the complete lines appended since `offset`.
@@ -257,12 +260,12 @@ fn scan(path: &Path, session: &str, offset: &mut u64) -> Found {
         // user message carrying the result counts. The substring is just the cheap check.
         let mut parsed: Option<Value> = None;
         for (needle, call) in &asking {
-            if !l.contains(needle.as_str()) || found.answered.contains(call) {
+            if !l.contains(needle.as_str()) || found.answered.iter().any(|(c, _)| c == call) {
                 continue;
             }
             let v = parsed.get_or_insert_with(|| serde_json::from_str(l).unwrap_or(Value::Null));
-            if answers(v, call) {
-                found.answered.push(call.clone());
+            if let Some(denied) = answers(v, call) {
+                found.answered.push((call.clone(), denied));
             }
         }
         let interrupt = l.contains(MARKER);
@@ -281,12 +284,19 @@ fn scan(path: &Path, session: &str, offset: &mut u64) -> Found {
     found
 }
 
-/// A user message with the result of tool call `call` in it.
-fn answers(v: &Value, call: &str) -> bool {
-    let user = v["type"] == "user" || v["message"]["role"] == "user";
-    user && v["message"]["content"]
-        .as_array()
-        .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result" && b["tool_use_id"] == call))
+/// In a user message with the result of tool call `call`: whether the call was denied.
+fn answers(v: &Value, call: &str) -> Option<bool> {
+    if v["type"] != "user" && v["message"]["role"] != "user" {
+        return None;
+    }
+    let content = v["message"]["content"].as_array()?;
+    let result = content.iter().find(|b| b["type"] == "tool_result" && b["tool_use_id"] == call)?;
+    let text = match &result["content"] {
+        Value::String(s) => s.as_str(),
+        Value::Array(items) => items.iter().find_map(|i| i["text"].as_str()).unwrap_or_default(),
+        _ => "",
+    };
+    Some(result["is_error"] == true && DENIALS.iter().any(|d| text.trim_start().starts_with(d)))
 }
 
 fn read_from(path: &Path, offset: &mut u64) -> Option<String> {

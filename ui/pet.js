@@ -1098,6 +1098,11 @@ function suggestionText(sug) {
 }
 
 function renderBubble() {
+  drawBubble();
+  placeBubble();
+}
+
+function drawBubble() {
   renderDot();
   // The chat gives way to a permission request, and otherwise has the space to itself.
   chatEl.classList.toggle("away", perms.length > 0);
@@ -1244,12 +1249,46 @@ function queueHitRects() {
       .map((e) => e.getBoundingClientRect())
       .filter((r) => r.width > 0)
       .map((r) => [r.x, r.y, r.width, r.height].map(Math.round));
-    // Asked for on every render; told to the backend only when something moved.
-    const key = rects.join();
+    // Asked for on every render; told to the backend only when something moved. The
+    // pet itself is told apart too: the backend keeps it on the screen.
+    const r = petHit.getBoundingClientRect();
+    const body = [r.x, r.y, r.width, r.height].map(Math.round);
+    const key = `${rects.join()}|${body}`;
     if (key === hitSent) return;
     hitSent = key;
-    invoke("set_hit_rects", { rects });
+    invoke("set_hit_rects", { rects, body });
   });
+}
+
+// ---------------------------------------------------------------- screen edges
+
+// The window is wider than the pet, and with the pet against a side of the screen part
+// of it is off screen (edges.rs keeps the pet itself on). The bubbles stay in the part
+// that shows: over the pet where there is room, pushed in from the edge where not.
+let edges = { left: 0, top: 0, right: 0, bottom: 0 };
+
+function onEdges(e) {
+  edges = e;
+  const root = document.documentElement.style;
+  for (const side of ["left", "top", "right", "bottom"]) root.setProperty(`--off-${side}`, `${e[side]}px`);
+  placeBubble();
+  fitChat();
+  queueHitRects();
+}
+
+/** Keeps the bubble over the pet as far as the room on screen allows, its tail where it
+ *  would be on a bubble right over the pet, clear of the rounded corners. */
+function placeBubble() {
+  if (bubble.hidden) return;
+  const area = bubble.parentElement;
+  bubble.style.setProperty("--shift", "0px");
+  // Layout sizes, which the pop and shrink animations don't scale.
+  const w = bubble.offsetWidth;
+  const over = innerWidth / 2 - area.offsetLeft - w / 2;
+  const left = clamp(over, 0, area.clientWidth - w);
+  bubble.style.setProperty("--shift", `${left - bubble.offsetLeft}px`);
+  // From the padding box's left, as the tail is placed.
+  bubble.style.setProperty("--tail-x", `${clamp(over + w - 42 - left, 24, w - 28)}px`);
 }
 
 // ---------------------------------------------------------------- interaction
@@ -1406,6 +1445,10 @@ function playRandom() {
 // Every bubble moves on springs rather than CSS transitions, so that a bubble pushed
 // again mid-flight carries on smoothly from wherever it is.
 const CHAT_GAP = 10;
+/** The card's border (style.css) goes around the body, so a card is this much bigger
+ *  than its body on each side. A card any smaller could be scrolled, by the caret say,
+ *  and stay that way with its colour no longer reaching its bottom. */
+const CARD_BORDER = 2;
 /** Room above the top bubble for its close button. */
 const CHAT_TOP_ROOM = 12;
 /** Messages sent along as context, counting both sides. */
@@ -1632,10 +1675,10 @@ function openCompose(standby = false) {
 
 /** Puts a standby box where it will pop up, so an input method's candidates show beside it. */
 function placeStandby(m) {
-  const w = m.body.offsetWidth;
+  const w = m.body.offsetWidth + 2 * CARD_BORDER;
   const [x] = placeX(m, w);
   m.el.style.width = `${w}px`;
-  m.el.style.height = `${m.body.offsetHeight}px`;
+  m.el.style.height = `${m.body.offsetHeight + 2 * CARD_BORDER}px`;
   m.el.style.transform = `translate(${x}px, 0)`;
 }
 
@@ -1770,7 +1813,7 @@ function onAi({ id, kind, text }) {
   const r = chat.reply;
   if (kind === "text") {
     if (!r.text) {
-      r.text = el("div", "text");
+      r.text = el("div", "text md");
       r.body.querySelector(".dots")?.remove();
       r.body.append(r.text);
       chat.phase = "typing";
@@ -1838,10 +1881,20 @@ function typeStep() {
     if (/[\uD800-\uDBFF]/.test(r.buffer[n - 1] || "")) n++; // never half an emoji
     r.shown += r.buffer.slice(0, n);
     r.buffer = r.buffer.slice(n);
-    r.text.textContent = r.shown;
+    showReply(r);
   }
   layoutChat();
   if (typing.size) typeOn();
+}
+
+/** What of the reply is typed out so far, with its Markdown drawn. Formulas show as
+ *  source until KaTeX has loaded, then the reply is drawn again. */
+function showReply(r) {
+  r.text.innerHTML = renderMarkdown(r.shown, () => {
+    if (!r.text?.isConnected) return;
+    showReply(r);
+    layoutChat();
+  });
 }
 
 /** Once the reply has come in and been typed out: the message it answers floats off. */
@@ -1900,6 +1953,20 @@ function leave(m, way) {
   animate();
 }
 
+/** The column the bubbles stack up in: up to 300 px wide, over the pet, inside the part
+ *  of the window on screen. */
+function fitChat() {
+  const lo = 8 + edges.left;
+  const hi = innerWidth - 8 - edges.right;
+  const width = Math.min(300, hi - lo);
+  const left = clamp(innerWidth / 2 - width / 2, lo, hi - width);
+  chatEl.style.left = `${left}px`;
+  chatEl.style.width = `${width}px`;
+  chatEl.style.setProperty("--chat-w", `${width}px`);
+  petX = innerWidth / 2 - left;
+  layoutChat();
+}
+
 /** Where each bubble should be, from the bottom up, given what is in it now. */
 function layoutChat() {
   if (!chat) return;
@@ -1907,8 +1974,8 @@ function layoutChat() {
   const height = chatEl.clientHeight;
   chatWidth = width;
   for (const m of chat.stack) {
-    m.nw = Math.ceil(m.body.offsetWidth);
-    m.nh = Math.ceil(m.body.offsetHeight);
+    m.nw = Math.ceil(m.body.offsetWidth) + 2 * CARD_BORDER;
+    m.nh = Math.ceil(m.body.offsetHeight) + 2 * CARD_BORDER;
   }
   const total = chat.stack.reduce((sum, m) => sum + m.nh + CHAT_GAP, -CHAT_GAP);
   // One close button, on the top bubble that has one; one tail, on the bubble next to the pet.
@@ -1923,6 +1990,9 @@ function layoutChat() {
     const h = m.kind === "ai" ? clamp(height - CHAT_TOP_ROOM - (total - m.nh), 56, m.nh) : m.nh;
     const scroll = h < m.nh;
     m.card.classList.toggle("scroll", scroll);
+    // Scrolled while the card was catching up with what is in it.
+    if (!scroll) m.card.scrollTop = 0;
+    m.card.scrollLeft = 0;
     const w = m.nw + (scroll ? 8 : 0);
     const to = { y, w, h, s: 1, o: 1 };
     // A new bubble pops up from just below where it belongs.
@@ -1939,11 +2009,12 @@ function layoutChat() {
  * its tail beside the pet across towards the other side, the reply rightwards and the
  * user's side leftwards; once it reaches CHAT_REACH past the middle it grows out on its
  * own side instead, so long replies stay on the left and long messages on the right.
+ * The middle is the pet's (`petX`), which near a side of the screen isn't the column's.
  * The tail stays put, sliding along the bubble (clear of the rounded corners) only
  * when the bubble can't move any further.
  */
 function placeX(m, w) {
-  const mid = chatWidth / 2;
+  const mid = petX;
   const room = Math.max(0, chatWidth - w);
   if (m.kind === "ai") {
     const tail = mid - TAIL_REACH;
@@ -1958,6 +2029,8 @@ function placeX(m, w) {
 let animating = false;
 let lastFrame = 0;
 let chatWidth = 0;
+/** The pet's middle across the chat's column. */
+let petX = 150;
 let lastHits = 0;
 
 function animate() {
@@ -2038,8 +2111,15 @@ chatEl.addEventListener("pointerup", (e) => {
   chat.attended = true; // clicked on, so being looked at
   focusStandby();
 });
+// Links in a reply open in the browser, not in the pet's page.
+chatEl.addEventListener("click", (e) => {
+  const a = e.target.closest("a[href]");
+  if (!a) return;
+  e.preventDefault();
+  invoke("open_link", { url: a.getAttribute("href") });
+});
 window.addEventListener("blur", dropStandby);
-window.addEventListener("resize", layoutChat);
+window.addEventListener("resize", fitChat);
 // The bubbles ride along when the drawing under them changes height, and a long reply
 // is fitted to the room it has then.
 chatEl.addEventListener("transitionend", (e) => {
@@ -2080,12 +2160,17 @@ async function boot() {
     // When the bubble only gave up waiting, Claude Code is still asking there.
     const s = req && sessions.get(req.payload.session_id);
     if (e.payload.answered && s?.state === "waiting" && !perms.some((x) => x.payload.session_id === s.id)) s.state = "working";
+    // Reacts as to an answer in the bubble, when it shows which answer it was.
+    if (req && e.payload.outcome === "allow") playOnce(pick(ANIMS.allowed), { force: true, minMs: 1200 });
+    else if (req && e.payload.outcome === "deny") playOnce(pick(ANIMS.denied), { force: true, minMs: 1800 });
     render();
   });
   await listen("user-event", (e) => onUserEvent(e.payload));
   await listen("ai", (e) => onAi(e.payload));
   await listen("dream", (e) => onDream(e.payload));
   await listen("drag-end", onDragEnd);
+  await listen("edges", (e) => onEdges(e.payload));
+  onEdges(await invoke("get_edges"));
   await listen("config", (e) => applyConfig(e.payload));
   await listen("play-random", () => playRandom());
   await listen("shown", (e) => setShown(e.payload));
