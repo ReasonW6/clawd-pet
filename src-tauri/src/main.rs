@@ -5,6 +5,7 @@ mod autostart;
 mod claude_app;
 mod config;
 mod desktop_sessions;
+mod edges;
 mod git;
 mod hooks;
 mod memory;
@@ -203,9 +204,17 @@ fn focus_claude(title: Option<String>) {
     claude_app::focus(title);
 }
 
+/// `body`: where the pet itself is, which is kept on the screen (edges.rs).
 #[tauri::command]
-fn set_hit_rects(rects: Vec<[f64; 4]>, state: State<AppState>) {
+fn set_hit_rects(rects: Vec<[f64; 4]>, body: [f64; 4], window: WebviewWindow, state: State<AppState>) {
     *state.hit_rects.lock().unwrap() = rects;
+    edges::set_body(&window, body);
+}
+
+/// How much of the pet's window is off its screen on each side.
+#[tauri::command]
+fn get_edges(window: WebviewWindow) -> edges::Edges {
+    edges::current(&window)
 }
 
 #[tauri::command]
@@ -381,6 +390,56 @@ async fn ai_models(ai: config::AiConfig, provider: String) -> Result<Vec<String>
 #[tauri::command]
 fn ai_key_page(provider: String) {
     ai::open_key_page(&provider);
+}
+
+/// Opens a link from a chat reply in the default browser; only web and mail links.
+/// On a thread of its own: starting a browser or mail client can take a moment, and
+/// the main thread draws and drags the pet.
+#[tauri::command]
+fn open_link(url: String) {
+    let Some(url) = safe_link(&url) else { return };
+    #[cfg(windows)]
+    std::thread::spawn(move || unsafe {
+        use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE};
+        use windows_sys::Win32::UI::Shell::ShellExecuteW;
+        use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        // ShellExecute may hand the link to a shell extension, which wants COM.
+        let com = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE).is_ok();
+        let wide = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
+        let (verb, url) = (wide("open"), wide(&url));
+        ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), url.as_ptr(), std::ptr::null(), std::ptr::null(), SW_SHOWNORMAL);
+        if com {
+            CoUninitialize();
+        }
+    });
+}
+
+/// A link from a reply as it may be opened: parsed and written out again, http(s)
+/// with a host, or mailto with only a subject and body (a mail client takes other
+/// fields too, attachments among them). Those two keep their text as it was encoded:
+/// written out again as a form, a space would come back as "+", which a mail client
+/// shows as it is.
+fn safe_link(raw: &str) -> Option<String> {
+    if raw.len() > 4096 {
+        return None;
+    }
+    let mut url = tauri::Url::parse(raw).ok()?;
+    match url.scheme() {
+        "http" | "https" if url.host_str().is_some_and(|h| !h.is_empty()) => {}
+        "mailto" => {
+            let field = |part: &&str| {
+                let key = part.split('=').next().unwrap_or_default();
+                key.eq_ignore_ascii_case("subject") || key.eq_ignore_ascii_case("body")
+            };
+            let kept: Vec<&str> = url.query().unwrap_or_default().split('&').filter(field).collect();
+            let kept = kept.join("&");
+            url.set_query((!kept.is_empty()).then_some(kept.as_str()));
+            url.set_fragment(None);
+        }
+        _ => return None,
+    }
+    let out = url.to_string();
+    (!out.chars().any(char::is_control)).then_some(out)
 }
 
 /// Lets the chat's text box take the keyboard.
@@ -661,6 +720,7 @@ fn main() {
             get_config,
             set_config,
             set_hit_rects,
+            get_edges,
             focus_claude,
             drag_started,
             resolve_permission,
@@ -681,6 +741,7 @@ fn main() {
             ai_cancel,
             ai_models,
             ai_key_page,
+            open_link,
             chat_focus,
             memory_event,
             memory_merge,
@@ -748,6 +809,7 @@ fn main() {
 
             let w = main_window(&handle).expect("main window");
             place_initially(&w, &cfg);
+            edges::install(&handle, &w);
             w.show()?;
 
             TrayIconBuilder::with_id("main")
@@ -777,6 +839,12 @@ fn main() {
                 cfg.x = Some(p.x);
                 cfg.y = Some(p.y);
                 st.dirty.store(true, Ordering::SeqCst);
+            }
+            if let Some(w) = main_window(window.app_handle()) {
+                // A DPI change is fitted in edges.rs, after tao has moved the window.
+                if let tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) = event {
+                    edges::tell(&w);
+                }
             }
         })
         .run(tauri::generate_context!())

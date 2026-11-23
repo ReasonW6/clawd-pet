@@ -50,10 +50,11 @@ body {
 
 #bubble-area {
   position: absolute;
-  /* A tall bubble stops at the top of the window instead of being cut off by it. */
-  top: 6px;
-  left: 8px;
-  right: 8px;
+  /* A tall bubble stops at the top of the window instead of being cut off by it, and
+     the area keeps to the part of the window on screen (--off-*, set by pet.js). */
+  top: calc(6px + var(--off-top, 0px));
+  left: calc(8px + var(--off-left, 0px));
+  right: calc(8px + var(--off-right, 0px));
   /* Just above the drawing, with room for the bubble's tail. */
   bottom: calc(var(--label-space) + var(--size) * (1 - var(--content-top)) + 16px);
   display: flex;
@@ -72,9 +73,11 @@ body {
 
 #bubble {
   position: relative;
+  /* Moved from the middle of the area to over the pet, as far as it fits (pet.js). */
+  left: var(--shift, 0px);
   display: flex;
   flex-direction: column;
-  max-width: 300px;
+  max-width: min(300px, 100%);
   max-height: 100%;
   box-sizing: border-box;
   padding: 9px 14px;
@@ -85,16 +88,17 @@ body {
   filter: drop-shadow(2px 3px 0 rgba(0, 0, 0, 0.13));
   pointer-events: auto;
   /* Pops out of, and shrinks back into, the tail. */
-  transform-origin: calc(100% - 40px) 100%;
+  /* --tail-x is from the padding box's left; the origin is from the border box's. */
+  transform-origin: calc(var(--tail-x, calc(100% - 42px)) + 2px) 100%;
   animation: pop 0.18s ease-out;
 }
 
 /* A soft curved tail on the right, its tip bending back towards the pet. It covers
-   the bubble's bottom border where they join. */
+   the bubble's bottom border where they join. --tail-x is its middle, from pet.js. */
 #bubble::after {
   content: "";
   position: absolute;
-  right: 28px;
+  left: calc(var(--tail-x, calc(100% - 38px)) - 10px);
   bottom: -16px;
   width: 20px;
   height: 18px;
@@ -226,7 +230,8 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  width: 276px;
+  /* Narrower when the pet is against a side of the screen. */
+  width: min(276px, calc(100vw - 48px - var(--off-left, 0px) - var(--off-right, 0px)));
 }
 
 .perm .who {
@@ -333,9 +338,11 @@ body {
 #status {
   position: absolute;
   left: 50%;
-  bottom: 10px;
+  /* With the pet down at the taskbar, lifted over its feet rather than hidden. */
+  bottom: calc(10px + var(--off-bottom, 0px));
   transform: translateX(-50%);
-  max-width: calc(100% - 16px);
+  /* Centred under the pet, and short enough to stay on screen. */
+  max-width: calc(100% - 16px - 2 * max(var(--off-left, 0px), var(--off-right, 0px)));
   display: flex;
   align-items: center;
   gap: 5px;
@@ -388,15 +395,16 @@ body {
 
 /* ---------------------------------------------------------------- AI chat */
 
-/* The column the chat bubbles stack up in, from just above the drawing. pet.js places
-   each bubble in it on springs (translate, size, scale, opacity). */
+/* The column the chat bubbles stack up in, from just above the drawing: over the pet,
+   inside the part of the window on screen (pet.js sets left and width, and --chat-w
+   for the bubbles). pet.js places each bubble in it on springs (translate, size,
+   scale, opacity). */
 #chat {
   position: absolute;
-  top: 6px;
-  left: 50%;
+  top: calc(6px + var(--off-top, 0px));
+  left: calc(50% - min(150px, 50% - 8px));
   width: min(300px, calc(100% - 16px));
   bottom: calc(var(--label-space) + var(--size) * (1 - var(--content-top)) + 16px);
-  transform: translateX(-50%);
   pointer-events: none;
   /* Over the pet, as #bubble-area is. */
   z-index: 1;
@@ -483,7 +491,8 @@ body {
 }
 
 .msg.ai .body {
-  max-width: 252px;
+  /* Room left within the column for the card's border and a scrollbar. */
+  max-width: min(252px, calc(var(--chat-w, 300px) - 12px));
   min-width: 46px;
   padding: 8px 14px 9px;
   user-select: text;
@@ -492,12 +501,12 @@ body {
 }
 
 .msg.me .body {
-  max-width: 224px;
+  max-width: min(224px, calc(var(--chat-w, 300px) - 4px));
   padding: 7px 13px 8px;
 }
 
 .msg.compose .body {
-  width: 264px;
+  width: min(264px, calc(var(--chat-w, 300px) - 4px));
   display: flex;
   align-items: flex-end;
   gap: 8px;
@@ -514,6 +523,157 @@ body {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
   overflow: hidden;
+}
+
+/* ---- a reply's Markdown, drawn by markdown.js */
+
+.msg .text.md {
+  white-space: normal;
+}
+
+.md p,
+.md ul,
+.md ol,
+.md pre,
+.md blockquote,
+.md .table,
+.md .math {
+  margin: 0 0 6px;
+}
+
+.md > :last-child {
+  margin-bottom: 0;
+}
+
+.md ul,
+.md ol {
+  padding-left: 18px;
+}
+
+.md li > ul,
+.md li > ol {
+  margin: 2px 0 0;
+}
+
+.md li::marker {
+  color: var(--clawd);
+}
+
+.md .h {
+  margin: 2px 0 4px;
+  font-weight: bold;
+}
+
+.md .h1,
+.md .h2 {
+  font-size: 14px;
+}
+
+.md del {
+  color: #9a8a7a;
+}
+
+.md code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(225, 127, 80, 0.13);
+  font: 12px/1.5 "Cascadia Mono", Consolas, monospace;
+}
+
+.md pre {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #2b2b2b;
+  color: #f3e9dc;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.md pre code {
+  padding: 0;
+  background: none;
+  font-size: 11px;
+}
+
+.md blockquote {
+  padding-left: 8px;
+  border-left: 3px solid #ecc9b2;
+  color: #6d6157;
+}
+
+.md hr {
+  margin: 6px 0;
+  border: 0;
+  border-top: 1px dashed #d9c6b4;
+}
+
+.md a {
+  color: #c4612f;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* Wide tables and formulas scroll sideways inside the bubble, and only sideways. */
+.md .table,
+.md .math {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.md table {
+  /* Not the card's "anywhere", which lets columns shrink to a letter each. */
+  overflow-wrap: normal;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.md th,
+.md td {
+  padding: 2px 6px;
+  border: 1px solid #ead7c6;
+}
+
+.md th {
+  background: rgba(225, 127, 80, 0.1);
+}
+
+.md .math {
+  text-align: center;
+}
+
+.md math {
+  font-family: "Cambria Math", math;
+  font-size: 1.1em;
+}
+
+/* A formula within a line doesn't wrap: a wide one scrolls on its own. */
+.md .katex:not(.math .katex) {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  vertical-align: middle;
+}
+
+/* A formula's source, while KaTeX loads or if it can't. */
+.md code.tex {
+  padding: 0;
+  background: none;
+}
+
+.md .table::-webkit-scrollbar,
+.md .math::-webkit-scrollbar,
+.md .katex::-webkit-scrollbar {
+  height: 6px;
+}
+
+.md .table::-webkit-scrollbar-thumb,
+.md .math::-webkit-scrollbar-thumb,
+.md .katex::-webkit-scrollbar-thumb {
+  background: rgba(43, 43, 43, 0.22);
+  border-radius: 999px;
 }
 
 .msg ::selection {

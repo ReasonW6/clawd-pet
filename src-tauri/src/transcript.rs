@@ -6,7 +6,8 @@
 //!   as it is complete. Only its first line goes to the pet, and only while the user
 //!   has that turned on;
 //! - a tool call that is waiting for permission getting its result: in the Desktop
-//!   app the user may have answered there, denying with a note goes on with no hook.
+//!   app the user may have answered there, denying with a note goes on with no hook;
+//!   the result's text tells a denial from a call that ran.
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde_json::{json, Value};
@@ -19,6 +20,10 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 const MARKER: &str = "[Request interrupted by user";
+/// How the result of a denied call starts: on the main thread, and in a subagent.
+const DENIALS: [&str; 2] = ["The user doesn't want to proceed with this tool use", "Permission for this tool use was denied"];
+/// Added to a denial's text when the call had in fact been allowed and was then stopped.
+const CORRECTION: &str = "Correction to the text above";
 /// How much of a transcript's end, then of its start, is searched for the title.
 const TITLE_TAIL: u64 = 512 * 1024;
 const TITLE_HEAD: u64 = 64 * 1024;
@@ -29,6 +34,10 @@ const REPLY_CHARS: usize = 80;
 /// A transcript with no hook event and no write for this long is let go: its session
 /// may have gone without a Stop, e.g. with the Desktop app quitting.
 const FORGET_AFTER: Duration = Duration::from_secs(2 * 60 * 60);
+/// How long a result waits for an interrupt marker written after it (`scan`): the two
+/// are written moments apart, while Claude's next words after a denial with a note may
+/// take many seconds.
+const SETTLE: Duration = Duration::from_secs(1);
 
 /// Pass on what Claude says (`Config::replies`).
 static REPLIES: AtomicBool = AtomicBool::new(true);
@@ -44,8 +53,15 @@ struct Followed {
     session: String,
     /// Bytes already read.
     offset: u64,
+    /// Results read with nothing after them yet that shows how to take them (`scan`).
+    unsettled: Unsettled,
+    /// A read is due once what waits in `unsettled` has waited long enough.
+    settling: bool,
     touched: Instant,
 }
+
+/// A call's result, how it reads, and when it was read.
+type Unsettled = Vec<(String, Option<&'static str>, Instant)>;
 
 /// normalised transcript path -> the transcript being followed there
 type Files = Arc<Mutex<HashMap<String, Followed>>>;
@@ -127,8 +143,9 @@ pub fn init(app: AppHandle) {
             let mut files = f.lock().unwrap();
             let Some(t) = files.get_mut(&key(path)) else { continue };
             t.touched = Instant::now();
-            let found = scan(path, &t.session, &mut t.offset);
+            let found = scan(path, &t.session, &mut t.offset, &mut t.unsettled, false);
             report(&a, &t.session, found);
+            settle_later(t, &a, &f, key(path));
         }
     }) else {
         return;
@@ -136,9 +153,34 @@ pub fn init(app: AppHandle) {
     let _ = STATE.set(State { app, files, watcher: Mutex::new(watcher) });
 }
 
+/// With results waiting in `t.unsettled`: reads the transcript again once they have
+/// waited `SETTLE`, so that they count even if nothing more is written.
+fn settle_later(t: &mut Followed, app: &AppHandle, files: &Files, k: String) {
+    if t.unsettled.is_empty() || t.settling {
+        return;
+    }
+    t.settling = true;
+    let (app, files) = (app.clone(), files.clone());
+    std::thread::spawn(move || {
+        std::thread::sleep(SETTLE + Duration::from_millis(100));
+        let mut all = files.lock().unwrap();
+        let Some(t) = all.get_mut(&k) else { return };
+        t.settling = false;
+        let path = t.path.clone();
+        report(&app, &t.session, scan(&path, &t.session, &mut t.offset, &mut t.unsettled, false));
+        settle_later(t, &app, &files, k);
+    });
+}
+
 fn report(app: &AppHandle, session: &str, found: Found) {
-    for call in &found.answered {
-        crate::server::answered(call);
+    // Results the interrupt wrote are already None (`scan`); answered ones before it
+    // keep what they were, so they go first. (Results read with the interrupt still to
+    // come wait in `unsettled` for a moment, so none was let go as it read.)
+    for (call, outcome) in &found.answered {
+        crate::server::answered(call, *outcome);
+    }
+    if found.interrupt.is_some() {
+        crate::server::interrupted(session);
     }
     if let Some((text, ts)) = found.reply {
         let _ = app.emit(
@@ -147,7 +189,6 @@ fn report(app: &AppHandle, session: &str, found: Found) {
         );
     }
     if let Some(ts) = found.interrupt {
-        crate::server::interrupted(session);
         let _ = app.emit(
             "hook-event",
             json!({ "hook_event_name": "Interrupt", "session_id": session, "timestamp": ts }),
@@ -179,12 +220,13 @@ pub fn on_hook(p: &Value) {
                         t.touched = Instant::now();
                         if restart {
                             t.offset = end();
+                            t.unsettled.clear();
                             t.session = session;
                         }
                         false
                     }
                     None if main => {
-                        let t = Followed { path: path.clone(), session, offset: end(), touched: Instant::now() };
+                        let t = Followed { path: path.clone(), session, offset: end(), unsettled: Vec::new(), settling: false, touched: Instant::now() };
                         files.insert(k.clone(), t);
                         true
                     }
@@ -203,7 +245,7 @@ pub fn on_hook(p: &Value) {
             if let Some(mut t) = removed {
                 // The reply's last words are written just before Stop, and the watcher
                 // may not have reported them yet. This runs before Stop reaches the pet.
-                report(&st.app, &t.session, scan(&path, &t.session, &mut t.offset));
+                report(&st.app, &t.session, scan(&path, &t.session, &mut t.offset, &mut t.unsettled, true));
                 let _ = st.watcher.lock().unwrap().unwatch(&t.path);
             }
         }
@@ -238,14 +280,21 @@ struct Found {
     reply: Option<(String, String)>,
     /// When the turn was interrupted.
     interrupt: Option<String>,
-    /// Calls waiting for permission that got their result.
-    answered: Vec<String>,
+    /// Calls waiting for permission that got their result, and how they were answered.
+    answered: Vec<(String, Option<&'static str>)>,
 }
 
 /// Looks through the complete lines appended since `offset`.
-fn scan(path: &Path, session: &str, offset: &mut u64) -> Found {
+///
+/// A result only counts once what follows it shows how to take it: Claude writing
+/// again keeps it as it reads; an interrupt first means the interrupt wrote it (a
+/// denial without a note, or a stop while a call waited or ran), so it says nothing of
+/// how the call was answered. Until then it waits in `unsettled`, across reads, since
+/// the two may be written apart; after `SETTLE` with no interrupt it counts as it
+/// reads. `last`: the turn is over, so what waits counts as it reads.
+fn scan(path: &Path, session: &str, offset: &mut u64, unsettled: &mut Unsettled, last: bool) -> Found {
     let mut found = Found::default();
-    let Some(text) = read_from(path, offset) else { return found };
+    let text = read_from(path, offset).unwrap_or_default();
     let replies = REPLIES.load(Ordering::SeqCst);
     // A result names its call this way; the call itself has it as "id".
     let asking: Vec<(String, String)> = crate::server::asking(session)
@@ -257,13 +306,18 @@ fn scan(path: &Path, session: &str, offset: &mut u64) -> Found {
         // user message carrying the result counts. The substring is just the cheap check.
         let mut parsed: Option<Value> = None;
         for (needle, call) in &asking {
-            if !l.contains(needle.as_str()) || found.answered.contains(call) {
+            let known = found.answered.iter().any(|(c, _)| c == call) || unsettled.iter().any(|(c, ..)| c == call);
+            if !l.contains(needle.as_str()) || known {
                 continue;
             }
             let v = parsed.get_or_insert_with(|| serde_json::from_str(l).unwrap_or(Value::Null));
-            if answers(v, call) {
-                found.answered.push(call.clone());
+            if let Some(outcome) = answers(v, call) {
+                unsettled.push((call.clone(), outcome, Instant::now()));
             }
+        }
+        // Unescaped, so the record's own type and not text quoting one.
+        if l.contains(r#""type":"assistant""#) {
+            found.answered.extend(unsettled.drain(..).map(|(call, outcome, _)| (call, outcome)));
         }
         let interrupt = l.contains(MARKER);
         let reply = replies && l.contains(r#""assistant""#) && l.contains(r#""text""#);
@@ -274,19 +328,45 @@ fn scan(path: &Path, session: &str, offset: &mut u64) -> Found {
         let ts = || v["timestamp"].as_str().unwrap_or_default().to_string();
         if interrupt && is_interrupt(&v) {
             found.interrupt = Some(ts());
+            found.answered.extend(unsettled.drain(..).map(|(call, ..)| (call, None)));
         } else if let Some(line) = reply.then(|| said(&v)).flatten() {
             found.reply = Some((line, ts()));
         }
     }
+    // Read in order, so the ones that waited long enough are at the front.
+    let due = if last { unsettled.len() } else { unsettled.iter().take_while(|(.., at)| at.elapsed() >= SETTLE).count() };
+    found.answered.extend(unsettled.drain(..due).map(|(call, outcome, _)| (call, outcome)));
     found
 }
 
-/// A user message with the result of tool call `call` in it.
-fn answers(v: &Value, call: &str) -> bool {
-    let user = v["type"] == "user" || v["message"]["role"] == "user";
-    user && v["message"]["content"]
-        .as_array()
-        .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result" && b["tool_use_id"] == call))
+/// In a user message with the result of tool call `call`: how the call was answered,
+/// `ALLOWED` (it ran), `DENIED`, or `None` when it didn't run and wasn't denied either
+/// (cancelled, expired, interrupted, skipped, or stopped after it was allowed).
+fn answers(v: &Value, call: &str) -> Option<Option<&'static str>> {
+    use crate::server::{ALLOWED, DENIED};
+    if v["type"] != "user" && v["message"]["role"] != "user" {
+        return None;
+    }
+    let content = v["message"]["content"].as_array()?;
+    let result = content.iter().find(|b| b["type"] == "tool_result" && b["tool_use_id"] == call)?;
+    let text = match &result["content"] {
+        Value::String(s) => s.as_str(),
+        Value::Array(items) => items.iter().find_map(|i| i["text"].as_str()).unwrap_or_default(),
+        _ => "",
+    };
+    let text = text.trim_start();
+    let denial = || DENIALS.iter().any(|d| text.starts_with(d)) && !text.contains(CORRECTION);
+    // Recent versions put why a call didn't run on the record.
+    if let Some(kind) = v["toolDenialKind"].as_str() {
+        return Some(if kind == "user-rejected" && denial() { DENIED } else { None });
+    }
+    // Without it: the call ran, or an older version only says so in the text. An
+    // error that isn't a denial may be a call that never ran (cancelled, expired, a
+    // sibling call's error...); one that did run has its PostToolUseFailure anyway.
+    if result["is_error"] != true {
+        return Some(ALLOWED);
+    }
+    Some(if denial() { DENIED } else { None })
 }
 
 fn read_from(path: &Path, offset: &mut u64) -> Option<String> {
