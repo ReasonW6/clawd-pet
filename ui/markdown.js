@@ -109,9 +109,20 @@
     // A formula with code in it, or a link with a marker in its address, stays text.
     const formula = (display, test) => (m, tex) => (PLACEHOLDER.test(tex) || (test && !texy(tex)) ? m : keep(math(tex, display, onReady)));
     let s = text;
-    // A "`" that is a face's eye, not code: after a mark that isn't Latin or Chinese
-    // and before the closing bracket, as in "(´・ω・`)".
-    s = s.replace(/(?<=[^\x00-\x7f\u3400-\u9fff]|-)`(?=\*?[)）])/g, () => keep("`"));
+    // A "`" that is a face's eye, not code: after a mark that isn't Latin or Chinese,
+    // before the closing bracket, and with no code open before it on the line, as in
+    // "(´・ω・`)" but not "（`ログ`）".
+    let ticks = 0;
+    let seen = 0;
+    s = s.replace(/(?<=[^\x00-\x7f\u3400-\u9fff]|-)`(?=\*?[)）])/g, (eye, at, all) => {
+      ticks += all.slice(seen, at).split("`").length - 1;
+      seen = at + 1;
+      if (ticks % 2) {
+        ticks++; // it closes that code
+        return eye;
+      }
+      return keep("`");
+    });
     s = s.replace(/(`+)([\s\S]+?)\1(?!`)/g, (_, __, code) => keep(`<code>${esc(code)}</code>`));
     s = s.replace(/\\\$/g, () => keep("$"));
     s = s.replace(/\$\$([\s\S]+?)\$\$/g, formula(true));
@@ -141,8 +152,14 @@
     // Letters and digits of any script count as part of a word round underscores.
     s = s.replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, "<strong>$1</strong>");
     s = s.replace(/(^|[^\p{L}\p{N}_])__(?=\S)([\s\S]*?\S)__(?![\p{L}\p{N}_])/gu, "$1<strong>$2</strong>");
-    // Not after Chinese or full-width text, where "~~" draws a word out ("嗯嗯~~知道啦~~").
-    s = s.replace(/(^|[^\u3000-\u9fff\uff00-\uffef])~~(?=\S)([\s\S]*?\S)~~/g, "$1<del>$2</del>");
+    // Not where "~~" draws a word out: after Chinese or full-width text, closing at the
+    // end of the line or before a space or punctuation ("嗯嗯~~知道啦~~", but "原价~~199~~现在99").
+    s = s.replace(/~~(?=\S)([\s\S]*?\S)~~/g, (m, body, at, all) => {
+      const before = all[at - 1] || "";
+      const after = all[at + m.length] || "";
+      const drawn = /[\u3000-\u9fff\uff00-\uffef]/.test(before) && (!after || /[\s\p{P}]/u.test(after));
+      return drawn ? m : `<del>${body}</del>`;
+    });
     // Faces: a "*" right inside brackets isn't emphasis ("(*^▽^*)"), and "_" only
     // emphasises text that starts and ends with a letter or digit ("_(:з」∠)_", "^_^").
     // Nor is one round a face with no letter or digit in it ("*_*", "*^_^*").

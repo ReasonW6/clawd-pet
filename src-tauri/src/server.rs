@@ -235,20 +235,23 @@ impl Shared {
             // The tool ran, so it was allowed.
             "PostToolUse" | "PostToolUseFailure" => {
                 let Some(id) = call else { return };
-                self.calls.lock().unwrap().retain(|c| c.id != id);
+                // Requests first, then calls: a request being let go as this comes puts
+                // its call back (`let_go`) with `pending` locked, so either order of the
+                // two leaves no call behind.
                 self.release(ALLOWED, |p| p.call.as_deref() == Some(id));
+                self.calls.lock().unwrap().retain(|c| c.id != id);
             }
             // The turn of that thread is over: it ended, or a new prompt ended it.
             "Stop" | "StopFailure" | "SubagentStop" | "UserPromptSubmit" => {
-                self.calls.lock().unwrap().retain(|c| !(c.session == session && c.agent.as_deref() == agent));
                 self.release(None, |p| p.session == session && p.agent.as_deref() == agent);
+                self.calls.lock().unwrap().retain(|c| !(c.session == session && c.agent.as_deref() == agent));
                 if agent.is_none() {
                     self.forget_stirs(session);
                 }
             }
             "SessionEnd" => {
-                self.calls.lock().unwrap().retain(|c| c.session != session);
                 self.release(None, |p| p.session == session);
+                self.calls.lock().unwrap().retain(|c| c.session != session);
                 self.forget_stirs(session);
             }
             _ => {}
@@ -298,8 +301,8 @@ pub fn answered(call: &str, outcome: Option<&'static str>) {
 /// outlive the turn; they end with their PostToolUse or its SubagentStop.
 pub fn interrupted(session: &str) {
     if let Some(shared) = SHARED.get() {
-        shared.calls.lock().unwrap().retain(|c| !(c.session == session && c.agent.is_none()));
         shared.release(None, |p| p.session == session);
+        shared.calls.lock().unwrap().retain(|c| !(c.session == session && c.agent.is_none()));
     }
 }
 
@@ -503,11 +506,14 @@ fn handle(stream: TcpStream, app: &AppHandle, shared: &Shared) -> io::Result<()>
         ("POST", "/clawd-pet/event") => {
             let v = body();
             if let Some(v) = &v {
+                // First: at a turn's end the transcript is read one last time, and how
+                // the requests it answers were answered beats the turn's end letting
+                // go of them all.
+                crate::transcript::on_hook(v);
                 shared.observe(v);
             }
             respond(&stream, 200, "")?;
             if let Some(v) = v.map(|v| enrich(v, &entry)) {
-                crate::transcript::on_hook(&v);
                 if v["hook_event_name"] == "SessionEnd" {
                     crate::desktop_sessions::forget(v["session_id"].as_str().unwrap_or_default());
                 }
