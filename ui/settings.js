@@ -486,6 +486,149 @@ function showHooks(installed) {
   };
 }
 
+// ---------------------------------------------------------------- permission hotkeys
+
+/** [action, button it stands for, note]; in config.hotkeys by action. */
+const HOTKEYS = [
+  ["allow", "允许"],
+  ["deny", "拒绝"],
+  ["always", "总是允许", "气泡上有这个按钮时才有用"],
+];
+const MODIFIERS = ["Control", "Alt", "Shift", "Meta"];
+/** Each action's row: { keys, small, err }. */
+const hotkeyRows = {};
+/** The key capture going on: { action, mods }. */
+let capturing = null;
+
+const heldMods = (e) => [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win"].filter(Boolean);
+
+/** A key a hotkey can end with: a letter, a digit or F1–F24, by where it is on the
+ *  keyboard, so that any layout gives the same combo. */
+function comboKey(e) {
+  const m = /^(?:Key([A-Z])|Digit([0-9])|(F(?:[1-9]|1[0-9]|2[0-4])))$/.exec(e.code);
+  return m && (m[1] || m[2] || m[3]);
+}
+
+function initHotkeys() {
+  for (const [action, name, note = ""] of HOTKEYS) {
+    const text = el("span", "text");
+    const small = el("small", "", note);
+    text.append(el("b", "", name), small);
+    const keys = el("button", "keys");
+    keys.onclick = () => (capturing?.action === action ? endCapture() : startCapture(action));
+    const row = el("div", "row");
+    row.append(text, keys);
+    const err = el("div", "error");
+    err.hidden = true;
+    $("hotkey-list").append(row, err);
+    hotkeyRows[action] = { keys, small, note, err };
+    drawKeys(action);
+  }
+  for (const key of ["bubbles", "hotkeys.enabled"]) document.querySelector(`[data-key="${key}"]`).addEventListener("input", showHotkeys);
+  // While capturing, every key is for the capture (Tab and Enter too), not for the page.
+  document.addEventListener("keydown", captureKey, true);
+  document.addEventListener("keyup", (e) => {
+    if (!capturing) return;
+    capturing.mods = heldMods(e);
+    drawKeys(capturing.action);
+  }, true);
+  window.addEventListener("blur", endCapture);
+  showHotkeys();
+}
+
+/** The combos only matter with the bubbles on, and are set only with the hotkeys on. */
+function showHotkeys() {
+  $("hotkeys-card").hidden = !config.bubbles;
+  $("hotkey-list").hidden = !config.hotkeys.enabled;
+  if (!config.hotkeys.enabled) endCapture();
+  for (const [action] of HOTKEYS) checkHotkey(action);
+}
+
+/** Says so under the combo when another program holds it. */
+async function checkHotkey(action) {
+  const combo = config.hotkeys[action];
+  const problem = config.hotkeys.enabled && combo ? await invoke("hotkey_check", { combo }).then(() => "", String) : "";
+  // A newer combo may have been set meanwhile.
+  if (combo === config.hotkeys[action]) showHotkeyError(action, problem);
+}
+
+function showHotkeyError(action, text) {
+  const { keys, err } = hotkeyRows[action];
+  err.textContent = text;
+  err.hidden = !text;
+  keys.classList.toggle("taken", Boolean(text));
+}
+
+/** The combo as key caps; while capturing, the modifiers held so far. */
+function drawKeys(action) {
+  const { keys } = hotkeyRows[action];
+  const live = capturing?.action === action;
+  keys.classList.toggle("capturing", live);
+  keys.innerHTML = "";
+  const parts = live ? capturing.mods : config.hotkeys[action].split("+").filter(Boolean);
+  parts.forEach((part, i) => {
+    if (i) keys.append(el("span", "plus", "+"));
+    keys.append(el("kbd", "", part));
+  });
+  if (live) {
+    if (parts.length) keys.append(el("span", "plus", "+"));
+    else keys.append(el("span", "waiting", "按下组合键"));
+    keys.append(el("i", "caret"));
+  } else if (!parts.length) {
+    keys.append(el("span", "none", "未设置"));
+  }
+}
+
+function startCapture(action) {
+  endCapture();
+  capturing = { action, mods: [] };
+  // The pet lets go of its hotkeys meanwhile, or pressing one would reach it, not the page.
+  invoke("hotkeys_pause", { paused: true });
+  hotkeyRows[action].small.textContent = "Esc 取消 · Backspace 清除";
+  showHotkeyError(action, "");
+  drawKeys(action);
+}
+
+function endCapture() {
+  if (!capturing) return;
+  const { action } = capturing;
+  capturing = null;
+  invoke("hotkeys_pause", { paused: false });
+  hotkeyRows[action].small.textContent = hotkeyRows[action].note;
+  drawKeys(action);
+  // What a key pressed meanwhile was turned down for gives way to how the combo stands.
+  showHotkeyError(action, "");
+  checkHotkey(action);
+}
+
+function captureKey(e) {
+  if (!capturing) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.repeat) return;
+  const { action } = capturing;
+  const mods = heldMods(e);
+  if (MODIFIERS.includes(e.key)) {
+    capturing.mods = mods;
+    return drawKeys(action);
+  }
+  if (e.key === "Escape" && !mods.length) return endCapture();
+  if ((e.key === "Backspace" || e.key === "Delete") && !mods.length) return setHotkey(action, "");
+  const key = comboKey(e);
+  if (!key) return showHotkeyError(action, "最后一个键要是字母、数字或 F1–F24");
+  if (!mods.some((m) => m !== "Shift")) return showHotkeyError(action, "要带上 Ctrl、Alt 或 Win，免得打字时被它抢走");
+  const combo = [...mods, key].join("+");
+  const twin = HOTKEYS.find(([other]) => other !== action && config.hotkeys[other] === combo);
+  if (twin) return showHotkeyError(action, `和「${twin[1]}」的快捷键重复了`);
+  setHotkey(action, combo);
+}
+
+function setHotkey(action, combo) {
+  config.hotkeys[action] = combo;
+  save();
+  endCapture();
+}
+
 // ---------------------------------------------------------------- AI chat
 
 let providers = [];
@@ -1134,6 +1277,7 @@ async function boot() {
   initFullscreenExclude();
   initGitWatch();
   showHooks(await invoke("hooks_installed"));
+  initHotkeys();
   initAutostart();
   initAi();
   initMemory();

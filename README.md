@@ -32,6 +32,7 @@ Claude Code HTTP hooks ──POST──▶ 127.0.0.1:23490 (Rust) ──event─
 - 请求头 `X-Clawd-Entry` 带上 `$CLAUDE_CODE_ENTRYPOINT`，用来区分终端（`cli`）、Desktop（`claude-desktop`）和 VS Code 会话。
 - 审批气泡和小螃蟹下方的标签显示会话标题（Desktop 侧边栏里的名字，或 `/rename` 起的名字，读自 transcript 里的 `custom-title`）；没有标题时显示「来源 · 项目名」。
 - `PermissionRequest` 会挂起连接，等你在气泡里点「允许 / 总是允许 / 拒绝」；如果你在终端里先作答，Claude Code 会断开连接，气泡自动消失。Desktop 里作答不会断开连接，桌宠看后面发生的事：允许了 Bash / PowerShell 命令，命令一开始跑就收起（Claude Code 给每次运行在 `%TEMP%\claude\…\<会话 id>\tasks` 里建一个输出文件），不过只在同一会话没有别的调用在跑、也没有别的 Bash / PowerShell / Monitor 请求挂着时这样，否则等命令跑完；别的工具等那次调用跑完时收起；拒绝了，在会话记录里看到那次调用的结果时收起；这一轮结束或被叫停时也会收起。看得出你答的是什么时，它照样点赞或垂头丧气，和在气泡里答一样。`AskUserQuestion` / `ExitPlanMode` 始终交给原界面。
+- 快捷键审批：气泡出现时，不碰鼠标也能作答，默认 `Ctrl+Shift+Y` 允许、`Ctrl+Shift+N` 拒绝、`Ctrl+Shift+A` 总是允许（气泡上有这个按钮时），效果和点对应的按钮一样；排着队的请求只答气泡上正显示的那个。组合键只在气泡显示时注册成全局热键，气泡一收起（或桌宠藏起来）就注销，平时不占别的程序的快捷键；能用的那几个会以小键帽标在按钮上。设置的「Claude 联动」里可以关掉，或者点一下组合键再按下新的来换；被别的程序占用时那里会标红说明。
 - 从一个会话开出去的会话（Desktop 的 /btw 分支、另开的侧会话）在 Claude Code 里各是一个会话，桌宠从 Desktop 自己的会话记录（`claude-code-sessions` 下的 `local_*.json`）里读出它的来源，把它归到来源会话名下：标签显示来源会话的标题加「分支 ×N」，一家子都停下才算完成。
 - 头顶的对话进度：Claude 每说完一段话，会话记录（transcript）里就多一条，桌宠读出它的第一行放进头顶气泡。完成时最后那句话打上勾，连同完成动画留 15 秒；这期间点气泡或小螃蟹，会把 Claude 桌面版叫到前台并切到那个会话，之后气泡缩回小螃蟹身上。气泡右上角的「－」可以随时收起它，收起后小螃蟹下方的状态标签右边多一个圆点，数字是正在忙或刚说完话的会话数，点圆点再展开。只有这一行文字会读出来，全部在本机；设置里「头顶显示对话进度」可以关掉，关掉后完成时只弹「搞定啦」。
 - 切到会话：桌面版没有能打开指定 Code 会话的链接（`claude://code/<id>` 要的是应用内部的 id），所以桌宠通过 Windows 的 UI Automation 在侧边栏里按标题找到那一行并点它。侧边栏收起、或会话所在的分组折叠时找不到，就只把窗口叫到前台；桌面版没开时用 `claude://code` 启动它。
@@ -178,6 +179,7 @@ python ../clawd-400-src/lint.py scenes/claude.py
 | [`src-tauri/src/memory.rs`](src-tauri/src/memory.rs) | 记忆：笔记和事件计数的存取、聊完后和睡觉时让模型改写笔记、要主动提起的话 |
 | [`src-tauri/src/screen.rs`](src-tauri/src/screen.rs) | 截取桌宠所在的屏幕（不含桌宠自己），压成 JPEG |
 | [`src-tauri/src/server.rs`](src-tauri/src/server.rs) | 接收 hook 的本地 HTTP 服务，挂起权限请求 |
+| [`src-tauri/src/hotkeys.rs`](src-tauri/src/hotkeys.rs) | 审批气泡的全局快捷键：只在气泡显示时注册 |
 | [`src-tauri/src/desktop_sessions.rs`](src-tauri/src/desktop_sessions.rs) | 从 Desktop 的会话记录里找出一个会话是从哪个会话开出来的 |
 | [`src-tauri/src/sysmon.rs`](src-tauri/src/sysmon.rs) | 系统联动：文件夹和回收站监听、前台窗口事件、系统状态轮询 |
 | [`src-tauri/src/git.rs`](src-tauri/src/git.rs) | Git 操作感知：安装 / 卸载 trace2 配置，读取 git 上报的命令 |

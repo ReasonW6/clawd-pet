@@ -148,6 +148,7 @@ function setShown(on) {
   } else {
     playSeq++; // drops an animation that is still loading
     sprite.removeAttribute("src");
+    syncHotkeys();
   }
 }
 
@@ -1051,6 +1052,13 @@ let toastText = null;
 let toastAction = null;
 let toastTimer = null;
 let bubbleKey = null;
+/** The hotkeys that answer the permission bubble as the backend holds them, by
+ *  `HOTKEY_ACTIONS`; a key shows on a button only for one that is held. */
+let hotkeysLive = [false, false, false];
+/** What the hotkeys were last asked to be held for: "" none, "plain", or "always" too;
+ *  null at first, so a reloaded page tells the backend even when it wants none. */
+let hotkeysFor = null;
+const HOTKEY_ACTIONS = ["allow", "deny", "always"];
 
 function toast(text, { sticky = false, ms = TOAST_MS, onClick = null } = {}) {
   toastText = text;
@@ -1099,7 +1107,38 @@ function suggestionText(sug) {
 
 function renderBubble() {
   drawBubble();
+  syncHotkeys();
   placeBubble();
+}
+
+/** The hotkeys are held only while the bubble shows a request (hotkeys.rs). */
+function syncHotkeys() {
+  const req = shown ? perms[0] : null;
+  const want = !req ? "" : req.payload.permission_suggestions?.length ? "always" : "plain";
+  if (want === hotkeysFor) return;
+  hotkeysFor = want;
+  invoke("permission_hotkeys", { on: Boolean(want), always: want === "always" });
+}
+
+/** A hotkey pressed: the request the bubble shows is answered as by its button. */
+function onPermHotkey(action) {
+  const req = perms[0];
+  const sug = req?.payload.permission_suggestions?.[0];
+  if (!req || !shown || req.hotkeyed || (action === "always" && !sug)) return;
+  req.hotkeyed = true;
+  // The button shows pressed for a moment first, so it's clear which answer went.
+  bubble.querySelector(`.perm button[data-act="${action}"]`)?.classList.add("pressed");
+  setTimeout(() => perms.includes(req) && decide(req, action, sug), 140);
+}
+
+/** Puts the key of an action's hotkey on its button, when the hotkey is held. */
+function keyCap(b, action) {
+  const i = HOTKEY_ACTIONS.indexOf(action);
+  b.dataset.act = action;
+  if (!hotkeysLive[i]) return;
+  const combo = config.hotkeys[action];
+  b.append(el("kbd", "", combo.split("+").pop()));
+  b.title = [b.title, `快捷键 ${combo}`].filter(Boolean).join("\n");
 }
 
 function drawBubble() {
@@ -1115,8 +1154,9 @@ function drawBubble() {
   bubble.classList.toggle("leaving", Boolean((speech?.leaving || folding) && !perms.length && !toastText));
   if (perms.length) {
     const req = perms[0];
-    if (bubbleKey === `perm-${req.id}-${perms.length}`) return;
-    bubbleKey = `perm-${req.id}-${perms.length}`;
+    const key = `perm-${req.id}-${perms.length}-${hotkeysLive}-${Object.values(config.hotkeys)}`;
+    if (bubbleKey === key) return;
+    bubbleKey = key;
     const p = req.payload;
     const s = sessions.get(p.session_id) || { entry: p._entry, cwd: p.cwd, title: p._title };
     const sug = (p.permission_suggestions || [])[0];
@@ -1130,13 +1170,18 @@ function drawBubble() {
     const args = summarize(p.tool_input);
     if (args) card.append(el("pre", "", args));
     const actions = el("div", "actions");
-    actions.append(button("拒绝", "deny", () => decide(req, "deny")));
+    const deny = button("拒绝", "deny", () => decide(req, "deny"));
+    keyCap(deny, "deny");
+    actions.append(deny);
     if (sug) {
       const b = button("总是允许", "", () => decide(req, "always", sug));
       b.title = suggestionText(sug);
+      keyCap(b, "always");
       actions.append(b);
     }
-    actions.append(button("允许", "allow", () => decide(req, "allow")));
+    const allow = button("允许", "allow", () => decide(req, "allow"));
+    keyCap(allow, "allow");
+    actions.append(allow);
     card.append(actions);
     const foot = el("div", "foot");
     foot.append(el("span", "", perms.length > 1 ? `还有 ${perms.length - 1} 个在排队` : ""));
@@ -2186,6 +2231,11 @@ async function boot() {
     if (req && e.payload.outcome === "allow") playOnce(pick(ANIMS.allowed), { force: true, minMs: 1200 });
     else if (req && e.payload.outcome === "deny") playOnce(pick(ANIMS.denied), { force: true, minMs: 1800 });
     render();
+  });
+  await listen("perm-hotkey", (e) => onPermHotkey(e.payload));
+  await listen("hotkeys", (e) => {
+    hotkeysLive = e.payload;
+    renderBubble();
   });
   await listen("user-event", (e) => onUserEvent(e.payload));
   await listen("ai", (e) => onAi(e.payload));

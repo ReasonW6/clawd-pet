@@ -696,6 +696,112 @@ select.native {
   -webkit-user-select: text;
 }
 
+/* ---- permission hotkeys: each combo in a key capture of its own (settings.js) */
+
+#hotkeys-card[hidden],
+#hotkey-list[hidden] {
+  display: none;
+}
+
+#hotkey-list .row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  background: var(--paper);
+}
+
+#hotkey-list .error + .row {
+  border-top: 1px solid var(--line);
+}
+
+/* Right under its combo, as part of the row. */
+#hotkey-list .error {
+  margin-top: -4px;
+  padding-top: 0;
+  border-top: none;
+  background: var(--paper);
+  font-size: 12px;
+  text-align: right;
+}
+
+.keys {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 150px;
+  height: 32px;
+  padding: 0 10px;
+  box-shadow: none;
+}
+
+.keys:hover {
+  background: #fffaf5;
+}
+
+.keys:active {
+  transform: none;
+  box-shadow: none;
+}
+
+.keys:focus-visible {
+  border-color: var(--clawd);
+  outline: none;
+}
+
+.keys kbd {
+  min-width: 12px;
+  padding: 0 6px;
+  border: 1px solid var(--ink);
+  border-bottom-width: 3px;
+  border-radius: 4px;
+  background: var(--paper);
+  font: bold 11px/17px "Cascadia Mono", Consolas, monospace;
+  text-align: center;
+}
+
+.keys .plus,
+.keys .none {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.keys.capturing {
+  border-color: var(--clawd);
+  background: var(--clawd-soft);
+}
+
+.keys.capturing kbd {
+  background: #fff;
+}
+
+.keys .waiting {
+  color: var(--clawd);
+  font-size: 12px;
+}
+
+.keys .caret {
+  width: 2px;
+  height: 14px;
+  border-radius: 1px;
+  background: var(--clawd);
+  animation: caret 1s steps(1) infinite;
+}
+
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+.keys.taken:not(.capturing) {
+  border-color: #c0392b;
+}
+
+.keys.taken:not(.capturing) kbd {
+  border-color: #c0392b;
+  color: #c0392b;
+}
+
 /* ---------------------------------------------------------------- lists */
 
 .list:empty {
