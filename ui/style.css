@@ -334,6 +334,283 @@ body {
   text-decoration: underline;
 }
 
+/* ---- a question from Claude (AskUserQuestion), one page per question */
+
+/* Only the options give way when there is little room. */
+.ask > * {
+  flex: none;
+}
+
+.ask .top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+
+.ask .top .who {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.ask .chip {
+  flex: none;
+  max-width: 120px;
+  padding: 1px 7px;
+  border: 1.5px solid var(--clawd);
+  border-radius: 999px;
+  color: #c4612f;
+  background: #fff1e8;
+  font-size: 10.5px;
+  font-weight: bold;
+  line-height: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Which question this is: a little pixel square for each, ticked off as answered. */
+.ask .steps {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+
+.ask .steps button {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.ask .steps button.done {
+  background: var(--ink);
+}
+
+.ask .steps button.now {
+  width: 14px;
+  background: var(--clawd);
+}
+
+.ask .steps button:active {
+  transform: none;
+}
+
+.ask .hint {
+  margin: -3px 0 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #8a8a8a;
+}
+
+/* Gives way first when there is little room above the pet, as a command does. */
+.ask .opts {
+  flex: 0 1 auto;
+  min-height: 40px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  /* Room for the rows' shadows, which the scroll box would clip. */
+  margin: 0 -4px 8px;
+  padding: 1px 4px 3px;
+}
+
+.ask .opts::-webkit-scrollbar {
+  width: 8px;
+}
+
+.ask .opts::-webkit-scrollbar-thumb {
+  background: rgba(43, 43, 43, 0.22);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
+}
+
+.ask .opt {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.12);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ask .opt:hover {
+  background: #fff7f1;
+}
+
+.ask .opt.on {
+  background: #ffe9dc;
+}
+
+/* Radio for one pick, a box for several; filled with the crab's orange once picked. */
+.ask .mark {
+  flex: none;
+  position: relative;
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
+  box-sizing: border-box;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: #fff;
+}
+
+.ask .mark.multi {
+  border-radius: 3px;
+}
+
+.ask .on > .mark {
+  background: var(--clawd);
+}
+
+.ask .on > .mark::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: inherit;
+  background: #fff;
+}
+
+.ask .on > .mark.multi::after {
+  inset: 0 0 0 2px;
+  width: 3px;
+  height: 5px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  border-radius: 0;
+  background: none;
+  transform: translate(0, -1px) rotate(45deg);
+}
+
+.ask .txt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ask .label {
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.ask .desc {
+  margin-top: 1px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #7d7d7d;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow-wrap: anywhere;
+}
+
+/* One line each, so more options fit; the one picked says it all. */
+.ask .on .desc {
+  -webkit-line-clamp: 4;
+}
+
+/* One's own answer: a row like the others, with a box to write in. */
+.ask .own {
+  align-items: center;
+  cursor: text;
+  box-shadow: none;
+  border-style: dashed;
+  background: #fffdf9;
+}
+
+.ask .own.on {
+  border-style: solid;
+  background: #ffe9dc;
+}
+
+.ask .own .mark {
+  margin-top: 0;
+  cursor: pointer;
+}
+
+.ask .own.typed {
+  border-style: solid;
+  background: #fff;
+}
+
+.ask .own input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  color: inherit;
+  caret-color: var(--clawd);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.ask .own input::placeholder {
+  color: #a8a8a8;
+}
+
+.ask .own:focus-within {
+  border-color: var(--clawd);
+}
+
+.ask .unit {
+  flex: none;
+  font-size: 11px;
+  color: #8a8a8a;
+}
+
+.ask .actions {
+  align-items: center;
+}
+
+.ask .side {
+  display: flex;
+  flex-direction: column;
+  margin-right: auto;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #8a8a8a;
+}
+
+.ask .side a {
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.ask .actions .back {
+  background: #f1f1f1;
+}
+
+.perm button:disabled {
+  opacity: 0.45;
+  cursor: default;
+  box-shadow: none;
+  transform: none;
+}
+
 /* The status line under the pet, and next to it the dot that stands in for folded words. */
 #status {
   position: absolute;
