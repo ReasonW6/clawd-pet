@@ -5,6 +5,8 @@
 //!   the user answers in the bubble, or answers in Claude Code itself instead. The
 //!   terminal closes the connection then; the Desktop app leaves the hook running, so
 //!   there it shows in what follows (see `Shared::observe`, `answered` and `ShellRuns`).
+//! - `POST /clawd-pet/status`     the status line relay passing on Claude Code's status
+//!   line input, for the plan usage it carries (quota.rs)
 //!
 //! Hand-rolled on std so we can watch the socket for that disconnect.
 
@@ -520,6 +522,13 @@ fn handle(stream: TcpStream, app: &AppHandle, shared: &Shared) -> io::Result<()>
                 emit_hook(app, v);
             }
             Ok(())
+        }
+        ("POST", "/clawd-pet/status") => {
+            // The relay doesn't wait for the answer.
+            if let Some(v) = body() {
+                crate::quota::reported(&v);
+            }
+            respond(&stream, 200, "")
         }
         ("POST", "/clawd-pet/permission") => match body() {
             Some(v) => permission(stream, app, shared, enrich(v, &entry)),

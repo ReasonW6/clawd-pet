@@ -468,6 +468,25 @@ async function initGitWatch() {
   };
 }
 
+// ---------------------------------------------------------------- status line relay
+
+async function initStatusline() {
+  const box = $("statusline");
+  const note = $("statusline-note").innerHTML;
+  box.checked = await invoke("statusline_get");
+  box.onchange = async () => {
+    box.disabled = true;
+    try {
+      box.checked = await invoke("statusline_set", { install: box.checked });
+      $("statusline-note").innerHTML = note;
+    } catch (e) {
+      box.checked = !box.checked;
+      $("statusline-note").textContent = String(e);
+    }
+    box.disabled = false;
+  };
+}
+
 // ---------------------------------------------------------------- Claude Code hooks
 
 function showHooks(installed) {
@@ -1134,6 +1153,7 @@ async function boot() {
   initFullscreenExclude();
   initGitWatch();
   showHooks(await invoke("hooks_installed"));
+  initStatusline();
   initAutostart();
   initAi();
   initMemory();

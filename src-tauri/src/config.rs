@@ -210,6 +210,8 @@ pub struct Config {
     pub bubbles: bool,
     /// Show the first line of what Claude says above the pet while it works.
     pub replies: bool,
+    /// Show how much of the Claude plan's 5-hour and weekly windows is used (quota.rs).
+    pub quota: bool,
     pub sleep_enabled: bool,
     pub sleep_windows: Vec<SleepWindow>,
     /// Minutes without keyboard/mouse input before the pet starts amusing itself.
@@ -238,6 +240,7 @@ impl Default for Config {
             chatty: true,
             bubbles: true,
             replies: true,
+            quota: true,
             sleep_enabled: true,
             sleep_windows: vec![
                 SleepWindow { start: "13:00".into(), end: "14:00".into() },

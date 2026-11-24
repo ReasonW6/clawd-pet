@@ -9,6 +9,7 @@ mod edges;
 mod git;
 mod hooks;
 mod memory;
+mod quota;
 mod screen;
 mod server;
 mod sysmon;
@@ -246,6 +247,26 @@ fn hooks_set(install: bool) -> Result<bool, String> {
         hooks::uninstall()?;
     }
     Ok(hooks::is_installed())
+}
+
+#[tauri::command]
+fn quota_get() -> quota::Quota {
+    quota::get()
+}
+
+#[tauri::command(async)]
+fn statusline_get() -> bool {
+    quota::is_installed()
+}
+
+#[tauri::command(async)]
+fn statusline_set(install: bool) -> Result<bool, String> {
+    if install {
+        quota::install()?;
+    } else {
+        quota::uninstall()?;
+    }
+    Ok(quota::is_installed())
 }
 
 /// (can be turned on in this build, is on)
@@ -727,6 +748,9 @@ fn main() {
             show_menu,
             hooks_installed,
             hooks_set,
+            quota_get,
+            statusline_get,
+            statusline_set,
             autostart_get,
             autostart_set,
             open_settings,
@@ -775,6 +799,7 @@ fn main() {
             }
             let config = Arc::new(Mutex::new(cfg.clone()));
             memory::load(data_dir.join("memory"), config.clone());
+            quota::init(handle.clone(), data_dir.clone());
             let shared = Arc::new(Shared::default());
             shared.bubbles.store(cfg.bubbles, Ordering::SeqCst);
             transcript::show_replies(cfg.replies);

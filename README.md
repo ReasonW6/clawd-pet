@@ -52,6 +52,17 @@ Claude Code HTTP hooks ──POST──▶ 127.0.0.1:23490 (Rust) ──event─
 
 多个会话同时进行时，显示最紧急的那个（等你确认 > 压缩 > 干活 > 思考）。
 
+### Claude 额度
+
+小螃蟹下方状态标签的左边有两条像素小条，上面是 5 小时窗口、下面是本周窗口用掉的比例（只有 Pro / Max 订阅才有）。平时半透明，鼠标移上去看详情：百分比、多久后重置、数字来自哪里、是多久前的。数字超过 40 分钟没更新就变灰，提示可能不准了；超过一天没有新数字就不显示。某个窗口第一次用到 80% 时它冒冷汗提醒一句，到 95% 时换成没电了，同一窗口每一级只提醒一次。设置的「Claude 联动」里「显示 Claude 额度」可以关掉。
+
+数字有两个来源，都在本机，桌宠不联网去查：
+
+- **Claude 桌面版**：开着时它每 5～15 分钟把用量百分比记进自己数据目录里的 `plan-usage-history.json`，桌宠监听这个文件（不轮询）。只有百分比，没有重置时间。这是桌面版的内部格式，读不到就当没有。
+- **终端里的 Claude Code**：它每次回复后把 `rate_limits`（百分比和重置时间）通过 stdin 交给 `statusLine` 命令。打开「从终端版读取额度」后，桌宠把 `~/.claude/settings.json` 的 `statusLine` 换成 `~/.clawd-pet/statusline.sh` 这个中继（先备份 settings.json，原来的状态栏存在 `~/.clawd-pet/statusline-original.json`）：它在后台把输入转给桌宠，再用同样的输入跑原来的状态栏命令，终端里看起来和原来一样。桌宠没运行时，后台那次连接被拒绝，不会拖慢状态栏。关掉时恢复原来的状态栏、删掉中继。中继是 bash 脚本，要装 Git for Windows（Claude Code 没有 Git Bash 时用 PowerShell 跑状态栏）。终端报的最后一组数字存在 `~/.clawd-pet/quota.json`，重启后重置时间还在。
+
+桌面版和 VS Code 扩展是以无界面模式运行 Claude Code 的，不跑状态栏，所以只用桌面版时看不到重置时间。两边都有数字时，每个窗口取较新的那个；终端报过的重置时间过了之后，那个窗口显示「已重置」。
+
 ## 自己的生活
 
 Claude 没活给它的时候，它演完一个「场景」歇一会儿，再演下一个。一个场景是一到几个动画接成的小段落（戴厨师帽 → 炒菜 → 搅汤 → 吃面），每个 20–50 秒。
@@ -182,6 +193,7 @@ python ../clawd-400-src/lint.py scenes/claude.py
 | [`src-tauri/src/sysmon.rs`](src-tauri/src/sysmon.rs) | 系统联动：文件夹和回收站监听、前台窗口事件、系统状态轮询 |
 | [`src-tauri/src/git.rs`](src-tauri/src/git.rs) | Git 操作感知：安装 / 卸载 trace2 配置，读取 git 上报的命令 |
 | [`src-tauri/src/hooks.rs`](src-tauri/src/hooks.rs) | 安装 / 卸载 Claude Code hook |
+| [`src-tauri/src/quota.rs`](src-tauri/src/quota.rs) | Claude 额度：读桌面版记下的用量，接收状态栏中继转来的 `rate_limits`，安装 / 卸载中继 |
 | [`src-tauri/src/autostart.rs`](src-tauri/src/autostart.rs) | 开机自启（`HKCU\…\Run` 下的 `ClawdPet` 项） |
 | [`scripts/gen-triggers.mjs`](scripts/gen-triggers.mjs) | 从 `ui/anims.js` 生成触发一览页面 |
 | [`scenes/`](scenes) | 桌宠自己的动画（用 Clawd 400 的引擎渲染），见[修改动画](#修改动画) |

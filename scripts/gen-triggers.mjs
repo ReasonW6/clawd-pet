@@ -157,6 +157,10 @@ const claude = section(
     row({ when: "同一轮里第 3 次失败", how: "同一条消息的处理过程中累计到第 3 次工具失败时，换成这个。", play: ["force", 3000], code: "ANIMS.manyErrors", slugs: ANIMS.manyErrors }),
     row({ when: "API 出错，这一轮中止", how: "<code>StopFailure</code>（限流、服务器错误等）。", play: ["force", 3000], say: "呜…出错了（错误类型）", code: "ANIMS.apiError", slugs: ANIMS.apiError }),
 
+    sub("额度"),
+    row({ when: "某个额度窗口用掉 80%", how: "开着「显示 Claude 额度」时，5 小时或本周的用量（来自桌面版或终端的状态栏，40 分钟内的新数字）第一次到 80%。每个窗口每一级只提醒一次，用量回到 50% 以下（窗口重置了）再重新算。两个窗口同时到，只提醒更急的那个。睡着时只弹气泡。", play: ["force", 2500], say: "5 小时额度用掉 86% 啦，悠着点用～（21:30 重置）", code: "ANIMS.quotaNear", slugs: ANIMS.quotaNear }),
+    row({ when: "某个额度窗口用掉 95%", how: "同上，到 95% 时。", play: ["force", 2500], say: "5 小时额度快见底了（97%，21:30 重置）", code: "ANIMS.quotaOut", slugs: ANIMS.quotaOut }),
+
     sub("完成"),
     row({ when: "Claude 答完了", how: "<code>Stop</code>，耗时不到 5 分钟。开着「头顶显示对话进度」时，气泡换成 Claude 最后一句话的第一行加一个勾，动画和气泡一起留 15 秒，这期间点气泡或小螃蟹会切到桌面版里的这个会话，然后气泡缩回去；关着时弹「搞定啦」，动画播 2.6 秒。动画只在没有别的会话在忙时播。", play: ["polite", 2600], say: "项目名 搞定啦～", code: "ANIMS.done", slugs: ANIMS.done }),
     row({ when: "长任务完成", how: "<code>Stop</code>，耗时 5 分钟以上。", play: ["polite", 3500], say: "项目名 跑了 N 分钟，终于搞定啦！", code: "ANIMS.bigDone", slugs: ANIMS.bigDone }),
