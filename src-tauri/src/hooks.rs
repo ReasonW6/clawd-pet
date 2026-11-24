@@ -4,6 +4,16 @@
 use crate::server::PORT;
 use serde_json::{json, Map, Value};
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard};
+
+/// Held from reading settings.json to writing it back, by everything that changes it
+/// (the hooks here, the status line relay in quota.rs): two changes at once would
+/// otherwise each write back what they read, and one would be lost.
+static SETTINGS: Mutex<()> = Mutex::new(());
+
+pub fn lock_settings() -> MutexGuard<'static, ()> {
+    SETTINGS.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// Events forwarded to `/event`. PermissionRequest goes to `/permission` separately.
 const STATE_EVENTS: &[&str] = &[
@@ -70,8 +80,10 @@ pub fn write_settings(v: &Value) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    if path.exists() {
-        let backup = path.with_extension("json.clawd-pet.bak");
+    // The backup is the file from before the pet first changed it: written once, not
+    // over by each change after (the hooks and the status line relay share it).
+    let backup = path.with_extension("json.clawd-pet.bak");
+    if path.exists() && !backup.exists() {
         std::fs::copy(&path, backup).map_err(|e| format!("备份失败：{e}"))?;
     }
     let tmp = path.with_extension("json.clawd-pet.tmp");
@@ -111,6 +123,7 @@ pub fn is_installed() -> bool {
 }
 
 pub fn install() -> Result<(), String> {
+    let _lock = lock_settings();
     let mut v = read_settings()?;
     let root = v.as_object_mut().ok_or("settings.json 不是 JSON 对象")?;
     let hooks = root
@@ -133,6 +146,7 @@ pub fn install() -> Result<(), String> {
 }
 
 pub fn uninstall() -> Result<(), String> {
+    let _lock = lock_settings();
     let mut v = read_settings()?;
     let Some(root) = v.as_object_mut() else { return Ok(()) };
     if let Some(hooks) = root.get_mut("hooks").and_then(Value::as_object_mut) {

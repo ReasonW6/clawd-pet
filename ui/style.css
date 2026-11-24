@@ -840,7 +840,8 @@ body[data-peek="left"] #status {
   opacity: 1;
 }
 
-#quota.stale {
+/* Dimmer while the numbers may be out of date, unless the mouse is on them. */
+#quota.stale:not(:hover) {
   opacity: 0.4;
 }
 

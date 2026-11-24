@@ -52,6 +52,21 @@ struct State {
     days: BTreeMap<String, Day>,
     /// The Monday of the last week the pet held up its card for.
     card_week: String,
+    /// The day's sessions counted so far, as hashes of their ids (not the ids), so that
+    /// one still at work after a restart isn't counted again.
+    counted: Counted,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct Counted {
+    day: String,
+    ids: Vec<u64>,
+}
+
+/// FNV-1a: the same for an id in every build, unlike the standard library's hasher.
+fn hash(s: &str) -> u64 {
+    s.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3))
 }
 
 struct Store {
@@ -89,13 +104,25 @@ fn day_minute(hm: &str) -> Option<u32> {
 
 /// Counts something that happened on `day` at `at` ("HH:MM"). Kinds: "time" ({ busy },
 /// seconds at work since the last one, which also marks the hour as seen), "task"
-/// ({ project, minutes }), "session", "approval", "error".
+/// ({ project, minutes }), "session" ({ id }, once a day each), "approval", "error".
 pub fn event(kind: &str, detail: &Value, day: &str, at: &str) {
     let (Some(n), Some(_)) = (day_number(day), day_minute(at)) else { return };
     let hour = at[..at.find(':').unwrap_or(0)].parse::<usize>().unwrap_or(0);
     let mut store = STORE.lock().unwrap();
     let Some(s) = store.as_mut() else { return };
-    if !s.state.days.contains_key(day) {
+    if kind == "session" {
+        let id = hash(detail["id"].as_str().unwrap_or_default());
+        let c = &mut s.state.counted;
+        if c.day != day {
+            *c = Counted { day: day.to_owned(), ids: Vec::new() };
+        }
+        if c.ids.contains(&id) {
+            return;
+        }
+        c.ids.push(id);
+    }
+    let new_day = !s.state.days.contains_key(day);
+    if new_day {
         // A new day: the oldest go.
         s.state.days.retain(|d, _| day_number(d).is_some_and(|d| d > n - KEEP_DAYS));
     }
@@ -103,8 +130,13 @@ pub fn event(kind: &str, detail: &Value, day: &str, at: &str) {
     match kind {
         "time" => {
             let secs = detail["busy"].as_u64().unwrap_or(0).min(300) as u32;
+            let before = (d.busy[hour], d.seen);
             d.busy[hour] = (d.busy[hour] + secs).min(3600);
             d.seen |= 1 << hour;
+            // Sent every minute, idle or not: the file is written only for a change.
+            if !new_day && (d.busy[hour], d.seen) == before {
+                return;
+            }
         }
         "task" => {
             d.done[hour] += 1;
@@ -214,8 +246,21 @@ mod tests {
         assert_eq!(day("2026-11-21").projects.len(), MAX_PROJECTS);
         assert_eq!(day("2026-11-21").done[10], 40);
 
+        // An idle minute in an hour already seen changes nothing to write.
+        STORE.lock().unwrap().as_mut().unwrap().dirty = false;
+        event("time", &json!({ "busy": 0 }), "2026-11-21", "10:30");
+        assert!(!STORE.lock().unwrap().as_ref().unwrap().dirty);
+        event("time", &json!({ "busy": 0 }), "2026-11-21", "11:30");
+        assert!(STORE.lock().unwrap().as_ref().unwrap().dirty);
+
+        // A session counts once a day, also when told again (after a restart).
+        event("session", &json!({ "id": "a" }), "2026-11-21", "10:00");
+        event("session", &json!({ "id": "a" }), "2026-11-21", "12:00");
+        event("session", &json!({ "id": "b" }), "2026-11-21", "12:00");
+        assert_eq!(day("2026-11-21").sessions, 2);
+
         // Half a year on, the old days are gone.
-        event("session", &Value::Null, "2027-07-01", "09:00");
+        event("session", &json!({ "id": "a" }), "2027-07-01", "09:00");
         assert_eq!(day("2026-11-20"), Day::default());
         assert_eq!(day("2027-07-01").sessions, 1);
     }

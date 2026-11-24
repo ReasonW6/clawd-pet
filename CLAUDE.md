@@ -15,7 +15,7 @@ npm run triggers        # 由 ui/anims.js 重新生成 docs/triggers.html
 cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得多
 ```
 
-- 没有测试和 lint。验证方式是 `cargo check`，加上实际运行。
+- 没有 lint，测试只有少数几个单元测试，要在 Windows 上 `cargo test`（`collection`、`secrets` 等）。`secrets` 的测试读写开发机真实的凭据管理器（`clawd-pet/test-<pid>-*`，测试结束时删掉，失败也删）。验证方式主要是 `cargo check`，加上实际运行。
 - `ui/assets/clawd/` 被 gitignore，是生成物；新克隆的仓库要先有素材来源并跑 `import-assets`，否则前端和 `npm run triggers` 都会缺 `manifest.json`。
 - 素材来源有两种，manifest 格式不同，`import-assets` 都能读：
   - `../clawd-400-src`：clawd-400 仓库的克隆。动画是 `scenes/*.py` 里的场景代码，在那里改完跑 `python generate.py` 重写 `gifs/` 和 `manifest.json`（几秒钟，结果是确定的），再回来 `import-assets`。修改动画走这条路，步骤见 README「修改动画」。
@@ -37,15 +37,15 @@ cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得�
 
 Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
-- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）、`config`（只在聊天改了设置时）、`collected`（图鉴新收集到一个，带 slug）和 `recap-open`（点了每周小结卡片，带那周的周一）；只发给主窗口的还有 `dream`（做梦开始、结束）、`edges` / `peek` / `peek-push`（来自 `edges.rs` 和菜单）、`gaze`（来自 `gaze.rs`）、`quota`（来自 `quota.rs`），以及 `perm-hotkey`、`hotkeys`（来自 `hotkeys.rs`）。
+- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）、`config`（只在聊天改了设置时）、`collected`（桌面上每演一个都发，带 `slug`、`first`、`count`）和 `recap-open`（点了每周小结卡片，带那周的周一）；只发给主窗口的还有 `dream`（做梦开始、结束）、`edges` / `peek` / `peek-push`（来自 `edges.rs` 和菜单）、`gaze`（来自 `gaze.rs`）、`quota`（来自 `quota.rs`），以及 `perm-hotkey`、`hotkeys`（来自 `hotkeys.rs`）。
 - 前端调用的命令都在 `main.rs` 的 `generate_handler!` 里注册；`window.__TAURI__` 是全局对象（`withGlobalTauri`），前端没有打包器和 import。
 
 ### Claude Code 联动
 
-- `hooks.rs` 往 `~/.claude/settings.json` 写 `type: "http"` 的 hook（先备份为 `settings.json.clawd-pet.bak`）。它只识别、删改 URL 以 `http://127.0.0.1:23490/clawd-pet/` 开头的条目。
+- `hooks.rs` 往 `~/.claude/settings.json` 写 `type: "http"` 的 hook（第一次改之前备份为 `settings.json.clawd-pet.bak`，之后不再覆盖它，所以它一直是桌宠动它之前的样子）。改 settings.json 的地方（这里的 hook、`quota.rs` 的状态栏中继）从读到写都拿着 `hooks::lock_settings()`，免得两个开关接连点时互相盖掉。它只识别、删改 URL 以 `http://127.0.0.1:23490/clawd-pet/` 开头的条目。
 - `server.rs` 是手写在 std 上的 HTTP 服务：
   - `/clawd-pet/event` 立即应答。转发给前端的 `hook-event` 只带 `EVENT_FIELDS` 里列出的字段、`tool_input.command` 和后端加的 `_entry` / `_title`；prompt、文件内容、回复正文都不转发（回复只有 `transcript.rs` 读出的第一行，见下）。`pet.js` 要读新字段时，先把它加进 `EVENT_FIELDS`。
-  - `/clawd-pet/permission` 一直挂着连接，直到前端调用 `resolve_permission`，或者用户在原界面先作答了，这时发 `permission-closed`。`permission-request` 带的是完整的请求内容，气泡要显示 `tool_input`。`AskUserQuestion` 也走这里，前端画成问题卡（`drawAsk`），回 `allow` 加 `updatedInput`：原样带回 `tool_input`，再加 `answers`（问题原文 → 选项 label；多选用 `", "` 连接；自己写的就是那段文字）。不能改动 `tool_input` 里已有的字段，Claude Code 会拒收。`ExitPlanMode` 仍直接交还原界面。
+  - `/clawd-pet/permission` 一直挂着连接，直到前端调用 `resolve_permission`，或者用户在原界面先作答了，这时发 `permission-closed`。`permission-request` 带的是完整的请求内容，气泡要显示 `tool_input`。`AskUserQuestion` 也走这里，前端画成问题卡（`drawAsk`），回 `allow` 加 `updatedInput`：原样带回 `tool_input`，再加 `answers`（问题原文 → 选项 label；多选用 `", "` 连接；自己写的就是那段文字）。不能改动 `tool_input` 里已有的字段，Claude Code 会拒收。问题卡在终端里被答掉时 `permission-closed` 的 `outcome` 是 null，这时不改会话状态，留给随后的 `PostToolUse` 播「你答完了」。`ExitPlanMode` 仍直接交还原界面。
   - 终端里在原界面作答，Claude Code 会断开连接。桌面版不会：它让钩子和应用内的弹窗同时跑，用户在应用里答完也不取消钩子，连接要挂到超时。所以要从后面发生的事看出请求已经答过了：
     - 对应到具体调用：PermissionRequest 不带 `tool_use_id`，紧挨在它前面的 `PreToolUse` 带。`Shared::observe` 记下最近的 `PreToolUse`，请求到来时按会话、子代理 `agent_id`、工具名和输入认领一个（`claim`）。之后同一个 `tool_use_id` 的 `PostToolUse` / `PostToolUseFailure` 到了，就放掉请求。
     - Bash / PowerShell 在应用里允许后马上开跑，`PostToolUse` 要等命令跑完。Claude Code 每次跑命令都在 `<temp>\claude\<hash>\<会话 id>\tasks` 里新建一个 `b*.output`（`a*.output` 是子代理的，不算），`ShellRuns` 在等待循环里每 200 ms 看一眼，出现新文件就当已允许。只在这个会话没有别的挂着的会建输出文件的请求（Bash、PowerShell、Monitor）、也没有别的进行中的调用（`calls` 里没认领的，只等子代理的 Agent / Task 不算）时才算数，免得把并行的另一条命令当成它。子代理的命令、后台命令和 Monitor 也往会话的这个目录建文件，而后台命令和 Monitor 立刻返回、文件留着，所以还要看会话的「动静」计数（`Shared::stirs`：每个 `PreToolUse`、每放掉一个 Bash / PowerShell / Monitor 请求都加一）：看文件前后的计数要相同，还要等于基线，新文件才算。基线从这个请求自己的 `PreToolUse` 算起（开始等时会话不安静就先不定），只在会话安静（上面两个条件都满足）时挪到那次看文件之前的计数，所以别的调用在它之后开始、建的文件，等到会话安静了也不会被认成它的。Bash / PowerShell / Monitor 请求被放掉、而那次调用可能还会跑（气泡里允许、没作答，在终端里答了，等满超时放弃）时，它的调用放回 `calls`（标成 `let_go`，不会再被认领），直到它的 `PostToolUse` / `PostToolUseFailure`、这个线程一轮结束或被叫停，所以它晚建的文件不会被同一会话另一个挂着的请求认走。计数只记 UUID 格式的会话 id（`is_session_id`），在会话没有挂着的请求时，主线程这一轮结束或 `SessionEnd` 就删掉，记到 512 个会话时清掉没有挂着请求的。看到的文件不管算不算都记下，之后不再算。这是 Claude Code 内部的目录结构，找不到就照旧等 `PostToolUse`。
@@ -56,7 +56,7 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 - `transcript.rs` 从一轮的第一个事件到 `Stop` 之间监听该会话的 transcript，补上 hook 不报的两样东西，都作为合成的 `hook-event` 发出。不是每一轮都从 `UserPromptSubmit` 开始（后台任务回来、桌面版唤醒会话都会自己开一轮），所以 `PreToolUse` 等事件也会开始监听；`UserPromptSubmit` 则把读取位置挪到文件末尾，免得把上一轮的中断标记算进来。只有主线程的事件（不带 `agent_id`）会开始监听和挪位置。两小时既没有事件、文件也没写入的，就停止监听（桌面版退出时，会话没有 `Stop` 就没了）。
   - `Interrupt`：中断（Esc、Desktop 停止按钮）不触发任何 hook，Desktop 也收不到 `idle_prompt`；读到 `[Request interrupted by user` 开头的用户消息就发。
   - `Reply`：Claude 每写完一个文本块，transcript 就追加一条 assistant 记录；只取第一行（去掉 Markdown 记号，截到 80 字）放进 `text`。这是唯一转发的回复内容，设置里的 `replies` 关掉时不读。收到 `Stop` 时先把文件再读一遍再停止监听，最后一句才不会漏，所以 `Reply` 总在 `Stop` 之前到前端。
-- 快捷键审批（`hotkeys.rs`）：`RegisterHotKey` 把热键绑在注册它的线程上，所以由一个专门的线程注册、注销并跑消息循环收 `WM_HOTKEY`；别的线程改 `STATE` 里想要的东西，再 `PostThreadMessageW` 叫醒它（`reconcile`）。只在气泡显示请求时持有（显示的是问题卡 `req.ask` 时不持有：没有允许、拒绝可选）：前端在 `renderBubble` 和隐藏时调 `permission_hotkeys { on, always }`（有「总是允许」按钮才要第三个），设置页录新组合键时调 `hotkeys_pause` 先全放掉（设置窗口关了也会恢复）。按下发 `perm-hotkey`（`"allow"` / `"deny"` / `"always"`），前端按 `perms[0]` 走 `decide`，和点按钮完全一样；每次重新注册后发 `hotkeys`（三个是否持有），按钮上只给持有的标键帽。注册失败（别的程序占着）就不持有，下次变化时再试；设置页用 `hotkey_check` 试注册一下再放掉来判断占没占用（自己持有的算可用）。没用 global-shortcut 插件：Win32 调用本来就都走 `windows-sys`，这点事几十行就够，不必多一个依赖。
+- 快捷键审批（`hotkeys.rs`）：`RegisterHotKey` 把热键绑在注册它的线程上，所以由一个专门的线程注册、注销并跑消息循环收 `WM_HOTKEY`；别的线程改 `STATE` 里想要的东西，再 `PostThreadMessageW` 叫醒它（`reconcile`）。只在气泡显示请求时持有（显示的是问题卡 `req.ask` 时不持有：没有允许、拒绝可选）：前端在 `renderBubble` 和隐藏时调 `permission_hotkeys { on, always }`（有「总是允许」按钮才要第三个），设置页录新组合键时调 `hotkeys_pause` 先全放掉（设置窗口关了也会恢复）。按下发 `perm-hotkey`（`"allow"` / `"deny"` / `"always"`），前端按 `perms[0]` 走 `decide`，和点按钮完全一样，但只在它已经显示了 `HOTKEY_SETTLE_MS`（700 ms，从 `drawBubble` 第一次在可见时画它算起，隐藏后重来）之后：热键不知道是给哪个请求按的，连按第二下、或者按下时原来那个刚在别处答掉，都会落到用户没看过的下一个上。默认组合是 `Ctrl+Alt+Y` / `Ctrl+Alt+N`，「总是允许」写的是持久规则，默认不绑。`combos` 把和前面某个动作重复的组合（写法不同也算）置空，设置页也按归一后的写法查重；每次重新注册后发 `hotkeys`（三个是否持有），按钮上只给持有的标键帽。注册失败（别的程序占着）就不持有，下次变化时再试；设置页用 `hotkey_check` 试注册一下再放掉来判断占没占用（自己持有的算可用）。没用 global-shortcut 插件：Win32 调用本来就都走 `windows-sys`，这点事几十行就够，不必多一个依赖。
 - 子代理的事件带 `agent_id`（会话 id 和主线程一样）。子代理自己的 `UserPromptSubmit` 不算会话的新一轮；会话已经回到待命时，子代理的 `PreToolUse` / `PostToolUse` / `PostToolUseFailure` 也不再让它忙起来：后台子代理会比这一轮活得久，中断后也可能还有零星事件。
 - 嵌套会话（`desktop_sessions.rs`）：桌面版的 /btw 分支、侧会话在 Claude Code 里是独立的会话，hook 不带来源。桌面版自己的会话记录 `<数据目录>\claude-code-sessions\<账号>\<组织>\local_<应用 id>.json` 里有：`cliSessionId` 是 hook 里的 `session_id`，`spawnedFrom.sessionId` 是来源会话的应用 id。数据目录在商店版是 `%LOCALAPPDATA%\Claude-Data\<包名>`，否则是 `%APPDATA%\Claude`。`cliSessionId` 总在文件开头，所以只读每个文件的前 256 字节来找；还没有记录的会话，全部记录最多每 5 秒重新搜一遍。来源会话被 rewind 后 `cliSessionId` 会变，所以每 30 秒重读一次它的文件开头。找到的来源作为 `_parent` / `_parent_title` / `_parent_cwd` 加进事件。前端用 `rootOf` 把一家子归到最上面那个会话名下，一家子都停了才庆祝完成。用过桌面版开会话的工具（`SPAWN_TOOLS`）的那一轮，结束后先等 8 秒，让刚开的会话报到。这是桌面版的内部格式，读不到就当没有来源。
 - 点完成气泡切到桌面版会话（`claude_app.rs`）：桌面版的 `claude://code/<id>` 被功能开关关着，要的也是应用内部的 id，所以用 UI Automation 在它的侧边栏里按会话标题找 Invoke 按钮去点（行的名字是「标题」或「标题 运行中」这样带状态的）。依赖 `windows` crate（和 tauri 用的同一版本），只用于这里的 COM 调用；其余 Win32 调用仍用 `windows-sys`。`SetForegroundWindow` 只在桌宠刚被点过、自己是前台时才管用，所以 `focus_claude` 要在点击处理里同步调用，不能等。
@@ -84,17 +84,18 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
 - 每个钟点的忙碌秒数（`busy`）和完成的任务数（`done`），下标是钟点 0–23；桌宠开着的钟点（`seen` 位图）；当天最晚完成的时间（`last`，凌晨比晚上晚）；会话、批过的权限、出错次数；按项目文件夹的任务数和分钟数（每天最多 30 个文件夹）。
 - 不在文件里的天、`seen` 里没有的钟点是「没数据」，页面上和零分开画。不记会话标题、prompt、文件内容；不打分，不连续打卡，不导出。
-- 保留 190 天，新的一天第一条事件到来时删掉更早的。和记忆一样置脏后由 2 秒的保存循环和退出时 `flush`，先写 `.tmp` 再 rename。
-- 前端 `recap(kind, detail)`：任务和 `remember("task")` 在同一处（`familyDone`）。忙碌时间每 10 秒采样一次（有会话在思考、干活、压缩，等你确认不算；两次采样隔得太久说明电脑睡过，不算），每分钟报一次，这个定时器在隐藏时也跑。会话按 `rootOf` 一家子每天记一次。权限在气泡里作答，或 `permission-closed` 带了 `outcome` 时记一次。
-- 每周小结卡片（开关 `weeklyCard`）：`idleLife` 里每 10 分钟看一次。周日 19:00 起（含它凌晨 0–5 点）该举这周的，否则是上周的；`card_week` 记着举过的那周，那周一个任务都没有也记上，不举。卡片走 `toast` 的 `card` 参数（`weeklyCardEl` 画），点击调 `recap_open`：设置窗口开着就发 `recap-open`，没开就先存着，页面启动时由 `recap_get` 取走。
+- 保留 190 天，新的一天第一条事件到来时删掉更早的。和记忆一样置脏后由 2 秒的保存循环和退出时 `flush`，先写 `.tmp` 再 rename。每分钟的 `time` 只在忙碌秒数或 `seen` 真变了时置脏。
+- 前端 `recap(kind, detail)`：任务和 `remember("task")` 在同一处（`familyDone`）。忙碌时间每 10 秒采样一次（有会话在思考、干活、压缩，等你确认不算；超过 `STALE_BUSY_MS` 没有动静的忙碌会话也不算，隐藏时 `tick` 不跑、不会把它们改回待命；两次采样隔得太久说明电脑睡过，不算），每分钟报一次，这个定时器在隐藏时也跑。会话按 `rootOf` 一家子每天记一次，后端也按根会话 id 的哈希（`counted`，只留当天的）去重，重启后不再记一次。权限在气泡里作答，或 `permission-closed` 带了 `outcome` 时记一次；问题卡不是权限，两边都不记。
+- 每周小结卡片（开关 `weeklyCard`）：`idleLife` 里每 10 分钟看一次。周日 19:00 起（含它凌晨 0–5 点）该举这周的，否则是上周的；`card_week` 记着举过的那周，那周一个任务都没有也记上，不举。卡片那一拍 `idleLife` 不再做别的（`return weeklyCard(d)`），`bringUp` 拿到话后看到气泡已被占也不举。卡片走 `toast` 的 `card` 参数（`weeklyCardEl` 画），点击调 `recap_open`：设置窗口开着就发 `recap-open`，没开就先存着，页面启动时由 `recap_get` 取走。
 
 ### 动画图鉴（`collection.rs`）
 
 设置页的图鉴是收集册：只有在桌面上真正演过的动画算收集到。
 
-- `pet.js` 的 `play` 在 GIF 加载好、换上 `sprite` 时调 `collection_seen`。隐藏时 `play` 不加载，所以不算；图鉴发来的 `play` 走 `playOnce(..., { preview: true })`，也不算。启动时先用 `collection_known` 把 manifest 里的全部 slug 交给后端：不在里面的不记，数里程碑时也不算已经改名、删掉的。
-- 记录（`since`、`visited`、`cheered`、每个 slug 的 `first` 和 `count`）在内存里改，置脏后由 `main.rs` 的 2 秒保存循环和退出时 `flush` 写进 `~/.clawd-pet/collection.json`（`memory::write`：先写 `.tmp` 再 rename）。
-- 里程碑是每 `STEP`（50）个和全部收集齐。开始收集（`since`）后 24 小时内不庆祝，免得老用户第一天连着庆祝；之后第一次新收集到时，只庆祝已达到的最高那个（`cheered` 记着）。前端把它放进 `collectCheer`，在 `idleLife` 里等用户在场（`!leftAlone`）、没有别的气泡时播 `ANIMS.collected` / `collectedAll`。
+- `pet.js` 的 `play` 在 GIF 加载好、换上 `sprite` 时调 `collection_seen`。隐藏时 `play` 不加载，所以不算；重新显示时接着演的那个（`resumeSlug`，等于隐藏前最后算过的 `countedSlug`）不再算一次；图鉴发来的 `play` 走 `playOnce(..., { preview: true })`，也不算。每次算都发 `collected`（带 `first`、`count`）给设置页，图鉴开着时次数跟着变。启动时先用 `collection_known` 把 manifest 里的全部 slug 交给后端：不在里面的不记，数里程碑时也不算已经改名、删掉的。
+- 记录（`since`、`visited`、`cheered`、`pending`、每个 slug 的 `first` 和 `count`）在内存里改，由 `main.rs` 的 2 秒保存循环和退出时 `flush` 写进 `~/.clawd-pet/collection.json`（`memory::write`：先写 `.tmp` 再 rename）。新收集到、里程碑、`visited` 变了马上写；只有次数变了（`counted`）最多每分钟写一次，退出时（`flush(true)`）补上。
+- 启动时文件不存在才从零开始；读不了（被杀毒、同步盘占着）就这次运行不写盘（`writable`），解析不了就先改名成 `collection.json.bad` 再开新的，改名失败也不写盘。
+- 里程碑是每 `STEP`（50）个和全部收集齐。开始收集（`since`）后 24 小时内不庆祝，免得老用户第一天连着庆祝；之后第一次新收集到时，只庆祝已达到的最高那个。达到时只记进 `pending`，前端把它放进 `collectCheer`，在 `idleLife` 里等用户在场（`!leftAlone`）、没有别的气泡时播 `ANIMS.collected` / `collectedAll`，演完调 `collection_cheered` 才记进 `cheered`。没演就退出的，下次启动时 `collection_known` 把它交回前端。
 - 设置页：缩略图用 `ImageDecoder` 取 GIF 中间一帧画在 canvas 上，没见过的用 `source-in` 填成影子色；滚到附近才解码（`IntersectionObserver`），解码结果按 slug 缓存。卡片只在鼠标放上去时换成 GIF。没见过的名字不显示、搜不到，点了不发 `play`。「新」是上次打开图鉴以后收集的：第一次点图鉴标签时调 `collection_visit` 记下时间，这一页里用的还是之前的；从没打开过就算最近一天的。
 
 ### 聊天改设置（`change_setting`）
@@ -105,9 +106,9 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
 5 小时和每周两个窗口用掉的比例，两个来源，都可能没有；后端原样把两边最后的数字（`{ desktop, cli }`）发给主窗口，由 `pet.js` 的 `quotaWindow` 按当前时间合起来：每个窗口取较新的数字，重置时间只有终端给，过了就不再用；终端报过的重置时间已经过了、而手上的数字比它早，就当窗口已重置（0%，「已重置」）。
 
-- 桌面版：`<数据目录>\plan-usage-history.json`（数据目录同 `desktop_sessions.rs`），`{"version":2,"samples":[{"t":毫秒,"org":..,"u":{"fh":5 小时 %,"sd":每周 %,..}}]}`，桌面版开着时每次拿到用量就追加一条（至少隔 4.5 分钟，平常 5～15 分钟），只有百分比。用 `notify` 监听数据目录（不递归），文件变了才读最后一条。曾试过从用量的起落推算重置时间，每周的重置并不规律，所以不推算。这是桌面版的内部格式，读不到就当没有。
+- 桌面版：`<数据目录>\plan-usage-history.json`（数据目录同 `desktop_sessions.rs`），`{"version":2,"samples":[{"t":毫秒,"org":..,"u":{"fh":5 小时 %,"sd":每周 %,..}}]}`，桌面版开着时每次拿到用量就追加一条（至少隔 4.5 分钟，平常 5～15 分钟），只有百分比。用 `notify` 监听数据目录（不递归），文件变了才读最后一条。同时监听新数据目录会出现的地方（`Claude-Data`，它还没有时是 `%LOCALAPPDATA%`；`%APPDATA%`，都不递归），桌宠启动后才装、才第一次运行的桌面版建出数据目录时，`rewatch` 把它加进来（在另开的线程里，不在 notify 的回调线程里加）。曾试过从用量的起落推算重置时间，每周的重置并不规律，所以不推算。这是桌面版的内部格式，读不到就当没有。
 - 终端：Claude Code 把 `rate_limits.{five_hour,seven_day}.{used_percentage,resets_at（秒）}` 交给 `statusLine` 命令（Pro / Max 才有，会话第一次回复之后才有，窗口过了重置时间就不带了）。桌面版和 IDE 扩展以 `--output-format stream-json` 无界面模式跑 Claude Code，不跑状态栏。设置里的开关（`install` / `uninstall`，状态读 settings.json，不存在配置里）把 `statusLine` 换成 `bash '<~/.clawd-pet/statusline.sh>'`，原来的 `statusLine` 对象存进 `~/.clawd-pet/statusline-original.json`，`padding`、`refreshInterval` 等原样留在新的里；认 `command` 里有 `.clawd-pet/statusline.sh` 的为自己的。中继脚本把原来的命令写成单引号字符串，`eval` 它，输入用 here-string 给；转发用 bash 的 `/dev/tcp` 在后台子 shell 里发 `POST /clawd-pet/status`：Windows 上连一个没人监听的本地端口要约 2 秒才被拒绝，不能让状态栏等它，而 Git Bash 里每起一个进程都要时间，所以除了后台那个子 shell 不起别的进程。`Content-Length` 在 `LC_ALL=C` 下取 `${#input}`，是字节数。中继只能在 Git Bash 里跑，找不到 Git Bash（`CLAUDE_CODE_GIT_BASH_PATH`、PATH 里 git 的同级 `bin\bash.exe`、常见安装位置）就拒绝安装。
-- `/clawd-pet/status` 只取 `rate_limits`，其余（cwd、transcript 路径等）不看；数字变了才写 `~/.clawd-pet/quota.json`。
+- `/clawd-pet/status` 只取 `rate_limits`，其余（cwd、transcript 路径等）不看；数字变了才写 `~/.clawd-pet/quota.json`；数字没变时，比文件里的时间新出 10 分钟（`RESAVE_MS`）也写一次，重启后才不会把刚确认过的数字当成旧的。
 - 前端：状态标签左边两条 10 格的像素条（`#quota`），悬停显示 `#quota-card`。40 分钟没更新变灰，24 小时没有就不显示；数字会自己变旧、窗口会自己重置，所以 `renderQuota` 只设一个到下一个变化时刻的 `setTimeout`，不轮询。到 80%、95% 各提醒一次（`ANIMS.quotaNear` / `quotaOut`，记在 `localStorage` 的 `quotaWarned`，回到 50% 以下清零）。
 
 ### 前端（`ui/`）
@@ -174,4 +175,4 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 - `set_config` 是设置页的唯一写入口；它会按需重设窗口大小、重建文件监听（`rewatch`），并重新判断全屏让开。
 - API 密钥（`secrets.rs`）存在 Windows 凭据管理器里，每个一条普通凭据，名字是 `clawd-pet/<服务商 id>`、`clawd-pet/exa`；用的是 `windows-sys` 的 `CredWriteW` / `CredReadW` / `CredDeleteW` / `CredEnumerateW`，密钥按 UTF-16 存（和 cmdkey 一样）。
   - 启动时 `secrets::migrate` 把 `config.json` 里还有的 `apiKey` / `exaKey` 写进去、读回来核对，对上了才从配置里删掉再保存（`Config::save` 先写 `.tmp` 再 rename）；存不进去的留在配置里照常用（`secrets::key` 先看配置里的，再看凭据管理器），原因记在 `TROUBLE` 里给设置页看，下次启动再试。这两个字段为空时不写出来。
-  - 前端拿不到密钥：`get_config` 和 `config` 事件都过一遍 `secrets::hide`；设置页存回来的配置不带密钥，`apply_config` 用 `secrets::keep` 把配置里原有的放回去，`ai_models` 也一样。设置页只通过 `ai_keys`（每个密钥的最后 4 个字符，短于 12 个字符的不给；以及是不是还在配置里）、`ai_key_set`（空的就是删掉）、`ai_key_move`（旧的「自定义」模板设置变成用户自己的服务商时搬密钥）打交道。
+  - 前端读不到密钥：`get_config` 和 `config` 事件都过一遍 `secrets::hide`；设置页存回来的配置不带密钥，`apply_config` 用 `secrets::keep` 把配置里原有的放回去。`ai_models` 只用已保存的配置，不收页面传来的（设置页先 `saveNow`）。这挡不住能调命令的页面先 `set_config` 改掉地址、再让后端带着密钥去请求：密钥没和地址绑在一起。设置页只通过 `ai_keys`（每个密钥的最后 4 个字符，短于 12 个字符的不给；以及是不是还在配置里）、`ai_key_set`（空的就是删掉）、`ai_key_move`（旧的「自定义」模板设置变成用户自己的服务商时搬密钥）打交道。
