@@ -20,15 +20,33 @@ let savedTimer;
  *  a chat change shows only in the keys it changed, not over an edit still unsaved. */
 let known;
 
+/** The save in flight, if any. */
+let saving = null;
+
 function save() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
-    known = structuredClone(config);
-    await invoke("set_config", { config });
-    $("saved").classList.add("show");
-    clearTimeout(savedTimer);
-    savedTimer = setTimeout(() => $("saved").classList.remove("show"), 1500);
+  saveTimer = setTimeout(() => {
+    saveTimer = 0;
+    saving = write();
   }, 150);
+}
+
+async function write() {
+  known = structuredClone(config);
+  await invoke("set_config", { config });
+  $("saved").classList.add("show");
+  clearTimeout(savedTimer);
+  savedTimer = setTimeout(() => $("saved").classList.remove("show"), 1500);
+}
+
+/** Saves what is waiting to be saved now, for a command that goes by the saved config. */
+async function saveNow() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = 0;
+    saving = write();
+  }
+  await saving;
 }
 
 // ---------------------------------------------------------------- helpers
@@ -500,6 +518,19 @@ const hotkeyRows = {};
 /** The key capture going on: { action, mods }. */
 let capturing = null;
 
+/** A combo written the one way, so that "shift+Ctrl+y" and "Ctrl+Shift+Y" compare the same. */
+function sameCombo(a, b) {
+  const norm = (c) => {
+    const parts = c.split("+").map((x) => x.trim().toLowerCase());
+    const key = parts.pop();
+    return [...["ctrl", "alt", "shift", "win"].filter((m) => parts.includes(m)), key].join("+");
+  };
+  return Boolean(a && b) && norm(a) === norm(b);
+}
+
+/** The action before `action` with the same combo: the pet holds it for that one only. */
+const twinOf = (action, combo) => HOTKEYS.slice(0, HOTKEYS.findIndex(([a]) => a === action)).find(([other]) => sameCombo(config.hotkeys[other], combo));
+
 const heldMods = (e) => [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win"].filter(Boolean);
 
 /** A key a hotkey can end with: a letter, a digit or F1–F24, by where it is on the
@@ -547,7 +578,12 @@ function showHotkeys() {
 /** Says so under the combo when another program holds it. */
 async function checkHotkey(action) {
   const combo = config.hotkeys[action];
-  const problem = config.hotkeys.enabled && combo ? await invoke("hotkey_check", { combo }).then(() => "", String) : "";
+  const twin = config.hotkeys.enabled && twinOf(action, combo);
+  const problem = twin
+    ? `和「${twin[1]}」的快捷键重复了，按下去算「${twin[1]}」，换一个吧`
+    : config.hotkeys.enabled && combo
+      ? await invoke("hotkey_check", { combo }).then(() => "", String)
+      : "";
   // A newer combo may have been set meanwhile.
   if (combo === config.hotkeys[action]) showHotkeyError(action, problem);
 }
@@ -618,7 +654,7 @@ function captureKey(e) {
   if (!key) return showHotkeyError(action, "最后一个键要是字母、数字或 F1–F24");
   if (!mods.some((m) => m !== "Shift")) return showHotkeyError(action, "要带上 Ctrl、Alt 或 Win，免得打字时被它抢走");
   const combo = [...mods, key].join("+");
-  const twin = HOTKEYS.find(([other]) => other !== action && config.hotkeys[other] === combo);
+  const twin = HOTKEYS.find(([other]) => other !== action && sameCombo(config.hotkeys[other], combo));
   if (twin) return showHotkeyError(action, `和「${twin[1]}」的快捷键重复了`);
   setHotkey(action, combo);
 }
@@ -828,7 +864,9 @@ function deleteProvider() {
     return;
   }
   const id = provider().id;
-  invoke("ai_key_set", { which: id, key: "" }).then(showKeys, () => {});
+  invoke("ai_key_set", { which: id, key: "" }).then(showKeys, (e) =>
+    providerVault.notice(`删掉的服务商的密钥没能从 Windows 凭据管理器里移除：${e}。可以在系统的凭据管理器里找 clawd-pet/${id} 手动删掉。`),
+  );
   config.ai.customProviders = config.ai.customProviders.filter((c) => c.id !== id);
   delete config.ai.profiles[id];
   switchProvider("deepseek"); // the default (config.rs)
@@ -886,7 +924,9 @@ function showKeys(status) {
 }
 
 /** A key box: a saved key by its last characters, to replace or remove; or a box to type one
- *  into, which saves it a moment after typing stops, on Enter and on leaving the box. */
+ *  into, which saves it on Enter and on leaving the box, and a moment after typing stops
+ *  while there is no key yet. A key being replaced is saved only on Enter or leaving, so
+ *  that Esc can still keep the old one. */
 function vault(box, which, placeholder) {
   const input = box.querySelector("input");
   const remove = box.querySelector(".vault-remove");
@@ -911,7 +951,7 @@ function vault(box, which, placeholder) {
     box.querySelector(".vault-saved").title = key?.plain
       ? "Windows 凭据管理器没能存下，还以明文放在 config.json 里"
       : `存在 Windows 凭据管理器里，名字是 clawd-pet/${which()}`;
-    input.placeholder = key ? "粘贴新的密钥，回车保存，Esc 取消" : placeholder();
+    input.placeholder = key ? "粘贴新的密钥，回车保存，Esc 保留原来的" : placeholder();
     const plain = key?.plain ? `Windows 凭据管理器没能存下这个密钥${keyTrouble ? `：${keyTrouble}` : ""}。它还以明文放在 config.json 里，重新填一次或者重启桌宠时会再试。` : "";
     warn.textContent = failed || plain;
     warn.hidden = !warn.textContent;
@@ -929,9 +969,9 @@ function vault(box, which, placeholder) {
       showKeys(status);
       return true;
     } catch (e) {
-      if (which() !== w) return false;
       sent = ""; // the same key may be tried again
-      failed = String(e);
+      // Switched away meanwhile: said under the box now there, as it can't be under its own.
+      failed = which() === w ? String(e) : `刚才填的密钥没存上：${e}。切回去再填一次吧。`;
       show();
       return false;
     }
@@ -948,7 +988,7 @@ function vault(box, which, placeholder) {
   input.oninput = () => {
     editing = true; // stays the box to type in until left, saved or not
     clearTimeout(timer);
-    timer = setTimeout(commit, 800);
+    if (!keys[which()]) timer = setTimeout(commit, 800);
   };
   input.onkeydown = (e) => {
     if (e.key === "Enter") input.blur();
@@ -977,8 +1017,13 @@ function vault(box, which, placeholder) {
       show();
     }
   };
+  /** Says `text` under the box, for something that went wrong elsewhere. */
+  const notice = (text) => {
+    failed = text;
+    show();
+  };
   show();
-  return { show, reset };
+  return { show, reset, notice };
 }
 
 /** The address row stays folded away while the provider's own address is used. */
@@ -1065,7 +1110,9 @@ async function fetchModels() {
   note.textContent = "正在获取…";
   let list;
   try {
-    list = await invoke("ai_models", { ai: config.ai, provider: provider().id });
+    // The backend asks with the saved settings (and the key it keeps), so save first.
+    await saveNow();
+    list = await invoke("ai_models", { provider: provider().id });
   } catch (e) {
     list = e;
   }
@@ -1525,8 +1572,10 @@ async function initGallery() {
   $("search").oninput = render;
   // What shows as new stays new until the gallery is opened the next time.
   document.querySelector('nav button[data-tab="gallery"]').addEventListener("click", () => invoke("collection_visit"), { once: true });
+  // Every play on the pet, with its count; a new one is collected.
   listen("collected", (e) => {
-    seen[e.payload] ??= { first: Date.now(), count: 1 };
+    const { slug, first, count } = e.payload;
+    seen[slug] = { first, count };
     render();
   });
   render();

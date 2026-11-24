@@ -127,8 +127,11 @@ function play(slug, restart = false) {
   currentSlug = slug;
   slugSince = now();
   if (!shown) return;
-  // Seen for the gallery's collection, unless the gallery asked for it.
+  // Seen for the gallery's collection, unless the gallery asked for it or it just goes on
+  // after the pet was hidden.
   const preview = oneShot?.preview && oneShot.slug === slug;
+  const again = slug === resumeSlug;
+  resumeSlug = null;
   // A unique URL restarts the GIF from frame 0; swap only once it's loaded to avoid flicker.
   const url = `assets/clawd/${slug}.gif?${++playSeq}`;
   const seq = playSeq;
@@ -136,13 +139,19 @@ function play(slug, restart = false) {
   pre.onload = () => {
     if (seq !== playSeq) return;
     sprite.src = url;
-    if (!preview) collect(slug);
+    if (preview || again) return;
+    countedSlug = slug;
+    collect(slug);
   };
   pre.src = url;
 }
 
 /** A milestone of the gallery's collection, until a quiet moment with the user around. */
 let collectCheer = 0;
+/** The animation last counted for the collection, and the one to leave uncounted as the
+ *  pet shows again. */
+let countedSlug = null;
+let resumeSlug = null;
 
 async function collect(slug) {
   const cheer = await invoke("collection_seen", { slug }).catch(() => null);
@@ -157,11 +166,14 @@ function setShown(on) {
   clearInterval(ticker);
   if (on) {
     ticker = setInterval(tick, 1000);
+    resumeSlug = countedSlug;
     currentSlug = null;
     render();
   } else {
     playSeq++; // drops an animation that is still loading
     sprite.removeAttribute("src");
+    // Out of sight is unseen: showing again starts the hotkeys' wait over.
+    for (const p of perms) p.shownAt = undefined;
     syncHotkeys();
   }
 }
@@ -887,6 +899,7 @@ function idleLife(t, d) {
     const all = collectCheer >= allSlugs.length;
     playOnce(pick(all ? ANIMS.collectedAll : ANIMS.collected), { minMs: 3500 });
     toast(all ? "动画图鉴全部收集齐啦！每个样子你都见过了🎉" : `动画图鉴收集突破 ${collectCheer} 个啦～`, { ms: 8000 });
+    invoke("collection_cheered", { milestone: collectCheer }).catch(() => {});
     collectCheer = 0;
     return;
   }
@@ -1082,6 +1095,12 @@ let hotkeysLive = [false, false, false];
  *  null at first, so a reloaded page tells the backend even when it wants none. */
 let hotkeysFor = null;
 const HOTKEY_ACTIONS = ["allow", "deny", "always"];
+/** A request answers its hotkeys only once it has been on show this long: a second press
+ *  meant for the one before, or one already on its way as it was answered elsewhere,
+ *  doesn't answer one the user hasn't looked at. */
+const HOTKEY_SETTLE_MS = 700;
+/** Short marks for the modifiers on a button's key cap; the tooltip has the whole combo. */
+const MOD_MARKS = { ctrl: "⌃", alt: "⌥", shift: "⇧", win: "⊞" };
 
 function toast(text, { sticky = false, ms = TOAST_MS, onClick = null } = {}) {
   toastText = text;
@@ -1144,11 +1163,14 @@ function syncHotkeys() {
   invoke("permission_hotkeys", { on: Boolean(want), always: want === "always" });
 }
 
-/** A hotkey pressed: the request the bubble shows is answered as by its button. */
+/** A hotkey pressed: the request the bubble shows is answered as by its button, once it
+ *  has been on show a moment (`HOTKEY_SETTLE_MS`). */
 function onPermHotkey(action) {
   const req = perms[0];
   const sug = req?.payload.permission_suggestions?.[0];
-  if (!req || !shown || req.ask || req.hotkeyed || (action === "always" && !sug)) return;
+  if (!req || !shown || bubble.hidden || req.ask || req.hotkeyed || (action === "always" && !sug)) return;
+  // Not yet on show (undefined) counts as too soon too.
+  if (!(performance.now() - req.shownAt >= HOTKEY_SETTLE_MS)) return;
   req.hotkeyed = true;
   // The button shows pressed for a moment first, so it's clear which answer went.
   bubble.querySelector(`.perm button[data-act="${action}"]`)?.classList.add("pressed");
@@ -1161,7 +1183,9 @@ function keyCap(b, action) {
   b.dataset.act = action;
   if (!hotkeysLive[i]) return;
   const combo = config.hotkeys[action];
-  b.append(el("kbd", "", combo.split("+").pop()));
+  const parts = combo.split("+").map((x) => x.trim());
+  const key = parts.pop().toUpperCase();
+  b.append(el("kbd", "", parts.map((m) => MOD_MARKS[m.toLowerCase()] || m).join("") + key));
   b.title = [b.title, `快捷键 ${combo}`].filter(Boolean).join("\n");
 }
 
@@ -1178,6 +1202,7 @@ function drawBubble() {
   bubble.classList.toggle("leaving", Boolean((speech?.leaving || folding) && !perms.length && !toastText));
   if (perms.length) {
     const req = perms[0];
+    if (shown && req.shownAt === undefined) req.shownAt = performance.now();
     if (req.ask) return drawAsk(req);
     const key = `perm-${req.id}-${perms.length}-${hotkeysLive}-${Object.values(config.hotkeys)}`;
     if (bubbleKey === key) return;
@@ -2442,7 +2467,8 @@ async function boot() {
   for (const m of list) manifest[m.slug] = m;
   allSlugs = list.map((m) => m.slug);
   funSlugs = allSlugs.filter((s) => !NOT_FOR_FUN.includes(s));
-  await invoke("collection_known", { slugs: allSlugs });
+  // A milestone reached last time and not yet celebrated.
+  collectCheer = (await invoke("collection_known", { slugs: allSlugs }).catch(() => null)) || 0;
   applyConfig(await invoke("get_config"));
 
   await listen("hook-event", (e) => onHook(e.payload));
