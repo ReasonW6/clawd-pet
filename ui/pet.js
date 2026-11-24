@@ -127,12 +127,26 @@ function play(slug, restart = false) {
   currentSlug = slug;
   slugSince = now();
   if (!shown) return;
+  // Seen for the gallery's collection, unless the gallery asked for it.
+  const preview = oneShot?.preview && oneShot.slug === slug;
   // A unique URL restarts the GIF from frame 0; swap only once it's loaded to avoid flicker.
   const url = `assets/clawd/${slug}.gif?${++playSeq}`;
   const seq = playSeq;
   const pre = new Image();
-  pre.onload = () => seq === playSeq && (sprite.src = url);
+  pre.onload = () => {
+    if (seq !== playSeq) return;
+    sprite.src = url;
+    if (!preview) collect(slug);
+  };
   pre.src = url;
+}
+
+/** A milestone of the gallery's collection, until a quiet moment with the user around. */
+let collectCheer = 0;
+
+async function collect(slug) {
+  const cheer = await invoke("collection_seen", { slug }).catch(() => null);
+  if (cheer) collectCheer = cheer;
 }
 
 /** WebView2 goes on drawing a hidden window, so a hidden pet shows nothing and its
@@ -148,23 +162,24 @@ function setShown(on) {
   } else {
     playSeq++; // drops an animation that is still loading
     sprite.removeAttribute("src");
+    syncHotkeys();
   }
 }
 
 // A one-shot plays for at least `minMs` (whole loops), then hands back to the state
 // machine. Unless forced, it stays hidden while Claude is busy. `life` marks a step
 // of the pet's own idle life; any other one-shot cuts the scene in progress short.
-let oneShot = null; // { slug, force, fresh, life }
+let oneShot = null; // { slug, force, fresh, life, preview }
 let oneShotTimer = null;
 
-function playOnce(slug, { force = false, minMs = 1800, then, life = false } = {}) {
+function playOnce(slug, { force = false, minMs = 1800, then, life = false, preview = false } = {}) {
   if (!life && scene) {
     scene = null;
     rest();
   }
   const ms = durationOf(slug);
   const total = ms * Math.max(1, Math.ceil(minMs / ms));
-  oneShot = { slug, force, fresh: true, life };
+  oneShot = { slug, force, fresh: true, life, preview };
   clearTimeout(oneShotTimer);
   oneShotTimer = setTimeout(() => {
     oneShot = null;
@@ -867,6 +882,15 @@ function idleLife(t, d) {
     return toast(celebrations.shift(), { ms: 8000 });
   }
 
+  // A milestone of the gallery's collection, cheered with the user there to see it.
+  if (collectCheer && !leftAlone && !toastText) {
+    const all = collectCheer >= allSlugs.length;
+    playOnce(pick(all ? ANIMS.collectedAll : ANIMS.collected), { minMs: 3500 });
+    toast(all ? "动画图鉴全部收集齐啦！每个样子你都见过了🎉" : `动画图鉴收集突破 ${collectCheer} 个啦～`, { ms: 8000 });
+    collectCheer = 0;
+    return;
+  }
+
   if (!leftAlone && !toastText && t >= nextTopicTry && memOn() && config.memory.proactive) {
     nextTopicTry = t + 10 * MIN;
     const day = memDay();
@@ -1051,6 +1075,13 @@ let toastText = null;
 let toastAction = null;
 let toastTimer = null;
 let bubbleKey = null;
+/** The hotkeys that answer the permission bubble as the backend holds them, by
+ *  `HOTKEY_ACTIONS`; a key shows on a button only for one that is held. */
+let hotkeysLive = [false, false, false];
+/** What the hotkeys were last asked to be held for: "" none, "plain", or "always" too;
+ *  null at first, so a reloaded page tells the backend even when it wants none. */
+let hotkeysFor = null;
+const HOTKEY_ACTIONS = ["allow", "deny", "always"];
 
 function toast(text, { sticky = false, ms = TOAST_MS, onClick = null } = {}) {
   toastText = text;
@@ -1099,7 +1130,39 @@ function suggestionText(sug) {
 
 function renderBubble() {
   drawBubble();
+  syncHotkeys();
   placeBubble();
+}
+
+/** The hotkeys are held only while the bubble shows a request (hotkeys.rs). */
+function syncHotkeys() {
+  // A question card has no allow / deny to give, so it holds no hotkeys.
+  const req = shown && !perms[0]?.ask ? perms[0] : null;
+  const want = !req ? "" : req.payload.permission_suggestions?.length ? "always" : "plain";
+  if (want === hotkeysFor) return;
+  hotkeysFor = want;
+  invoke("permission_hotkeys", { on: Boolean(want), always: want === "always" });
+}
+
+/** A hotkey pressed: the request the bubble shows is answered as by its button. */
+function onPermHotkey(action) {
+  const req = perms[0];
+  const sug = req?.payload.permission_suggestions?.[0];
+  if (!req || !shown || req.ask || req.hotkeyed || (action === "always" && !sug)) return;
+  req.hotkeyed = true;
+  // The button shows pressed for a moment first, so it's clear which answer went.
+  bubble.querySelector(`.perm button[data-act="${action}"]`)?.classList.add("pressed");
+  setTimeout(() => perms.includes(req) && decide(req, action, sug), 140);
+}
+
+/** Puts the key of an action's hotkey on its button, when the hotkey is held. */
+function keyCap(b, action) {
+  const i = HOTKEY_ACTIONS.indexOf(action);
+  b.dataset.act = action;
+  if (!hotkeysLive[i]) return;
+  const combo = config.hotkeys[action];
+  b.append(el("kbd", "", combo.split("+").pop()));
+  b.title = [b.title, `快捷键 ${combo}`].filter(Boolean).join("\n");
 }
 
 function drawBubble() {
@@ -1116,8 +1179,9 @@ function drawBubble() {
   if (perms.length) {
     const req = perms[0];
     if (req.ask) return drawAsk(req);
-    if (bubbleKey === `perm-${req.id}-${perms.length}`) return;
-    bubbleKey = `perm-${req.id}-${perms.length}`;
+    const key = `perm-${req.id}-${perms.length}-${hotkeysLive}-${Object.values(config.hotkeys)}`;
+    if (bubbleKey === key) return;
+    bubbleKey = key;
     const p = req.payload;
     const s = sessions.get(p.session_id) || { entry: p._entry, cwd: p.cwd, title: p._title };
     const sug = (p.permission_suggestions || [])[0];
@@ -1131,13 +1195,18 @@ function drawBubble() {
     const args = summarize(p.tool_input);
     if (args) card.append(el("pre", "", args));
     const actions = el("div", "actions");
-    actions.append(button("拒绝", "deny", () => decide(req, "deny")));
+    const deny = button("拒绝", "deny", () => decide(req, "deny"));
+    keyCap(deny, "deny");
+    actions.append(deny);
     if (sug) {
       const b = button("总是允许", "", () => decide(req, "always", sug));
       b.title = suggestionText(sug);
+      keyCap(b, "always");
       actions.append(b);
     }
-    actions.append(button("允许", "allow", () => decide(req, "allow")));
+    const allow = button("允许", "allow", () => decide(req, "allow"));
+    keyCap(allow, "allow");
+    actions.append(allow);
     card.append(actions);
     const foot = el("div", "foot");
     foot.append(el("span", "", perms.length > 1 ? `还有 ${perms.length - 1} 个在排队` : ""));
@@ -2373,6 +2442,7 @@ async function boot() {
   for (const m of list) manifest[m.slug] = m;
   allSlugs = list.map((m) => m.slug);
   funSlugs = allSlugs.filter((s) => !NOT_FOR_FUN.includes(s));
+  await invoke("collection_known", { slugs: allSlugs });
   applyConfig(await invoke("get_config"));
 
   await listen("hook-event", (e) => onHook(e.payload));
@@ -2404,6 +2474,11 @@ async function boot() {
     else if (req && e.payload.outcome === "deny") playOnce(pick(ANIMS.denied), { force: true, minMs: 1800 });
     render();
   });
+  await listen("perm-hotkey", (e) => onPermHotkey(e.payload));
+  await listen("hotkeys", (e) => {
+    hotkeysLive = e.payload;
+    renderBubble();
+  });
   await listen("user-event", (e) => onUserEvent(e.payload));
   await listen("ai", (e) => onAi(e.payload));
   await listen("dream", (e) => onDream(e.payload));
@@ -2415,7 +2490,7 @@ async function boot() {
   await listen("shown", (e) => setShown(e.payload));
   await listen("play", (e) => {
     stir(AWAKE_AFTER_POKE_MS);
-    playOnce(e.payload, { force: true, minMs: 3000 });
+    playOnce(e.payload, { force: true, minMs: 3000, preview: true });
   });
 
   // Files dragged onto the pet. Nothing is done with them.

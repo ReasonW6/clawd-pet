@@ -232,6 +232,7 @@ body {
   min-height: 0;
   /* Narrower when the pet is against a side of the screen. */
   width: min(276px, calc(100vw - 48px - var(--off-left, 0px) - var(--off-right, 0px)));
+  container-type: inline-size;
 }
 
 .perm .who {
@@ -306,9 +307,36 @@ body {
   box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.15);
 }
 
-.perm button:active {
+.perm button:active,
+.perm button.pressed {
   transform: translate(1px, 1px);
   box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.15);
+}
+
+/* The key of the hotkey that does the same (pet.js keyCap), a small key cap. */
+.perm button kbd {
+  display: inline-block;
+  min-width: 9px;
+  margin: 0 -3px 0 6px;
+  padding: 0 3px;
+  border: 1px solid currentColor;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  font: bold 9px/12px "Cascadia Mono", Consolas, monospace;
+  text-align: center;
+  vertical-align: 1px;
+  opacity: 0.45;
+}
+
+.perm button.allow kbd {
+  opacity: 0.75;
+}
+
+/* No room for them on a narrow bubble, against a side of the screen. */
+@container (max-width: 250px) {
+  .perm button kbd {
+    display: none;
+  }
 }
 
 .perm button.allow {
