@@ -37,7 +37,7 @@ cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得�
 
 Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
-- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）、`config`（只在聊天改了设置时）、`collected`（桌面上每演一个都发，带 `slug`、`first`、`count`）和 `recap-open`（点了每周小结卡片，带那周的周一）；只发给主窗口的还有 `dream`（做梦开始、结束）、`edges` / `peek` / `peek-push`（来自 `edges.rs` 和菜单）、`gaze`（来自 `gaze.rs`）、`quota`（来自 `quota.rs`），以及 `perm-hotkey`、`hotkeys`（来自 `hotkeys.rs`）。
+- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）、`config`（只在聊天改了设置时）、`collected`（桌面上每演一个都发，带 `slug`、`first`、`count`）和 `recap-open`（点了每周小结卡片，带那周的周一）；只发给主窗口的还有 `dream`（做梦开始、结束）、`edges` / `peek` / `peek-push` / `peek-none`（来自 `edges.rs` 和菜单）、`gaze`（来自 `gaze.rs`）、`quota`（来自 `quota.rs`），以及 `perm-hotkey`、`hotkeys`（来自 `hotkeys.rs`）。
 - 前端调用的命令都在 `main.rs` 的 `generate_handler!` 里注册；`window.__TAURI__` 是全局对象（`withGlobalTauri`），前端没有打包器和 import。
 
 ### Claude Code 联动
@@ -92,7 +92,7 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
 设置页的图鉴是收集册：只有在桌面上真正演过的动画算收集到。
 
-- `pet.js` 的 `play` 在 GIF 加载好、换上 `sprite` 时调 `collection_seen`。隐藏时 `play` 不加载，所以不算；重新显示时接着演的那个（`resumeSlug`，等于隐藏前最后算过的 `countedSlug`）不再算一次；图鉴发来的 `play` 走 `playOnce(..., { preview: true })`，也不算。每次算都发 `collected`（带 `first`、`count`）给设置页，图鉴开着时次数跟着变。启动时先用 `collection_known` 把 manifest 里的全部 slug 交给后端：不在里面的不记，数里程碑时也不算已经改名、删掉的。
+- `pet.js` 的 `play` 在 GIF 加载好、换上 `sprite` 时调 `collection_seen`。隐藏时 `play` 不加载，所以不算；重新显示时接着演的那个（`resumeSlug`，等于隐藏前最后算过的 `countedSlug`）不再算一次；图鉴发来的 `play` 走 `playOnce(..., { preview: true })`，也不算。跟着鼠标看的那几帧（`ANIMS.gaze`）一秒能换好几次，同一次「看」里每个方向只算一次（`glanced`）。每次算都发 `collected`（带 `first`、`count`）给设置页，图鉴开着时次数跟着变。启动时先用 `collection_known` 把 manifest 里的全部 slug 交给后端：不在里面的不记，数里程碑时也不算已经改名、删掉的。
 - 记录（`since`、`visited`、`cheered`、`pending`、每个 slug 的 `first` 和 `count`）在内存里改，由 `main.rs` 的 2 秒保存循环和退出时 `flush` 写进 `~/.clawd-pet/collection.json`（`memory::write`：先写 `.tmp` 再 rename）。新收集到、里程碑、`visited` 变了马上写；只有次数变了（`counted`）最多每分钟写一次，退出时（`flush(true)`）补上。
 - 启动时文件不存在才从零开始；读不了（被杀毒、同步盘占着）就这次运行不写盘（`writable`），解析不了就先改名成 `collection.json.bad` 再开新的，改名失败也不写盘。
 - 里程碑是每 `STEP`（50）个和全部收集齐。开始收集（`since`）后 24 小时内不庆祝，免得老用户第一天连着庆祝；之后第一次新收集到时，只庆祝已达到的最高那个。达到时只记进 `pending`，前端把它放进 `collectCheer`，在 `idleLife` 里等用户在场（`!leftAlone`）、没有别的气泡时播 `ANIMS.collected` / `collectedAll`，演完调 `collection_cheered` 才记进 `cheered`。没演就退出的，下次启动时 `collection_known` 把它交回前端。
@@ -137,8 +137,8 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
   - 不经过拖动的移动由 `fit` 挪回来：身体位置变了（`set_body`，改大小、开关聊天后页面会报新的身体位置，所以 `resize_anchored` 自己不调 `fit`：那时 `BODY` 还是旧布局的）、DPI 变了（子类里在 `DefSubclassProc` 之后处理 `WM_DPICHANGED`，tao 那时才把窗口挪到位；不要放进 `ScaleFactorChanged` 或 `Resized`）、显示器或任务栏变了。
   - 窗口比小螃蟹宽，靠左右边时有一部分在屏幕外，拖到任务栏上时底部也在外面。`edges` 事件告诉前端每边各有多少（逻辑像素，只在变了时发；页面启动时用 `get_edges` 取一次），前端写进 CSS 变量 `--off-*`：气泡区、聊天栏缩进能看见的部分，状态标签变窄、抬高。`placeBubble` 把气泡尽量放在小螃蟹正上方，尾巴位置（`--tail-x`）跟着算；聊天栏由 `fitChat` 定位，`placeX` 按小螃蟹在栏里的位置（`petX`，不一定是栏的正中）放尾巴。
 - 躲到屏幕边上（edge peek，也在 `edges.rs`）：
-  - `PEEK` 记着躲在哪一侧，以及屏幕边缘切在窗口的哪里（`cut`，离窗口左边的逻辑像素）。切在哪由页面定：缩着、悬停按 `PEEK_CUT`（精灵 40 列里露出几列，帧是按这个画的），完全出来时切在 `#pet-hit` 的边上。页面每次 `queueHitRects` 后调 `syncPeek`，`cut` 变了才调 `set_peek`；后端用 `slide` 在另一个线程里分 12 步滑过去（`SLIDE` 计数，新的滑动、拖动、`fit` 都会让旧的停下）。
-  - 只有那一侧外面没有别的显示器、工作区边就是显示器边（没有任务栏）时才能躲（`open`）。菜单项由后端算出近的那一侧发 `peek` 给页面，页面再调 `set_peek`。`fit` 在显示器、任务栏、DPI 变了时按 `cut` 重新放好；那一侧不能躲了就清掉 `PEEK`，发 `peek: null`。
+  - `PEEK` 记着躲在哪一侧，以及屏幕边缘切在窗口的哪里（`cut`，离窗口左边的逻辑像素）。切在哪由页面定：缩着、悬停按 `PEEK_CUT`（精灵 40 列里露出几列，帧是按这个画的），完全出来时切在 `#pet-hit` 的边上。页面每次 `queueHitRects` 时调 `syncPeek`，`cut` 变了才在 `set_hit_rects` 之后调 `set_peek`（后端要先知道身体在哪才判断得了能不能躲；万一 `BODY` 还是 None，`peek` 先记下这一侧和 `cut`、返回 true，等 `set_body` 的 `fit` 来判断）；`set_peek` 返回 false 时后端已经清掉 `PEEK`、滑回屏幕里，页面也跟着不躲；后端用 `slide` 在另一个线程里分 12 步滑过去（`SLIDE` 计数，新的滑动、拖动、`fit` 都会让旧的停下）。
+  - 只有那一侧外面没有别的显示器、工作区边就是显示器边（没有任务栏）时才能躲（`open`）。菜单项一直可点（托盘菜单在页面报身体之前就建好，之后也不是每次挪动都重建），点了由后端当场算出近的那一侧发 `peek` 给页面，页面再调 `set_peek`；两侧都不能躲就发 `peek-none`，页面说一句。`fit` 在显示器、任务栏、DPI 变了时按 `cut` 重新放好；那一侧不能躲了就清掉 `PEEK`，发 `peek: null`。
   - 拖动时 `WM_MOVING` 里看系统要放的位置：身子出了某侧工作区三成以上、那一侧能躲，就发 `peek-push`，页面松手时躲过去。`drag_started` 会清掉 `PEEK`（拖开就不躲了），并改配置。
   - `config.peek` 记住躲在哪一侧，和 `x` / `y` 一样归窗口所有（`apply_config` 保留当前值）。启动时 `edges::restore` 先记下这一侧、不带 `cut`，这时 `fit` 不动窗口，等页面调 `set_peek`。
   - 页面：有权限请求、提示、完成的那句话、聊天、拖动时完全出来（`peekOut`），其他时候缩着，播 `ANIMS.peek`，干活中的那行进度气泡不画，`#status` 靠到露出来的一侧（`body[data-peek]`）。`renderBubble` 发现该出来或该缩回时调 `render`。

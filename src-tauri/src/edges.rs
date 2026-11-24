@@ -66,15 +66,18 @@ pub fn peeking() -> Option<Side> {
 /// Tucks the pet behind `side`, the screen's edge at `cut` (logical px from the
 /// window's left), sliding it there; or, with no side, brings it back onto the screen.
 /// False if it can't tuck in there (another monitor or the taskbar is on that side);
-/// then a peek kept from before a restart is given up, and the pet put back on screen.
+/// then it isn't peeking any more, and is put back on screen. Before the page has said
+/// where the body is there is no telling, so the side is kept and `fit` judges it once
+/// the body comes (`set_body`).
 pub fn peek(w: &WebviewWindow, side: Option<Side>, cut: f64) -> bool {
     match side {
+        Some(side) if body().is_none() => {
+            *PEEK.lock().unwrap() = Some((side, Some(cut)));
+            return true;
+        }
         Some(side) if can_peek(w, side) => *PEEK.lock().unwrap() = Some((side, Some(cut))),
         Some(_) => {
-            let mut peek = PEEK.lock().unwrap();
-            if peek.is_some_and(|(_, cut)| cut.is_none()) {
-                *peek = None;
-                drop(peek);
+            if PEEK.lock().unwrap().take().is_some() {
                 slide(w);
             }
             return false;

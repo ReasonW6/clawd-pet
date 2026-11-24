@@ -593,13 +593,11 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 }
 
 /// Tucking the pet behind the nearer side of the screen it can hide behind, or bringing
-/// it back out; greyed out where there is no such side (other monitors on both sides).
+/// it back out. Always on: the tray's menu is built before the page says where the pet
+/// is and not after every move, so whether there is such a side is judged on the click.
 fn peek_item(app: &AppHandle) -> tauri::Result<MenuItem<Wry>> {
-    if edges::peeking().is_some() {
-        return MenuItem::with_id(app, "peek", "从边上出来", true, None::<&str>);
-    }
-    let open = main_window(app).and_then(|w| edges::side_for(&w)).is_some();
-    MenuItem::with_id(app, "peek", "躲到屏幕边上", open, None::<&str>)
+    let text = if edges::peeking().is_some() { "从边上出来" } else { "躲到屏幕边上" };
+    MenuItem::with_id(app, "peek", text, true, None::<&str>)
 }
 
 fn refresh_tray(app: &AppHandle) {
@@ -674,8 +672,14 @@ fn on_menu(app: &AppHandle, id: &str) {
         // The page knows where to cut the pet, so it does the tucking in (`set_peek`).
         "peek" => {
             if let Some(w) = main_window(app) {
-                let side = if edges::peeking().is_some() { None } else { edges::side_for(&w) };
-                let _ = w.emit_to("main", "peek", side);
+                if edges::peeking().is_some() {
+                    let _ = w.emit_to("main", "peek", None::<edges::Side>);
+                } else if let Some(side) = edges::side_for(&w) {
+                    let _ = w.emit_to("main", "peek", Some(side));
+                } else {
+                    // No side to hide behind here (other monitors or the taskbar on both).
+                    let _ = w.emit_to("main", "peek-none", ());
+                }
             }
         }
         "settings" => show_settings(app),

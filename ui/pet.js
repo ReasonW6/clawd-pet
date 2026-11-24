@@ -241,6 +241,12 @@ function play(slug, restart = false) {
     if (seq !== playSeq) return;
     sprite.src = url;
     if (preview || again) return;
+    // Following the cursor switches between the gaze frames many times a second: each
+    // direction counts once while the pet keeps looking.
+    const glance = ANIMS.gaze.includes(slug);
+    if (!glance) glanced.clear();
+    else if (glanced.has(slug)) return;
+    else glanced.add(slug);
     countedSlug = slug;
     collect(slug);
   };
@@ -253,6 +259,8 @@ let collectCheer = 0;
  *  pet shows again. */
 let countedSlug = null;
 let resumeSlug = null;
+/** The gaze directions counted since the pet started following the cursor. */
+const glanced = new Set();
 
 async function collect(slug) {
   const cheer = await invoke("collection_seen", { slug }).catch(() => null);
@@ -1856,7 +1864,7 @@ function queueHitRects() {
   hitQueued = true;
   requestAnimationFrame(() => {
     hitQueued = false;
-    syncPeek();
+    const tellPeek = syncPeek();
     const chatParts = chatEl.classList.contains("away")
       ? []
       : [...chatEl.querySelectorAll(".msg:not(.gone):not(.standby) > .card, .msg:not(.gone):not(.nox):not(.standby) > .x")];
@@ -1871,9 +1879,12 @@ function queueHitRects() {
     const r = petHit.getBoundingClientRect();
     const body = [r.x, r.y, r.width, r.height].map(Math.round);
     const key = `${rects.join()}|${body}`;
-    if (key === hitSent) return;
+    if (key === hitSent) return tellPeek?.();
     hitSent = key;
-    invoke("set_hit_rects", { rects, body });
+    // Where to cut the pet goes after where its body is: the backend can't tell if it
+    // may tuck in there without knowing that (on the first report after a restart).
+    const sent = invoke("set_hit_rects", { rects, body });
+    if (tellPeek) sent.finally(tellPeek);
   });
 }
 
@@ -1923,6 +1934,11 @@ let gaze = { dir: 0, near: false };
 let gazeUntil = 0;
 
 function onGaze(g) {
+  if (!g.near && peekHover) {
+    // The cursor is well away, so not on the pet, whether or not the page saw it leave.
+    clearTimeout(peekLeaveTimer);
+    peekHover = false;
+  }
   if (g.near) {
     gaze = g;
   } else if (gaze.near) {
@@ -1959,7 +1975,8 @@ const peekOut = () => Boolean(perms.length || toastText || (speech?.done && !fol
 function peekState() {
   if (!peekSide) return null;
   // The cursor must also be near by gaze.rs: a quick flick away can turn the window
-  // click-through before the page sees the mouse leave, leaving `:hover` stale.
+  // click-through before the page sees the mouse leave. onGaze clears a stale hover
+  // once the cursor is far; this only covers the moment before that.
   return peekOut() ? "out" : peekHover && gaze.near && !asleep ? "hover" : "tucked";
 }
 
@@ -1981,23 +1998,27 @@ function peekCut(state) {
   return peekSide === "right" ? box.left + show : box.right - show;
 }
 
-/** Tells the backend where to cut the pet, when that changed (from queueHitRects). */
+/** Lays the page out for peeking, and gives back what tells the backend where to cut
+ *  the pet, when that changed (from queueHitRects, which sends it after the body). */
 function syncPeek() {
   const state = peekState();
   document.body.dataset.peek = state === "tucked" || state === "hover" ? peekSide : "";
-  if (!peekSide) return;
+  if (!peekSide) return null;
   const side = peekSide;
   const cut = Math.round(peekCut(state));
   const key = `${side}|${cut}`;
-  if (key === peekSent) return;
+  if (key === peekSent) return null;
   peekSent = key;
-  invoke("set_peek", { side, cut }).then((ok) => {
-    if (!ok && peekSide === side) {
-      peekSide = null;
-      peekSent = "";
-      render();
-    }
-  });
+  return () =>
+    invoke("set_peek", { side, cut }).then((ok) => {
+      // Not there: the backend has put it back on the screen and forgotten the side.
+      if (!ok && peekSide === side) {
+        peekSide = null;
+        peekHover = false;
+        peekSent = "";
+        render();
+      }
+    });
 }
 
 function enterPeek(side) {
@@ -2964,6 +2985,7 @@ async function boot() {
   await listen("edges", (e) => onEdges(e.payload));
   await listen("gaze", (e) => onGaze(e.payload));
   await listen("peek", (e) => enterPeek(e.payload));
+  await listen("peek-none", () => toast("这块屏幕两边都挨着别的屏幕或任务栏，没地方躲呀", { ms: 4000 }));
   await listen("peek-push", (e) => {
     peekPush = e.payload;
     renderLabel();
