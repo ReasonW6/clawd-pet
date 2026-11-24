@@ -428,10 +428,11 @@ fn ai_cancel() {
     ai::stop();
 }
 
-/// The models a provider offers, going by `ai` as edited in the settings.
+/// The models a provider offers, going by the saved settings: a key only ever goes to the
+/// address saved with it, not to one a page passes in.
 #[tauri::command]
-async fn ai_models(mut ai: config::AiConfig, provider: String, state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    secrets::keep(&mut ai, &state.config.lock().unwrap().ai);
+async fn ai_models(provider: String, state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let ai = state.config.lock().unwrap().ai.clone();
     ai::models(ai, provider).await
 }
 
@@ -451,10 +452,11 @@ fn ai_keys(state: State<AppState>) -> serde_json::Value {
 #[tauri::command]
 fn ai_key_set(which: String, key: String, state: State<AppState>) -> Result<serde_json::Value, String> {
     let mut cfg = state.config.lock().unwrap();
-    if secrets::set(&mut cfg.ai, &which, &key)? {
+    let (changed, done) = secrets::set(&mut cfg.ai, &which, &key);
+    if changed {
         cfg.save(&state.config_path);
     }
-    Ok(secrets::status(&cfg.ai))
+    done.map(|()| secrets::status(&cfg.ai))
 }
 
 /// Moves the API key of provider `from` to provider `to` (`secrets::rename`).
@@ -597,7 +599,7 @@ fn on_menu(app: &AppHandle, id: &str) {
         "quit" => {
             app.state::<AppState>().save();
             memory::flush();
-            collection::flush();
+            collection::flush(true);
             app.exit(0);
         }
         "toggle_visible" => {
@@ -767,7 +769,7 @@ fn spawn_background_loop(app: AppHandle) {
                     st.save();
                 }
                 memory::flush();
-                collection::flush();
+                collection::flush(false);
             }
             let dragging = st.dragging.load(Ordering::SeqCst);
             if dragging && !sysmon::left_button_down() {
@@ -837,6 +839,7 @@ fn main() {
             memory_edit,
             collection::collection_known,
             collection::collection_seen,
+            collection::collection_cheered,
             collection::collection_get,
             collection::collection_visit
         ])
@@ -863,6 +866,11 @@ fn main() {
             // once there; any the vault turns down stay where they were.
             if secrets::migrate(&mut cfg.ai) {
                 cfg.save(&config_path);
+            }
+            // The old location's copy would keep them in plain text: once the vault has
+            // them all, they go from there too.
+            if !secrets::any_plain(&cfg.ai) {
+                secrets::strip_file(&old_dir.join("config.json"));
             }
             if cfg.sys.folders.is_none() {
                 cfg.sys.folders = Some(default_folders(&handle));

@@ -127,8 +127,11 @@ function play(slug, restart = false) {
   currentSlug = slug;
   slugSince = now();
   if (!shown) return;
-  // Seen for the gallery's collection, unless the gallery asked for it.
+  // Seen for the gallery's collection, unless the gallery asked for it or it just goes on
+  // after the pet was hidden.
   const preview = oneShot?.preview && oneShot.slug === slug;
+  const again = slug === resumeSlug;
+  resumeSlug = null;
   // A unique URL restarts the GIF from frame 0; swap only once it's loaded to avoid flicker.
   const url = `assets/clawd/${slug}.gif?${++playSeq}`;
   const seq = playSeq;
@@ -136,13 +139,19 @@ function play(slug, restart = false) {
   pre.onload = () => {
     if (seq !== playSeq) return;
     sprite.src = url;
-    if (!preview) collect(slug);
+    if (preview || again) return;
+    countedSlug = slug;
+    collect(slug);
   };
   pre.src = url;
 }
 
 /** A milestone of the gallery's collection, until a quiet moment with the user around. */
 let collectCheer = 0;
+/** The animation last counted for the collection, and the one to leave uncounted as the
+ *  pet shows again. */
+let countedSlug = null;
+let resumeSlug = null;
 
 async function collect(slug) {
   const cheer = await invoke("collection_seen", { slug }).catch(() => null);
@@ -157,11 +166,14 @@ function setShown(on) {
   clearInterval(ticker);
   if (on) {
     ticker = setInterval(tick, 1000);
+    resumeSlug = countedSlug;
     currentSlug = null;
     render();
   } else {
     playSeq++; // drops an animation that is still loading
     sprite.removeAttribute("src");
+    // Out of sight is unseen: showing again starts the hotkeys' wait over.
+    for (const p of perms) p.shownAt = undefined;
     syncHotkeys();
   }
 }
@@ -887,6 +899,7 @@ function idleLife(t, d) {
     const all = collectCheer >= allSlugs.length;
     playOnce(pick(all ? ANIMS.collectedAll : ANIMS.collected), { minMs: 3500 });
     toast(all ? "动画图鉴全部收集齐啦！每个样子你都见过了🎉" : `动画图鉴收集突破 ${collectCheer} 个啦～`, { ms: 8000 });
+    invoke("collection_cheered", { milestone: collectCheer }).catch(() => {});
     collectCheer = 0;
     return;
   }
@@ -1235,6 +1248,12 @@ let hotkeysLive = [false, false, false];
  *  null at first, so a reloaded page tells the backend even when it wants none. */
 let hotkeysFor = null;
 const HOTKEY_ACTIONS = ["allow", "deny", "always"];
+/** A request answers its hotkeys only once it has been on show this long: a second press
+ *  meant for the one before, or one already on its way as it was answered elsewhere,
+ *  doesn't answer one the user hasn't looked at. */
+const HOTKEY_SETTLE_MS = 700;
+/** Short marks for the modifiers on a button's key cap; the tooltip has the whole combo. */
+const MOD_MARKS = { ctrl: "⌃", alt: "⌥", shift: "⇧", win: "⊞" };
 
 function toast(text, { sticky = false, ms = TOAST_MS, onClick = null } = {}) {
   toastText = text;
@@ -1297,11 +1316,14 @@ function syncHotkeys() {
   invoke("permission_hotkeys", { on: Boolean(want), always: want === "always" });
 }
 
-/** A hotkey pressed: the request the bubble shows is answered as by its button. */
+/** A hotkey pressed: the request the bubble shows is answered as by its button, once it
+ *  has been on show a moment (`HOTKEY_SETTLE_MS`). */
 function onPermHotkey(action) {
   const req = perms[0];
   const sug = req?.payload.permission_suggestions?.[0];
-  if (!req || !shown || req.ask || req.hotkeyed || (action === "always" && !sug)) return;
+  if (!req || !shown || bubble.hidden || req.ask || req.hotkeyed || (action === "always" && !sug)) return;
+  // Not yet on show (undefined) counts as too soon too.
+  if (!(performance.now() - req.shownAt >= HOTKEY_SETTLE_MS)) return;
   req.hotkeyed = true;
   // The button shows pressed for a moment first, so it's clear which answer went.
   bubble.querySelector(`.perm button[data-act="${action}"]`)?.classList.add("pressed");
@@ -1314,7 +1336,9 @@ function keyCap(b, action) {
   b.dataset.act = action;
   if (!hotkeysLive[i]) return;
   const combo = config.hotkeys[action];
-  b.append(el("kbd", "", combo.split("+").pop()));
+  const parts = combo.split("+").map((x) => x.trim());
+  const key = parts.pop().toUpperCase();
+  b.append(el("kbd", "", parts.map((m) => MOD_MARKS[m.toLowerCase()] || m).join("") + key));
   b.title = [b.title, `快捷键 ${combo}`].filter(Boolean).join("\n");
 }
 
@@ -1331,6 +1355,7 @@ function drawBubble() {
   bubble.classList.toggle("leaving", Boolean((speech?.leaving || folding) && !perms.length && !toastText));
   if (perms.length) {
     const req = perms[0];
+    if (shown && req.shownAt === undefined) req.shownAt = performance.now();
     if (req.ask) return drawAsk(req);
     const key = `perm-${req.id}-${perms.length}-${hotkeysLive}-${Object.values(config.hotkeys)}`;
     if (bubbleKey === key) return;
@@ -1458,8 +1483,11 @@ async function decide(req, kind, suggestion) {
 // ---------------------------------------------------------------- questions
 
 // AskUserQuestion, answered in the bubble: one page per question. A choice question has
-// its options plus a box to write one's own answer; with `kind` "text" or "number" (forms
-// in newer Claude Code) there is only the box.
+// its options plus a box to write one's own answer; with `kind` "text" or "number" there
+// is only the box. The public AskUserQuestion docs have only question / header / options /
+// multiSelect: `kind`, `title`, `unit`, `placeholder`, `min` / `max` / `step` and
+// `defaultValue` are read in case a newer Claude Code sends such forms, and haven't been
+// checked against one.
 
 const ASK_KINDS = [undefined, "choice", "text", "number"];
 
@@ -1472,7 +1500,9 @@ function askState(p) {
     page: 0,
     anim: pick(ANIMS.asking),
     picks: qs.map(() => new Set()), // indexes of the options picked
-    text: qs.map((q) => (q.kind === "number" ? String(q.defaultValue ?? q.min ?? "") : "")),
+    // Only a default the question gives is filled in: the smallest number allowed would
+    // count as answered without the user having looked.
+    text: qs.map((q) => (q.kind === "number" ? String(q.defaultValue ?? "") : "")),
     // Whether one's own answer counts, for a choice question.
     own: qs.map(() => false),
   };
@@ -1500,8 +1530,18 @@ function drawAsk(req) {
   const a = req.ask;
   const p = req.payload;
   const qs = p.tool_input.questions;
-  const key = `ask-${req.id}-${a.page}-${perms.length}`;
-  if (bubbleKey === key) return;
+  const key = `ask-${req.id}-${a.page}`;
+  // Another request joining the queue only changes the count, in place: drawing the card
+  // again would lose the caret and break off what an input method is composing.
+  const queued = perms.length > 1 ? `还有 ${perms.length - 1} 个在排队` : "";
+  if (bubbleKey === key) {
+    const line = bubble.querySelector(".ask .queued");
+    if (line && line.textContent !== queued) {
+      line.textContent = queued;
+      queueHitRects();
+    }
+    return;
+  }
   // Drawn again while typing (another request joined the queue): the box keeps the focus.
   const typing = document.activeElement?.closest?.("#bubble input");
   bubbleKey = key;
@@ -1579,7 +1619,7 @@ function drawAsk(req) {
   input.type = q.kind === "number" ? "number" : "text";
   input.spellcheck = false;
   input.value = a.text[i];
-  input.placeholder = q.kind === "text" ? q.placeholder || "写下你的回答…" : q.kind === "number" ? "" : "其他：自己写…";
+  input.placeholder = q.kind === "text" ? q.placeholder || "写下你的回答…" : q.kind === "number" ? q.placeholder || "填一个数" : "其他：自己写…";
   if (q.kind === "number") {
     for (const k of ["min", "max", "step"]) if (q[k] !== undefined) input[k] = q[k];
   }
@@ -1613,7 +1653,7 @@ function drawAsk(req) {
   const pass = el("a", "", "去原界面回答");
   pass.onclick = () => decide(req, "pass");
   side.append(pass);
-  if (perms.length > 1) side.append(el("span", "", `还有 ${perms.length - 1} 个在排队`));
+  side.append(el("span", "queued", queued));
   actions.append(side);
   if (i > 0) actions.append(button("上一题", "back", () => askGo(req, i - 1)));
   const next = button(last ? "提交" : "下一题", "allow", () => (last ? askSubmit(req) : askGo(req, i + 1)));
@@ -2601,7 +2641,8 @@ async function boot() {
   for (const m of list) manifest[m.slug] = m;
   allSlugs = list.map((m) => m.slug);
   funSlugs = allSlugs.filter((s) => !NOT_FOR_FUN.includes(s));
-  await invoke("collection_known", { slugs: allSlugs });
+  // A milestone reached last time and not yet celebrated.
+  collectCheer = (await invoke("collection_known", { slugs: allSlugs }).catch(() => null)) || 0;
   applyConfig(await invoke("get_config"));
 
   await listen("hook-event", (e) => onHook(e.payload));
@@ -2624,7 +2665,10 @@ async function boot() {
     // Answered in Claude Code itself: back to work, unless it is asking something else.
     // When the bubble only gave up waiting, Claude Code is still asking there.
     const s = req && sessions.get(req.payload.session_id);
-    if (e.payload.answered && s?.state === "waiting" && !perms.some((x) => x.payload.session_id === s.id)) s.state = "working";
+    // A question answered in the terminal (outcome unknown) is left waiting: its PostToolUse
+    // comes right after and plays "you answered" only while the session still waits.
+    const unknownAsk = req?.ask && e.payload.outcome == null;
+    if (e.payload.answered && !unknownAsk && s?.state === "waiting" && !perms.some((x) => x.payload.session_id === s.id)) s.state = "working";
     // Reacts as to an answer in the bubble, when it shows which answer it was. A question
     // answered elsewhere: its PostToolUse may have played that already.
     if (req?.ask && e.payload.outcome === "allow") {
