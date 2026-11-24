@@ -1838,10 +1838,15 @@ function queueHitRects() {
 // that shows: over the pet where there is room, pushed in from the edge where not.
 let edges = { left: 0, top: 0, right: 0, bottom: 0 };
 
+/** Room under the pet (px) the quota bars and a readable label need side by side. */
+const QUOTA_ROOM = 220;
+
 function onEdges(e) {
   edges = e;
   const root = document.documentElement.style;
   for (const side of ["left", "top", "right", "bottom"]) root.setProperty(`--off-${side}`, `${e[side]}px`);
+  // Hanging off a side, the label narrows; then it gets the room and the bars step aside.
+  document.body.classList.toggle("tight", innerWidth - 16 - 2 * Math.max(e.left, e.right) < QUOTA_ROOM);
   placeBubble();
   fitChat();
   queueHitRects();
