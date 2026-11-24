@@ -208,7 +208,7 @@ pub fn load(dir: PathBuf, config: Arc<Mutex<Config>>) {
 }
 
 /// Writes `text` to `path` whole or not at all.
-fn write(path: &Path, text: &str) -> std::io::Result<()> {
+pub fn write(path: &Path, text: &str) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }

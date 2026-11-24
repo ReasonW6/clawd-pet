@@ -1203,40 +1203,192 @@ async function initAutostart() {
 
 // ---------------------------------------------------------------- gallery
 
+// A collection of what the pet has played on the desktop (collection.rs): those show in
+// color and move under the mouse; the rest stay silhouettes named "???" until it plays them.
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Animations per milestone, as collection.rs cheers them. */
+const COLLECT_STEP = 50;
+/** slug -> a promise of a frame from the middle of the animation, or null. */
+const keyFrames = new Map();
+
+function keyFrame(slug) {
+  if (!keyFrames.has(slug)) {
+    const load = async () => {
+      const data = await fetch(`assets/clawd/${slug}.gif`).then((r) => r.arrayBuffer());
+      if (!window.ImageDecoder) return createImageBitmap(new Blob([data], { type: "image/gif" }));
+      const decoder = new ImageDecoder({ data, type: "image/gif" });
+      try {
+        await decoder.tracks.ready;
+        await decoder.completed;
+        const { image } = await decoder.decode({ frameIndex: Math.floor(decoder.tracks.selectedTrack.frameCount / 2) });
+        try {
+          return await createImageBitmap(image);
+        } finally {
+          image.close();
+        }
+      } finally {
+        decoder.close();
+      }
+    };
+    keyFrames.set(slug, load().catch(() => null));
+  }
+  return keyFrames.get(slug);
+}
+
+/** Draws `slug`'s key frame on a canvas, or just its outline in the shadow color. */
+async function drawFrame(canvas, slug, shadow) {
+  const frame = await keyFrame(slug);
+  if (!frame) return;
+  const g = canvas.getContext("2d");
+  g.globalCompositeOperation = "copy";
+  g.drawImage(frame, 0, 0, canvas.width, canvas.height);
+  if (!shadow) return;
+  g.globalCompositeOperation = "source-in";
+  g.fillStyle = getComputedStyle(canvas).getPropertyValue("--shadow").trim() || "#d6ccbd";
+  g.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+const longDate = (ms) => new Date(ms).toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" });
+
 async function initGallery() {
   const list = await fetch("assets/clawd/manifest.json").then((r) => r.json());
+  const record = await invoke("collection_get");
+  const seen = record?.seen || {};
+  // New: collected since the gallery was last opened (on a first visit, in the last day).
+  const newSince = record?.visited || Date.now() - DAY_MS;
+  const isNew = (m) => seen[m.slug]?.first > newSince;
   let theme = "";
-  $("gallery-count").textContent = `共 ${list.length} 个`;
+  let filter = "all";
+  let picked = null;
 
-  const render = () => {
-    const q = $("search").value.trim().toLowerCase();
-    $("grid").innerHTML = "";
-    for (const m of list) {
-      if (theme && m.theme !== theme) continue;
-      if (q && !`${m.zh} ${m.en} ${m.slug}`.toLowerCase().includes(q)) continue;
-      const b = el("button", "", m.zh);
-      b.title = `${m.en} · ${m.slug}`;
-      b.onclick = () => {
-        $("preview").src = `assets/clawd/${m.slug}.gif`;
-        $("preview-name").textContent = `${m.zh} · ${m.slug}`;
-        emitTo("main", "play", m.slug);
-      };
-      $("grid").append(b);
+  if (record?.since) $("gallery-count").textContent = `${longDate(record.since)}开始收集`;
+  $("total").textContent = list.length;
+  $("progress-fill").parentElement.style.setProperty("--tick", `${(COLLECT_STEP / list.length) * 100}%`);
+
+  // Tiles get their picture once scrolled near.
+  const lazy = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        lazy.unobserve(e.target);
+        drawFrame(e.target.querySelector("canvas"), e.target.dataset.slug, e.target.classList.contains("unseen"));
+      }
+    },
+    { root: document.querySelector("main"), rootMargin: "300px 0px" },
+  );
+
+  /** Shows `m` up top; a click on its tile (`tile`) also has the pet play it, if collected. */
+  const choose = (m, tile) => {
+    const have = seen[m.slug];
+    $("preview").hidden = !have;
+    $("preview-shadow").hidden = Boolean(have);
+    if (!tile) {
+      // Before any click: the latest one collected.
+      $("preview").src = `assets/clawd/${m.slug}.gif`;
+      $("preview-name").textContent = `最近收集：${m.zh}`;
+      $("preview-meta").textContent = `${longDate(have.first)}第一次见 · 点卡片让它在桌面上演一遍`;
+      return;
+    }
+    picked = m.slug;
+    $("grid").querySelectorAll(".picked").forEach((t) => t.classList.remove("picked"));
+    tile.classList.add("picked");
+    if (have) {
+      $("preview").src = `assets/clawd/${m.slug}.gif`;
+      $("preview-name").textContent = m.zh;
+      $("preview-meta").textContent = `${longDate(have.first)}第一次见 · 在桌面上演过 ${have.count} 次`;
+      emitTo("main", "play", m.slug);
+    } else {
+      drawFrame($("preview-shadow"), m.slug, true);
+      $("preview-name").textContent = "???";
+      $("preview-meta").textContent = `${m.themeZh} · 还没见它演过，多陪它待一会儿吧`;
     }
   };
 
-  const themes = [["", "全部"], ...new Map(list.map((m) => [m.theme, m.themeZh]))];
-  for (const [id, name] of themes) {
-    const chip = el("button", id === theme ? "active" : "", name);
-    chip.onclick = () => {
-      theme = id;
-      $("themes").querySelectorAll("button").forEach((c) => c.classList.toggle("active", c === chip));
+  const tile = (m) => {
+    const have = seen[m.slug];
+    const t = el("button", `tile ${have ? "seen" : "unseen"}${m.slug === picked ? " picked" : ""}`);
+    t.dataset.slug = m.slug;
+    const canvas = el("canvas");
+    canvas.width = canvas.height = 40;
+    t.append(canvas, el("span", "", have ? m.zh : "???"));
+    if (isNew(m)) t.append(el("i", "badge", "NEW"));
+    t.title = have ? `${m.zh}\n${longDate(have.first)}第一次见` : "还没见它演过";
+    if (have) {
+      // Moves while the mouse is on it.
+      t.onmouseenter = () => {
+        const gif = el("img");
+        gif.src = `assets/clawd/${m.slug}.gif`;
+        t.append(gif);
+      };
+      t.onmouseleave = () => t.querySelector("img")?.remove();
+    }
+    t.onclick = () => choose(m, t);
+    lazy.observe(t);
+    return t;
+  };
+
+  const render = () => {
+    const owned = list.filter((m) => seen[m.slug]);
+    const fresh = owned.filter(isNew).length;
+    $("have").textContent = owned.length;
+    $("gallery-pct").textContent = owned.length === list.length ? "全部收集齐啦 🎉" : `${Math.floor((owned.length / list.length) * 100)}%`;
+    $("progress-fill").style.width = `${(owned.length / list.length) * 100}%`;
+    $("new-filter").hidden = !fresh;
+    $("new-count").textContent = fresh;
+    if (!fresh && filter === "new") {
+      filter = "all";
+      document.querySelector('[name="collect"][value="all"]').checked = true;
+    }
+
+    // Theme chips, each with how much of it is collected.
+    $("themes").innerHTML = "";
+    for (const [id, name] of [["", "全部"], ...new Map(list.map((m) => [m.theme, m.themeZh]))]) {
+      const of = list.filter((m) => !id || m.theme === id);
+      const got = of.filter((m) => seen[m.slug]).length;
+      const chip = el("button", `${id === theme ? "active" : ""}${id && got === of.length ? " done" : ""}`, name);
+      if (id) chip.append(el("small", "", `${got}/${of.length}`));
+      chip.onclick = () => {
+        theme = id;
+        render();
+      };
+      $("themes").append(chip);
+    }
+
+    // Names of the ones not seen yet stay a secret, from the search too.
+    const q = $("search").value.trim().toLowerCase();
+    lazy.disconnect();
+    $("grid").innerHTML = "";
+    for (const m of list) {
+      const have = seen[m.slug];
+      if (theme && m.theme !== theme) continue;
+      if ((filter === "have" && !have) || (filter === "missing" && have) || (filter === "new" && !isNew(m))) continue;
+      if (q && !(have && `${m.zh} ${m.en} ${m.slug}`.toLowerCase().includes(q))) continue;
+      $("grid").append(tile(m));
+    }
+    const empty = !$("grid").childElementCount;
+    $("grid-empty").hidden = !empty;
+    if (empty) {
+      $("grid-empty").textContent = q ? "没找到。没见过的动画，名字还是秘密哦" : filter === "missing" ? "这些都收集齐啦 🎉" : "还没有收集到，多陪它待一会儿吧～";
+    }
+  };
+
+  for (const radio of document.querySelectorAll('[name="collect"]')) {
+    radio.onchange = () => {
+      filter = radio.value;
       render();
     };
-    $("themes").append(chip);
   }
   $("search").oninput = render;
+  // What shows as new stays new until the gallery is opened the next time.
+  document.querySelector('nav button[data-tab="gallery"]').addEventListener("click", () => invoke("collection_visit"), { once: true });
+  listen("collected", (e) => {
+    seen[e.payload] ??= { first: Date.now(), count: 1 };
+    render();
+  });
   render();
+  const latest = list.filter((m) => seen[m.slug]).sort((a, b) => seen[b.slug].first - seen[a.slug].first)[0];
+  if (latest) choose(latest);
 }
 
 // ---------------------------------------------------------------- boot

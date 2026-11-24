@@ -385,15 +385,30 @@
       <!-- ------------------------------------------------ 图鉴 -->
       <section id="tab-gallery">
         <h2>动画图鉴 <small id="gallery-count"></small></h2>
-        <div class="gallery-head">
-          <img id="preview" alt="" />
-          <div>
-            <div id="preview-name">点一个名字，让它演给你看</div>
-            <input type="search" id="search" placeholder="搜索动画…" />
-            <div id="themes" class="chips"></div>
+        <div class="card gallery-head">
+          <div id="preview-frame">
+            <img id="preview" alt="" hidden />
+            <canvas id="preview-shadow" width="40" height="40" hidden></canvas>
+          </div>
+          <div class="gallery-info">
+            <div class="tally"><b>已收集 <span id="have">0</span> / <span id="total">0</span></b><small id="gallery-pct"></small></div>
+            <div class="progress"><i id="progress-fill"></i></div>
+            <div id="preview-name">点一张卡片看看</div>
+            <small id="preview-meta">它在桌面上演过的动画会收进这里，没见过的只有影子</small>
           </div>
         </div>
+        <div class="gallery-tools">
+          <span class="segmented" id="collect-filter">
+            <label><input type="radio" name="collect" value="all" checked /><span>全部</span></label>
+            <label><input type="radio" name="collect" value="have" /><span>已收集</span></label>
+            <label><input type="radio" name="collect" value="missing" /><span>未收集</span></label>
+            <label id="new-filter" hidden><input type="radio" name="collect" value="new" /><span>新收集 <em id="new-count"></em></span></label>
+          </span>
+          <input type="search" id="search" placeholder="搜索已收集的…" />
+        </div>
+        <div id="themes" class="chips"></div>
         <div id="grid"></div>
+        <p id="grid-empty" hidden></p>
       </section>
     </main>
     </div>

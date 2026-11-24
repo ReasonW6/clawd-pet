@@ -3,6 +3,7 @@
 mod ai;
 mod autostart;
 mod claude_app;
+mod collection;
 mod config;
 mod desktop_sessions;
 mod edges;
@@ -554,6 +555,7 @@ fn on_menu(app: &AppHandle, id: &str) {
         "quit" => {
             app.state::<AppState>().save();
             memory::flush();
+            collection::flush();
             app.exit(0);
         }
         "toggle_visible" => {
@@ -723,6 +725,7 @@ fn spawn_background_loop(app: AppHandle) {
                     st.save();
                 }
                 memory::flush();
+                collection::flush();
             }
             let dragging = st.dragging.load(Ordering::SeqCst);
             if dragging && !sysmon::left_button_down() {
@@ -783,7 +786,11 @@ fn main() {
             memory_dream,
             memory_topic,
             memory_get,
-            memory_edit
+            memory_edit,
+            collection::collection_known,
+            collection::collection_seen,
+            collection::collection_get,
+            collection::collection_visit
         ])
         .setup(|app| {
             // The port doubles as a single-instance lock.
@@ -815,6 +822,7 @@ fn main() {
             }
             let config = Arc::new(Mutex::new(cfg.clone()));
             memory::load(data_dir.join("memory"), config.clone());
+            collection::load(data_dir.join("collection.json"));
             let shared = Arc::new(Shared::default());
             shared.bubbles.store(cfg.bubbles, Ordering::SeqCst);
             transcript::show_replies(cfg.replies);
