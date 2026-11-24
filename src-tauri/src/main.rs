@@ -11,6 +11,7 @@ mod git;
 mod hooks;
 mod memory;
 mod screen;
+mod secrets;
 mod server;
 mod sysmon;
 mod transcript;
@@ -83,7 +84,7 @@ fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
 
 #[tauri::command]
 fn get_config(state: State<AppState>) -> Config {
-    state.config.lock().unwrap().clone()
+    secrets::hide(state.config.lock().unwrap().clone())
 }
 
 #[tauri::command]
@@ -100,6 +101,8 @@ fn apply_config(app: &AppHandle, state: &AppState, mut config: Config, settings:
         // The window position is owned by the pet window, not the settings form.
         config.x = current.x;
         config.y = current.y;
+        // The page never has the keys (`secrets::hide`).
+        secrets::keep(&mut config.ai, &current.ai);
         std::mem::replace(&mut *current, config.clone())
     };
     state.shared.bubbles.store(config.bubbles, Ordering::SeqCst);
@@ -113,6 +116,7 @@ fn apply_config(app: &AppHandle, state: &AppState, mut config: Config, settings:
         state.rewatch();
     }
     state.save();
+    let config = secrets::hide(config);
     let _ = if settings { app.emit("config", config) } else { app.emit_to("main", "config", config) };
     if let Some(w) = main_window(app) {
         step_aside(app, state, &w);
@@ -382,15 +386,45 @@ fn ai_cancel() {
     ai::stop();
 }
 
-/// The models a provider offers, going by `ai` as edited in the settings.
+/// The models a provider offers, going by the saved settings: a key only ever goes to the
+/// address saved with it, not to one a page passes in.
 #[tauri::command]
-async fn ai_models(ai: config::AiConfig, provider: String) -> Result<Vec<String>, String> {
+async fn ai_models(provider: String, state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let ai = state.config.lock().unwrap().ai.clone();
     ai::models(ai, provider).await
 }
 
 #[tauri::command]
 fn ai_key_page(provider: String) {
     ai::open_key_page(&provider);
+}
+
+/// Which API keys there are, for the settings page (`secrets::status`).
+#[tauri::command]
+fn ai_keys(state: State<AppState>) -> serde_json::Value {
+    secrets::status(&state.config.lock().unwrap().ai)
+}
+
+/// Saves the API key for `which` (a provider id, or "exa") in the Credential Manager;
+/// an empty one removes it. Gives back the keys there are then.
+#[tauri::command]
+fn ai_key_set(which: String, key: String, state: State<AppState>) -> Result<serde_json::Value, String> {
+    let mut cfg = state.config.lock().unwrap();
+    let (changed, done) = secrets::set(&mut cfg.ai, &which, &key);
+    if changed {
+        cfg.save(&state.config_path);
+    }
+    done.map(|()| secrets::status(&cfg.ai))
+}
+
+/// Moves the API key of provider `from` to provider `to` (`secrets::rename`).
+#[tauri::command]
+fn ai_key_move(from: String, to: String, state: State<AppState>) -> Result<(), String> {
+    let mut cfg = state.config.lock().unwrap();
+    if secrets::rename(&mut cfg.ai, &from, &to)? {
+        cfg.save(&state.config_path);
+    }
+    Ok(())
 }
 
 /// Opens a link from a chat reply in the default browser; only web and mail links.
@@ -744,6 +778,9 @@ fn main() {
             ai_cancel,
             ai_models,
             ai_key_page,
+            ai_keys,
+            ai_key_set,
+            ai_key_move,
             open_link,
             chat_focus,
             memory_event,
@@ -777,6 +814,16 @@ fn main() {
                 let _ = std::fs::copy(old_dir.join("config.json"), &config_path);
             }
             let mut cfg = Config::load(&config_path);
+            // Keys still in config.json go to the Credential Manager, and out of the file
+            // once there; any the vault turns down stay where they were.
+            if secrets::migrate(&mut cfg.ai) {
+                cfg.save(&config_path);
+            }
+            // The old location's copy would keep them in plain text: once the vault has
+            // them all, they go from there too.
+            if !secrets::any_plain(&cfg.ai) {
+                secrets::strip_file(&old_dir.join("config.json"));
+            }
             if cfg.sys.folders.is_none() {
                 cfg.sys.folders = Some(default_folders(&handle));
                 cfg.save(&config_path);

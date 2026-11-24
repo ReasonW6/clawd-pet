@@ -20,15 +20,33 @@ let savedTimer;
  *  a chat change shows only in the keys it changed, not over an edit still unsaved. */
 let known;
 
+/** The save in flight, if any. */
+let saving = null;
+
 function save() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
-    known = structuredClone(config);
-    await invoke("set_config", { config });
-    $("saved").classList.add("show");
-    clearTimeout(savedTimer);
-    savedTimer = setTimeout(() => $("saved").classList.remove("show"), 1500);
+  saveTimer = setTimeout(() => {
+    saveTimer = 0;
+    saving = write();
   }, 150);
+}
+
+async function write() {
+  known = structuredClone(config);
+  await invoke("set_config", { config });
+  $("saved").classList.add("show");
+  clearTimeout(savedTimer);
+  savedTimer = setTimeout(() => $("saved").classList.remove("show"), 1500);
+}
+
+/** Saves what is waiting to be saved now, for a command that goes by the saved config. */
+async function saveNow() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = 0;
+    saving = write();
+  }
+  await saving;
 }
 
 // ---------------------------------------------------------------- helpers
@@ -510,15 +528,20 @@ function provider() {
   return providers.find((p) => p.id === config.ai.provider && !TEMPLATES.includes(p.id)) || providers[0];
 }
 
-const profile = () => (config.ai.profiles[provider().id] ??= { apiKey: "", baseUrl: "", model: "", reasoning: "" });
+const profile = () => (config.ai.profiles[provider().id] ??= { baseUrl: "", model: "", reasoning: "" });
 
 /** Settings from before providers of one's own: what was set for a template becomes one. */
-function migrateCustom() {
+async function migrateCustom() {
   for (const [kind, name] of [["custom", "自定义"], ["custom-anthropic", "自定义（Anthropic）"]]) {
     const old = config.ai.profiles[kind];
     // Anything set (a key alone too) would be out of reach once the templates aren't listed.
-    if (config.ai.provider !== kind && !Object.values(old ?? {}).some(Boolean)) continue;
+    if (config.ai.provider !== kind && !Object.values(old ?? {}).some(Boolean) && !keys[kind]) continue;
     const mine = { id: `my-${kind}-${Date.now().toString(36)}`, name, kind };
+    if (keys[kind]) {
+      // Left as it was if the key can't move: the next time the page opens tries again.
+      if (!(await invoke("ai_key_move", { from: kind, to: mine.id }).then(() => true, () => false))) continue;
+      showKeys(await invoke("ai_keys"));
+    }
     config.ai.customProviders.push(mine);
     if (old) config.ai.profiles[mine.id] = old;
     delete config.ai.profiles[kind];
@@ -529,7 +552,8 @@ function migrateCustom() {
 
 async function initAi() {
   providers = await invoke("ai_providers");
-  migrateCustom();
+  showKeys(await invoke("ai_keys"));
+  await migrateCustom();
   $("ai-provider").onchange = () => {
     const id = $("ai-provider").value;
     if (id === ADD) addProvider();
@@ -554,7 +578,6 @@ async function initAi() {
       save();
     };
   };
-  field("ai-key", "apiKey");
   field("ai-base", "baseUrl");
   $("ai-name").oninput = () => {
     provider().mine.name = $("ai-name").value.trim();
@@ -601,6 +624,10 @@ async function initAi() {
       $(button).title = show ? "隐藏" : "显示";
     };
   }
+  vaults.push(
+    (providerVault = vault($("ai-key-vault"), () => provider().id, () => (provider().needsKey ? "必填，粘贴后回车保存" : "不需要就留空"))),
+    vault($("ai-exa-vault"), () => "exa", () => "可以不填"),
+  );
   $("ai-key-link").onclick = () => invoke("ai_key_page", { provider: provider().id });
   $("ai-exa-link").onclick = () => invoke("ai_key_page", { provider: "exa" });
   $("ai-fetch").onclick = fetchModels;
@@ -676,6 +703,9 @@ function deleteProvider() {
     return;
   }
   const id = provider().id;
+  invoke("ai_key_set", { which: id, key: "" }).then(showKeys, (e) =>
+    providerVault.notice(`删掉的服务商的密钥没能从 Windows 凭据管理器里移除：${e}。可以在系统的凭据管理器里找 clawd-pet/${id} 手动删掉。`),
+  );
   config.ai.customProviders = config.ai.customProviders.filter((c) => c.id !== id);
   delete config.ai.profiles[id];
   switchProvider("deepseek"); // the default (config.rs)
@@ -696,8 +726,7 @@ function showAi() {
     for (const radio of document.querySelectorAll("input[name=ai-kind]")) radio.checked = radio.value === (p.mine.kind === "custom-anthropic" ? "custom-anthropic" : "custom");
   }
   disarmProviderDelete();
-  $("ai-key").value = mine.apiKey;
-  $("ai-key").placeholder = p.needsKey ? "必填" : "不需要就留空";
+  providerVault.reset();
   $("ai-key-link").hidden = !p.keyUrl;
   $("ai-base").value = mine.baseUrl;
   $("ai-base").placeholder = p.baseUrl || "必填，如 https://example.com/v1";
@@ -715,6 +744,125 @@ function showSummary() {
   const p = provider();
   $("provider-summary").textContent = `${p.name} · ${profile().model || p.model || "还没选模型"}`;
   $("ai-search-note").textContent = p.search ? "问到新闻、天气这类事会自己去查，有的服务商按次收费" : `${p.name} 没有自带的联网搜索，可以用 Exa`;
+}
+
+// ---- API keys: in the Windows Credential Manager, never in the config; the page only
+// learns which there are (`ai_keys`), by their last few characters.
+
+/** By provider id ("exa" for Exa's): { tail, plain }, plain while the vault couldn't take it. */
+let keys = {};
+/** Why the vault turned a key down. */
+let keyTrouble = null;
+const vaults = [];
+let providerVault;
+
+function showKeys(status) {
+  keys = status.keys;
+  keyTrouble = status.trouble;
+  for (const v of vaults) v.show();
+}
+
+/** A key box: a saved key by its last characters, to replace or remove; or a box to type one
+ *  into, which saves it on Enter and on leaving the box, and a moment after typing stops
+ *  while there is no key yet. A key being replaced is saved only on Enter or leaving, so
+ *  that Esc can still keep the old one. */
+function vault(box, which, placeholder) {
+  const input = box.querySelector("input");
+  const remove = box.querySelector(".vault-remove");
+  const warn = box.closest(".row").nextElementSibling;
+  let editing = false;
+  let sent = "";
+  let failed = "";
+  let timer = 0;
+  let disarmTimer = 0;
+
+  const disarm = () => {
+    clearTimeout(disarmTimer);
+    remove.classList.remove("armed");
+    remove.textContent = "移除";
+  };
+  const show = () => {
+    const key = keys[which()];
+    box.classList.toggle("saved", !!key && !editing);
+    box.classList.toggle("plain", !!key?.plain);
+    box.querySelector(".vault-where").textContent = key?.plain ? "明文保存" : "凭据管理器";
+    box.querySelector(".vault-tail").textContent = key?.tail || "••••";
+    box.querySelector(".vault-saved").title = key?.plain
+      ? "Windows 凭据管理器没能存下，还以明文放在 config.json 里"
+      : `存在 Windows 凭据管理器里，名字是 clawd-pet/${which()}`;
+    input.placeholder = key ? "粘贴新的密钥，回车保存，Esc 保留原来的" : placeholder();
+    const plain = key?.plain ? `Windows 凭据管理器没能存下这个密钥${keyTrouble ? `：${keyTrouble}` : ""}。它还以明文放在 config.json 里，重新填一次或者重启桌宠时会再试。` : "";
+    warn.textContent = failed || plain;
+    warn.hidden = !warn.textContent;
+    disarm();
+  };
+  const commit = async () => {
+    clearTimeout(timer);
+    const [w, value] = [which(), input.value.trim()];
+    if (!value) return true;
+    if (value === sent) return !failed;
+    sent = value;
+    try {
+      const status = await invoke("ai_key_set", { which: w, key: value });
+      failed = "";
+      showKeys(status);
+      return true;
+    } catch (e) {
+      sent = ""; // the same key may be tried again
+      // Switched away meanwhile: said under the box now there, as it can't be under its own.
+      failed = which() === w ? String(e) : `刚才填的密钥没存上：${e}。切回去再填一次吧。`;
+      show();
+      return false;
+    }
+  };
+  /** Back to the saved key (if any), with nothing typed. */
+  const reset = () => {
+    clearTimeout(timer);
+    editing = false;
+    sent = failed = "";
+    input.value = "";
+    show();
+  };
+
+  input.oninput = () => {
+    editing = true; // stays the box to type in until left, saved or not
+    clearTimeout(timer);
+    if (!keys[which()]) timer = setTimeout(commit, 800);
+  };
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") input.blur();
+    else if (e.key === "Escape") reset();
+  };
+  input.onblur = async () => {
+    const w = which();
+    if (await commit() && which() === w) reset();
+  };
+  box.querySelector(".vault-replace").onclick = () => {
+    editing = true;
+    show();
+    input.focus();
+  };
+  remove.onclick = async () => {
+    if (!remove.classList.contains("armed")) {
+      remove.classList.add("armed");
+      remove.textContent = "确定";
+      disarmTimer = setTimeout(disarm, 2500);
+      return;
+    }
+    try {
+      showKeys(await invoke("ai_key_set", { which: which(), key: "" }));
+    } catch (e) {
+      failed = String(e);
+      show();
+    }
+  };
+  /** Says `text` under the box, for something that went wrong elsewhere. */
+  const notice = (text) => {
+    failed = text;
+    show();
+  };
+  show();
+  return { show, reset, notice };
 }
 
 /** The address row stays folded away while the provider's own address is used. */
@@ -801,7 +949,9 @@ async function fetchModels() {
   note.textContent = "正在获取…";
   let list;
   try {
-    list = await invoke("ai_models", { ai: config.ai, provider: provider().id });
+    // The backend asks with the saved settings (and the key it keeps), so save first.
+    await saveNow();
+    list = await invoke("ai_models", { provider: provider().id });
   } catch (e) {
     list = e;
   }

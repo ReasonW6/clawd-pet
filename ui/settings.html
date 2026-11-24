@@ -171,11 +171,21 @@
           </label>
           <div class="row" id="ai-exa-key-row">
             <span class="text"><b>Exa API 密钥</b><small>不填用免费额度，每天约 50 次；填了按次计费，还能用更深的 deep 搜索 <a id="ai-exa-link" class="link">去申请 ↗</a></small></span>
-            <span class="secret">
-              <input type="password" id="ai-exa-key" data-key="ai.exaKey" placeholder="可以不填" spellcheck="false" autocomplete="off" />
-              <button id="ai-exa-key-show" class="icon eye" title="显示"><i class="glyph-eye"></i></button>
+            <span class="vault" id="ai-exa-vault">
+              <span class="vault-saved">
+                <i class="glyph-lock"></i>
+                <span class="vault-where">凭据管理器</span>
+                <span class="vault-tail"></span>
+                <button class="vault-replace">替换</button>
+                <button class="vault-remove">移除</button>
+              </span>
+              <span class="secret">
+                <input type="password" id="ai-exa-key" spellcheck="false" autocomplete="off" />
+                <button id="ai-exa-key-show" class="icon eye" title="显示"><i class="glyph-eye"></i></button>
+              </span>
             </span>
           </div>
+          <div class="error vault-warn" hidden></div>
           <div class="error clash-warn" hidden></div>
         </div>
 
@@ -195,7 +205,7 @@
           </a>
         </div>
 
-        <p class="hint">聊天内容和截图只发给你选的服务商，联网搜索的搜索词交给负责搜索的一方。API 密钥明文保存在 <code>~/.clawd-pet/config.json</code>。网络走系统代理。</p>
+        <p class="hint">聊天内容和截图只发给你选的服务商，联网搜索的搜索词交给负责搜索的一方。API 密钥存在 Windows 凭据管理器里（名字是 <code>clawd-pet/…</code>），不写进配置文件。网络走系统代理。</p>
       </section>
 
       <!-- ------------------------------------------------ 服务商与模型（AI 聊天的子页面） -->
@@ -226,11 +236,21 @@
           </div>
           <div class="row">
             <span class="text"><b>API 密钥</b><small><a id="ai-key-link" class="link">去申请 ↗</a></small></span>
-            <span class="secret">
-              <input type="password" id="ai-key" spellcheck="false" autocomplete="off" />
-              <button id="ai-key-show" class="icon eye" title="显示"><i class="glyph-eye"></i></button>
+            <span class="vault" id="ai-key-vault">
+              <span class="vault-saved">
+                <i class="glyph-lock"></i>
+                <span class="vault-where">凭据管理器</span>
+                <span class="vault-tail"></span>
+                <button class="vault-replace">替换</button>
+                <button class="vault-remove">移除</button>
+              </span>
+              <span class="secret">
+                <input type="password" id="ai-key" spellcheck="false" autocomplete="off" />
+                <button id="ai-key-show" class="icon eye" title="显示"><i class="glyph-eye"></i></button>
+              </span>
             </span>
           </div>
+          <div class="error vault-warn" hidden></div>
         </div>
 
         <div class="card">
