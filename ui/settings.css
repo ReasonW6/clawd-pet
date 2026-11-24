@@ -814,29 +814,139 @@ select.native {
 
 .gallery-head {
   display: flex;
-  gap: 14px;
+  gap: 16px;
   align-items: center;
-  margin-bottom: 12px;
+  padding: 14px;
 }
 
-#preview {
+#preview-frame {
   flex: none;
+  display: grid;
+  place-items: center;
   width: 128px;
   height: 128px;
-  image-rendering: pixelated;
-  background: var(--card);
+  background: var(--paper);
   border: 2px solid var(--ink);
   border-radius: 10px;
 }
 
-#preview-name {
+#preview,
+#preview-shadow {
+  grid-area: 1 / 1;
+  width: 120px;
+  height: 120px;
+  image-rendering: pixelated;
+}
+
+#preview[hidden],
+#preview-shadow[hidden] {
+  display: none;
+}
+
+/* Nothing to show yet. */
+#preview-frame::after {
+  content: "?";
+  grid-area: 1 / 1;
+  color: #d9cfc0;
+  font-size: 56px;
   font-weight: bold;
-  margin-bottom: 8px;
+}
+
+#preview-frame:has(> :not([hidden]))::after {
+  display: none;
+}
+
+.gallery-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.tally {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.tally b {
+  font-size: 14px;
+}
+
+#have {
+  font-size: 20px;
+  color: var(--clawd);
+}
+
+.tally small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: bold;
+}
+
+/* Collected so far, with a notch at each milestone the pet celebrates. */
+.progress {
+  position: relative;
+  height: 14px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: #e9e3d9;
+  overflow: hidden;
+}
+
+.progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(to right, transparent 0 calc(var(--tick, 100%) - 2px), rgba(43, 43, 43, 0.16) calc(var(--tick, 100%) - 2px) var(--tick, 100%));
+}
+
+#progress-fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: repeating-linear-gradient(-45deg, var(--clawd) 0 6px, #e98d61 6px 12px);
+  transition: width 0.4s;
+}
+
+#preview-name {
+  margin-top: 12px;
+  font-weight: bold;
+}
+
+#preview-meta {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.gallery-tools {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 14px 0 10px;
+}
+
+#collect-filter {
+  background: var(--card);
+}
+
+#collect-filter em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--clawd);
+}
+
+#collect-filter input:checked + span em {
+  color: #fff;
 }
 
 #search {
-  width: 100%;
-  margin-bottom: 8px;
+  flex: 1;
+  min-width: 0;
 }
 
 .chips {
@@ -858,23 +968,106 @@ select.native {
   color: #fff;
 }
 
-#grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
-  gap: 6px;
+/* How much of each theme is collected. */
+#themes small {
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: 11px;
 }
 
-#grid button {
-  padding: 6px 4px;
-  border-width: 1px;
-  box-shadow: none;
+#themes button.active small {
+  color: #d9d2c7;
+}
+
+#themes button.done small {
+  color: var(--clawd);
+  font-weight: bold;
+}
+
+#grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tile {
+  --shadow: #d9cfc0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 4px 6px;
+  border-radius: 8px;
   font-size: 12px;
+}
+
+.tile canvas,
+.tile img {
+  width: 80px;
+  height: 80px;
+  image-rendering: pixelated;
+}
+
+/* The moving one over the still frame, while the mouse is on it. */
+.tile img {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.tile span {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-#grid button:hover {
+.tile.seen:hover {
   background: var(--clawd-soft);
+}
+
+.tile.unseen {
+  border: 2px dashed #d4c9b8;
+  background: var(--paper);
+  box-shadow: none;
+  color: #b3a998;
+  letter-spacing: 2px;
+}
+
+.tile.unseen:hover {
+  border-color: var(--muted);
+  color: var(--muted);
+}
+
+.tile.picked {
+  border-color: var(--clawd);
+  border-style: solid;
+  box-shadow: 2px 2px 0 var(--clawd);
+}
+
+/* Collected since the gallery was last opened. */
+.tile .badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--clawd);
+  color: #fff;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: bold;
+  line-height: 14px;
+  letter-spacing: 0.5px;
+}
+
+#grid-empty {
+  margin: 28px 0;
+  text-align: center;
+  color: var(--muted);
 }
 
 /* ---------------------------------------------------------------- AI chat */

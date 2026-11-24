@@ -129,6 +129,16 @@ Claude 没活给它的时候，它演完一个「场景」歇一会儿，再演�
 - 右键小螃蟹或托盘图标：显示隐藏、随机来一段、设置、退出
 - 托盘图标：单击显示/隐藏，双击打开设置
 
+## 动画图鉴
+
+设置里的「动画图鉴」是一本收集册：它在桌面上演过的动画才算收集到，隐藏时演的、在图鉴里点着看的都不算。从装上这个版本开始记，以前演过的不补。
+
+- 收集到的是彩色卡片，鼠标放上去会动；点一下，上面显示大图、第一次见的日期和演过几次，它也会在桌面上再演一遍。
+- 没见过的只有影子和「???」：名字搜不到，点了也不演。
+- 顶部是总进度，每 50 个一道刻度；主题标签上是各主题的进度。可以只看已收集、未收集，或者上次打开图鉴以后新收集的（卡片右上角标着 NEW）。
+- 每收集满 50 个、以及全部收集齐时，它会庆祝一下，等你在电脑前、Claude 也没在忙的时候。开始收集的第一天什么都是新的，不庆祝；之后第一次收集到新的时补一次。
+- 记录在 `%USERPROFILE%\.clawd-pet\collection.json`：收集到新的最多每 2 秒写一次，只是次数变了每分钟写一次。文件坏了不会被清空，会改名成 `collection.json.bad` 留着。
+
 ## 修改动画
 
 400 个动画都是 Clawd 400 用代码画出来的：每个动画是 `scenes/<主题>.py` 里的一个函数，下面一行 `add(slug, 中文名, 英文名, 函数, n=帧数, dur=每帧毫秒)` 注册它。改函数或参数、再重新渲染，就能修改现有动画或做新的。
@@ -176,6 +186,7 @@ python ../clawd-400-src/lint.py scenes/claude.py
 | [`ui/settings.html`](ui/settings.html) | 设置窗口（性格 / 作息 / Claude 联动 / AI 聊天 / 系统联动 / 动画图鉴） |
 | [`src-tauri/src/ai.rs`](src-tauri/src/ai.rs) | AI 聊天：服务商目录、流式请求（OpenAI / Anthropic 两种接口）、截图工具、联网搜索、记忆和改设置的工具 |
 | [`src-tauri/src/memory.rs`](src-tauri/src/memory.rs) | 记忆：笔记和事件计数的存取、聊完后和睡觉时让模型改写笔记、要主动提起的话 |
+| [`src-tauri/src/collection.rs`](src-tauri/src/collection.rs) | 动画图鉴：记下在桌面上演过哪些动画、第一次见的时间和次数，判断收集的里程碑 |
 | [`src-tauri/src/screen.rs`](src-tauri/src/screen.rs) | 截取桌宠所在的屏幕（不含桌宠自己），压成 JPEG |
 | [`src-tauri/src/server.rs`](src-tauri/src/server.rs) | 接收 hook 的本地 HTTP 服务，挂起权限请求 |
 | [`src-tauri/src/desktop_sessions.rs`](src-tauri/src/desktop_sessions.rs) | 从 Desktop 的会话记录里找出一个会话是从哪个会话开出来的 |

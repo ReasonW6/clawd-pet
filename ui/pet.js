@@ -127,12 +127,35 @@ function play(slug, restart = false) {
   currentSlug = slug;
   slugSince = now();
   if (!shown) return;
+  // Seen for the gallery's collection, unless the gallery asked for it or it just goes on
+  // after the pet was hidden.
+  const preview = oneShot?.preview && oneShot.slug === slug;
+  const again = slug === resumeSlug;
+  resumeSlug = null;
   // A unique URL restarts the GIF from frame 0; swap only once it's loaded to avoid flicker.
   const url = `assets/clawd/${slug}.gif?${++playSeq}`;
   const seq = playSeq;
   const pre = new Image();
-  pre.onload = () => seq === playSeq && (sprite.src = url);
+  pre.onload = () => {
+    if (seq !== playSeq) return;
+    sprite.src = url;
+    if (preview || again) return;
+    countedSlug = slug;
+    collect(slug);
+  };
   pre.src = url;
+}
+
+/** A milestone of the gallery's collection, until a quiet moment with the user around. */
+let collectCheer = 0;
+/** The animation last counted for the collection, and the one to leave uncounted as the
+ *  pet shows again. */
+let countedSlug = null;
+let resumeSlug = null;
+
+async function collect(slug) {
+  const cheer = await invoke("collection_seen", { slug }).catch(() => null);
+  if (cheer) collectCheer = cheer;
 }
 
 /** WebView2 goes on drawing a hidden window, so a hidden pet shows nothing and its
@@ -143,6 +166,7 @@ function setShown(on) {
   clearInterval(ticker);
   if (on) {
     ticker = setInterval(tick, 1000);
+    resumeSlug = countedSlug;
     currentSlug = null;
     render();
   } else {
@@ -154,17 +178,17 @@ function setShown(on) {
 // A one-shot plays for at least `minMs` (whole loops), then hands back to the state
 // machine. Unless forced, it stays hidden while Claude is busy. `life` marks a step
 // of the pet's own idle life; any other one-shot cuts the scene in progress short.
-let oneShot = null; // { slug, force, fresh, life }
+let oneShot = null; // { slug, force, fresh, life, preview }
 let oneShotTimer = null;
 
-function playOnce(slug, { force = false, minMs = 1800, then, life = false } = {}) {
+function playOnce(slug, { force = false, minMs = 1800, then, life = false, preview = false } = {}) {
   if (!life && scene) {
     scene = null;
     rest();
   }
   const ms = durationOf(slug);
   const total = ms * Math.max(1, Math.ceil(minMs / ms));
-  oneShot = { slug, force, fresh: true, life };
+  oneShot = { slug, force, fresh: true, life, preview };
   clearTimeout(oneShotTimer);
   oneShotTimer = setTimeout(() => {
     oneShot = null;
@@ -865,6 +889,16 @@ function idleLife(t, d) {
   if (celebrations.length && !toastText) {
     playOnce(pick(ANIMS.milestone), { minMs: 3500 });
     return toast(celebrations.shift(), { ms: 8000 });
+  }
+
+  // A milestone of the gallery's collection, cheered with the user there to see it.
+  if (collectCheer && !leftAlone && !toastText) {
+    const all = collectCheer >= allSlugs.length;
+    playOnce(pick(all ? ANIMS.collectedAll : ANIMS.collected), { minMs: 3500 });
+    toast(all ? "动画图鉴全部收集齐啦！每个样子你都见过了🎉" : `动画图鉴收集突破 ${collectCheer} 个啦～`, { ms: 8000 });
+    invoke("collection_cheered", { milestone: collectCheer }).catch(() => {});
+    collectCheer = 0;
+    return;
   }
 
   if (!leftAlone && !toastText && t >= nextTopicTry && memOn() && config.memory.proactive) {
@@ -2165,6 +2199,8 @@ async function boot() {
   for (const m of list) manifest[m.slug] = m;
   allSlugs = list.map((m) => m.slug);
   funSlugs = allSlugs.filter((s) => !NOT_FOR_FUN.includes(s));
+  // A milestone reached last time and not yet celebrated.
+  collectCheer = (await invoke("collection_known", { slugs: allSlugs }).catch(() => null)) || 0;
   applyConfig(await invoke("get_config"));
 
   await listen("hook-event", (e) => onHook(e.payload));
@@ -2198,7 +2234,7 @@ async function boot() {
   await listen("shown", (e) => setShown(e.payload));
   await listen("play", (e) => {
     stir(AWAKE_AFTER_POKE_MS);
-    playOnce(e.payload, { force: true, minMs: 3000 });
+    playOnce(e.payload, { force: true, minMs: 3000, preview: true });
   });
 
   // Files dragged onto the pet. Nothing is done with them.
