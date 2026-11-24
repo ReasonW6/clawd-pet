@@ -166,10 +166,10 @@ mod imp {
             // Makes the thread's message queue, so that messages posted to it arrive.
             PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE);
             STATE.lock().unwrap().thread = GetCurrentThreadId();
-            reconcile(&app);
+            reconcile();
             while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
                 match msg.message {
-                    WM_RECONCILE => reconcile(&app),
+                    WM_RECONCILE => reconcile(),
                     WM_HOTKEY => {
                         let i = (msg.wParam as usize).wrapping_sub(1);
                         if STATE.lock().unwrap().held.get(i).is_some_and(Option::is_some) {
@@ -190,27 +190,23 @@ mod imp {
 
     /// Registers and unregisters until the thread holds what is wanted, as far as other
     /// programs let it; one that couldn't be had is tried again on the next change.
-    fn reconcile(app: &AppHandle) {
-        let live = {
-            let mut s = STATE.lock().unwrap();
-            let wanted = s.wanted();
-            let changed: Vec<usize> = (0..ACTIONS.len()).filter(|&i| s.held[i] != wanted[i]).collect();
-            // All let go first: a combo may move from one action to another.
-            for &i in &changed {
-                if s.held[i].take().is_some() {
-                    unsafe { UnregisterHotKey(std::ptr::null_mut(), i as i32 + 1) };
+    fn reconcile() {
+        let mut s = STATE.lock().unwrap();
+        let wanted = s.wanted();
+        let changed: Vec<usize> = (0..ACTIONS.len()).filter(|&i| s.held[i] != wanted[i]).collect();
+        // All let go first: a combo may move from one action to another.
+        for &i in &changed {
+            if s.held[i].take().is_some() {
+                unsafe { UnregisterHotKey(std::ptr::null_mut(), i as i32 + 1) };
+            }
+        }
+        for &i in &changed {
+            if let Some(c) = wanted[i] {
+                if unsafe { RegisterHotKey(std::ptr::null_mut(), i as i32 + 1, c.mods | MOD_NOREPEAT, c.vk) } != 0 {
+                    s.held[i] = Some(c);
                 }
             }
-            for &i in &changed {
-                if let Some(c) = wanted[i] {
-                    if unsafe { RegisterHotKey(std::ptr::null_mut(), i as i32 + 1, c.mods | MOD_NOREPEAT, c.vk) } != 0 {
-                        s.held[i] = Some(c);
-                    }
-                }
-            }
-            s.held.map(|h| h.is_some())
-        };
-        let _ = app.emit_to("main", "hotkeys", live);
+        }
     }
 
     /// No other program holds `c`: it can be registered (and is let go at once).
