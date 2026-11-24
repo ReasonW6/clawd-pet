@@ -5,6 +5,8 @@
 //!   the user answers in the bubble, or answers in Claude Code itself instead. The
 //!   terminal closes the connection then; the Desktop app leaves the hook running, so
 //!   there it shows in what follows (see `Shared::observe`, `answered` and `ShellRuns`).
+//! - `POST /clawd-pet/status`     the status line relay passing on Claude Code's status
+//!   line input, for the plan usage it carries (quota.rs)
 //!
 //! Hand-rolled on std so we can watch the socket for that disconnect.
 
@@ -521,6 +523,13 @@ fn handle(stream: TcpStream, app: &AppHandle, shared: &Shared) -> io::Result<()>
             }
             Ok(())
         }
+        ("POST", "/clawd-pet/status") => {
+            // The relay doesn't wait for the answer.
+            if let Some(v) = body() {
+                crate::quota::reported(&v);
+            }
+            respond(&stream, 200, "")
+        }
         ("POST", "/clawd-pet/permission") => match body() {
             Some(v) => permission(stream, app, shared, enrich(v, &entry)),
             None => respond(&stream, 200, ""),
@@ -587,8 +596,9 @@ fn emit_hook(app: &AppHandle, mut payload: Value) {
 
 fn permission(stream: TcpStream, app: &AppHandle, shared: &Shared, payload: Value) -> io::Result<()> {
     let tool = payload["tool_name"].as_str().unwrap_or_default();
-    // These need structured answers only the native UI can collect.
-    let native_only = matches!(tool, "AskUserQuestion" | "ExitPlanMode");
+    // Approving a plan is left to the native UI. AskUserQuestion is answered in the
+    // bubble: an allow with `updatedInput` carrying the `answers`.
+    let native_only = tool == "ExitPlanMode";
     if native_only || !shared.bubbles.load(Ordering::SeqCst) {
         respond(&stream, 200, "")?;
         emit_hook(app, payload);

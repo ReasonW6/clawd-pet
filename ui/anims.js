@@ -48,6 +48,8 @@ window.ANIMS = {
   toolError: ["emo_facepalm", "emo_awkward"],
   manyErrors: ["dev_this_is_fine"],
   apiError: ["dev_bsod"],
+  quotaNear: ["emo_nervous_sweat"], // a plan usage window 80% used
+  quotaOut: ["dev_battery"], // and 95%
   longTask: ["dev_coffee_to_code", "dev_hourglass", "dev_pomodoro"],
   done: ["dev_ship_it", "emo_victory_dance", "dev_lgtm", "emo_thumbs_up", "cc_task_tower"],
   bigDone: ["dev_deploy_rocket", "emo_joy_burst", "sport_podium"],
@@ -55,6 +57,8 @@ window.ANIMS = {
   hello: ["emo_nihao"], // the pet itself starting up
   milestone: ["sea_party_popper", "emo_joy_burst"], // how long you've known each other (memory)
   weeklyCard: ["dev_slide_chart"], // holding up the week's recap card
+  collected: ["cos_pirate_treasure", "emo_proud_chest"], // every 50 animations seen (the gallery's collection)
+  collectedAll: ["sea_fireworks_watch", "sport_podium"], // all of them seen
 
   // ---------------------------------------------------------- daily life
   bedtime: ["life_brush_teeth"], // before a night's sleep, not a nap

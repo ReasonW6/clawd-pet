@@ -223,12 +223,26 @@ function play(slug, restart = false) {
   currentSlug = slug;
   slugSince = now();
   if (!shown) return;
+  // Seen for the gallery's collection, unless the gallery asked for it.
+  const preview = oneShot?.preview && oneShot.slug === slug;
   // A unique URL restarts the GIF from frame 0; swap only once it's loaded to avoid flicker.
   const url = `assets/clawd/${slug}.gif?${++playSeq}`;
   const seq = playSeq;
   const pre = new Image();
-  pre.onload = () => seq === playSeq && (sprite.src = url);
+  pre.onload = () => {
+    if (seq !== playSeq) return;
+    sprite.src = url;
+    if (!preview) collect(slug);
+  };
   pre.src = url;
+}
+
+/** A milestone of the gallery's collection, until a quiet moment with the user around. */
+let collectCheer = 0;
+
+async function collect(slug) {
+  const cheer = await invoke("collection_seen", { slug }).catch(() => null);
+  if (cheer) collectCheer = cheer;
 }
 
 /** WebView2 goes on drawing a hidden window, so a hidden pet shows nothing and its
@@ -244,23 +258,24 @@ function setShown(on) {
   } else {
     playSeq++; // drops an animation that is still loading
     sprite.removeAttribute("src");
+    syncHotkeys();
   }
 }
 
 // A one-shot plays for at least `minMs` (whole loops), then hands back to the state
 // machine. Unless forced, it stays hidden while Claude is busy. `life` marks a step
 // of the pet's own idle life; any other one-shot cuts the scene in progress short.
-let oneShot = null; // { slug, force, fresh, life }
+let oneShot = null; // { slug, force, fresh, life, preview }
 let oneShotTimer = null;
 
-function playOnce(slug, { force = false, minMs = 1800, then, life = false } = {}) {
+function playOnce(slug, { force = false, minMs = 1800, then, life = false, preview = false } = {}) {
   if (!life && scene) {
     scene = null;
     rest();
   }
   const ms = durationOf(slug);
   const total = ms * Math.max(1, Math.ceil(minMs / ms));
-  oneShot = { slug, force, fresh: true, life };
+  oneShot = { slug, force, fresh: true, life, preview };
   clearTimeout(oneShotTimer);
   oneShotTimer = setTimeout(() => {
     oneShot = null;
@@ -445,7 +460,7 @@ function onHook(p) {
       s.nextBreak = s.turnStart + LONG_TASK_MS;
       break;
     case "PreToolUse": {
-      // These wait for the user's answer in the native UI.
+      // These wait for the user's answer (a question may get it in the bubble).
       if (p.tool_name === "AskUserQuestion" || p.tool_name === "ExitPlanMode") {
         // Always a fresh wait: any earlier "waiting" belongs to a previous request.
         wait(s, p.tool_name === "ExitPlanMode" ? ANIMS.planReady : ANIMS.asking);
@@ -531,7 +546,7 @@ function onHook(p) {
       }
       break;
     case "PermissionRequest": // only reaches here when the bubble isn't used
-      // AskUserQuestion / ExitPlanMode come here too, right after their PreToolUse.
+      // So does ExitPlanMode, always, right after its PreToolUse.
       if (s.state !== "waiting") wait(s);
       break;
     case "Reply":
@@ -972,6 +987,15 @@ function idleLife(t, d) {
     weeklyCard(d);
   }
 
+  // A milestone of the gallery's collection, cheered with the user there to see it.
+  if (collectCheer && !leftAlone && !toastText) {
+    const all = collectCheer >= allSlugs.length;
+    playOnce(pick(all ? ANIMS.collectedAll : ANIMS.collected), { minMs: 3500 });
+    toast(all ? "动画图鉴全部收集齐啦！每个样子你都见过了🎉" : `动画图鉴收集突破 ${collectCheer} 个啦～`, { ms: 8000 });
+    collectCheer = 0;
+    return;
+  }
+
   if (!leftAlone && !toastText && t >= nextTopicTry && memOn() && config.memory.proactive) {
     nextTopicTry = t + 10 * MIN;
     const day = memDay();
@@ -1087,7 +1111,7 @@ function sessionName(s) {
 }
 
 function stateText(s) {
-  if (s.state === "waiting") return "等你确认";
+  if (s.state === "waiting") return perms.some((x) => x.ask && x.payload.session_id === s.id) ? "等你回答" : "等你确认";
   if (s.state === "compacting") return "整理记忆";
   if (s.state === "thinking") return "思考中…";
   if (s.state === "working") {
@@ -1101,7 +1125,7 @@ function stateText(s) {
 
 function desiredSlug() {
   if (dragging) return dragAnim;
-  if (perms.length) return ANIMS.permission[0];
+  if (perms.length) return perms[0].ask?.anim || ANIMS.permission[0];
   const lead = leader();
   if (oneShot?.force) return oneShot.slug;
   // Chatting, it stays at its desk with the user; the label still tells how Claude is doing.
@@ -1150,6 +1174,159 @@ function renderLabel() {
   label.hidden = !text;
 }
 
+// ---------------------------------------------------------------- Claude plan usage
+
+// How much of the Claude plan's 5-hour and weekly windows is used (quota.rs): two pixel
+// bars by the status line, the details on hover. The desktop app's numbers come without
+// reset times; the terminal's (through the status line relay) come with them.
+const quotaEl = $("quota");
+const quotaCard = $("quota-card");
+/** Numbers this old may be off and look it; this much older still, the bars go away. */
+const QUOTA_STALE_MS = 40 * MIN;
+const QUOTA_HIDE_MS = 24 * 60 * MIN;
+/** Percentages it reacts to, once each per window. */
+const QUOTA_LEVELS = [80, 95];
+const QUOTA_NAMES = { five: "5 小时", week: "本周" };
+let quota = { desktop: null, cli: null };
+let quotaTimer = null;
+
+const pad2 = (n) => String(n).padStart(2, "0");
+const hm = (ms) => `${pad2(new Date(ms).getHours())}:${pad2(new Date(ms).getMinutes())}`;
+/** "21:30" within a day, "周四 18:00" further off. */
+const whenShort = (ms) => (ms - now() < 24 * 60 * MIN ? hm(ms) : `周${"日一二三四五六"[new Date(ms).getDay()]} ${hm(ms)}`);
+
+/** One window from both sources as of now: { pct, at, resets, reset, src }. The fresher
+ *  number wins; a reset time only the terminal knows, and only until it comes. */
+function quotaWindow(key) {
+  const t = now();
+  const d = quota.desktop?.[key] != null ? { pct: quota.desktop[key], at: quota.desktop.t, src: "desktop" } : null;
+  const w = quota.cli?.[key];
+  const c = w ? { pct: w.pct, at: quota.cli.t, resets: w.resets ? w.resets * 1000 : null, src: "cli" } : null;
+  const v = [d, c].filter(Boolean).sort((a, b) => b.at - a.at)[0];
+  if (!v) return null;
+  // A reset the terminal told of has come since these numbers: the window started over.
+  if (c?.resets && c.resets <= t && v.at < c.resets) return { pct: 0, at: c.resets, resets: null, reset: true, src: v.src };
+  return { pct: v.pct, at: v.at, resets: c?.resets > t ? c.resets : null, reset: false, src: v.src };
+}
+
+const quotaStale = (w) => now() - w.at > QUOTA_STALE_MS;
+
+function renderQuota() {
+  clearTimeout(quotaTimer);
+  const t = now();
+  const wins = { five: quotaWindow("five"), week: quotaWindow("week") };
+  const known = Object.values(wins).filter(Boolean);
+  const newest = Math.max(0, ...known.map((w) => w.at));
+  const on = Boolean(config?.quota) && t - newest < QUOTA_HIDE_MS;
+  quotaEl.hidden = !on;
+  if (!on) {
+    quotaCard.hidden = true;
+  } else {
+    for (const [key, w] of Object.entries(wins)) {
+      const bar = quotaEl.querySelector(`.${key}`);
+      // Ten pixels of 2 px with 1 px between; anything used shows at least one.
+      bar.style.setProperty("--fill", `${w ? Math.ceil(w.pct / 10) * 3 : 0}px`);
+      bar.classList.toggle("stale", !w || quotaStale(w));
+      bar.classList.toggle("hot", Boolean(w) && w.pct >= QUOTA_LEVELS[0]);
+      bar.classList.toggle("full", Boolean(w) && w.pct >= QUOTA_LEVELS[1]);
+    }
+    quotaEl.classList.toggle("stale", known.every(quotaStale));
+    quotaEl.classList.toggle("near", known.some((w) => !quotaStale(w) && w.pct >= QUOTA_LEVELS[0]));
+    if (!quotaCard.hidden) renderQuotaCard(wins);
+    warnQuota(wins);
+    // Looked at again when something changes by itself: numbers going stale, a window
+    // starting over, the bars going away. No polling in between.
+    const next = known.flatMap((w) => [w.at + QUOTA_STALE_MS, w.resets || Infinity]).concat(newest + QUOTA_HIDE_MS);
+    const soonest = Math.min(...next.filter((x) => x > t));
+    if (soonest < Infinity) quotaTimer = setTimeout(renderQuota, Math.min(soonest - t + 500, 2 ** 31 - 1));
+  }
+  queueHitRects();
+}
+
+function untilText(ms) {
+  const m = Math.max(1, Math.round((ms - now()) / MIN));
+  if (m < 60) return `${m} 分钟后重置`;
+  if (m < 24 * 60) return `${Math.floor(m / 60)} 小时 ${m % 60} 分后重置 · ${hm(ms)}`;
+  return `${whenShort(ms)} 重置 · 还有 ${Math.floor(m / (24 * 60))} 天`;
+}
+
+function agoText(ms) {
+  const m = Math.round((now() - ms) / MIN);
+  if (m < 1) return "刚刚";
+  if (m < 60) return `${m} 分钟前`;
+  if (m < 24 * 60) return `${Math.floor(m / 60)} 小时前`;
+  return `${Math.floor(m / (24 * 60))} 天前`;
+}
+
+function renderQuotaCard(wins) {
+  const el = (tag, cls, text) => Object.assign(document.createElement(tag), { className: cls, textContent: text ?? "" });
+  const card = el("div", "qcard");
+  // Where the numbers on show came from: a window known to have started over shows none.
+  const latest = Object.values(wins).filter((w) => w && !w.reset).sort((a, b) => b.at - a.at)[0];
+  for (const [key, w] of Object.entries(wins)) {
+    const row = el("div", "qrow");
+    const bar = el("span", `qbar${!w || quotaStale(w) ? " stale" : w.pct >= QUOTA_LEVELS[0] ? " hot" : ""}`);
+    const fill = el("b");
+    // Twenty pixels of 4 px with 1 px between.
+    fill.style.width = `${w ? Math.ceil(w.pct / 5) * 5 : 0}px`;
+    bar.append(fill);
+    row.append(el("span", "qname", QUOTA_NAMES[key]), bar, el("span", "qpct", w ? `${Math.round(w.pct)}%` : "–"));
+    card.append(row);
+    const sub = !w ? "还没有数据" : w.reset ? "已重置" : w.resets ? untilText(w.resets) : "";
+    if (sub) card.append(el("div", "qsub", sub));
+  }
+  if (latest) {
+    const from = latest.src === "cli" ? "终端" : "桌面版";
+    const stale = quotaStale(latest);
+    card.append(el("div", `qfoot${stale ? " stale" : ""}`, `${from} · ${agoText(latest.at)}${stale ? " · 可能不准了" : ""}`));
+  }
+  quotaCard.replaceChildren(card);
+}
+
+/** A gentle word when a window gets close to its limit, once per level per window; of
+ *  two at once, the more urgent one. */
+function warnQuota(wins) {
+  let warned = {};
+  try {
+    warned = JSON.parse(localStorage.getItem("quotaWarned")) || {};
+  } catch {}
+  let changed = false;
+  let worst = null;
+  for (const [key, w] of Object.entries(wins)) {
+    if (!w || w.reset || quotaStale(w)) continue;
+    const level = QUOTA_LEVELS.filter((l) => w.pct >= l).length;
+    const was = warned[key] || 0;
+    // Well down again: a new window, to be warned about afresh.
+    if (w.pct < 50 && was) {
+      warned[key] = 0;
+      changed = true;
+    } else if (level > was) {
+      warned[key] = level;
+      changed = true;
+      if (!worst || level > worst.level) worst = { key, w, level };
+    }
+  }
+  if (worst) {
+    const { key, w, level } = worst;
+    const pct = Math.round(w.pct);
+    const when = w.resets ? `${whenShort(w.resets)} 重置` : "";
+    const text = level > 1 ? `${QUOTA_NAMES[key]}额度快见底了（${pct}%${when ? `，${when}` : ""}）` : `${QUOTA_NAMES[key]}额度用掉 ${pct}% 啦，悠着点用～${when ? `（${when}）` : ""}`;
+    if (!asleep) playOnce(pick(level > 1 ? ANIMS.quotaOut : ANIMS.quotaNear), { force: true, minMs: 2500 });
+    toast(text, { ms: 8000 });
+  }
+  if (changed) {
+    try {
+      localStorage.setItem("quotaWarned", JSON.stringify(warned));
+    } catch {}
+  }
+}
+
+quotaEl.addEventListener("mouseenter", () => {
+  quotaCard.hidden = false;
+  renderQuotaCard({ five: quotaWindow("five"), week: quotaWindow("week") });
+});
+quotaEl.addEventListener("mouseleave", () => (quotaCard.hidden = true));
+
 // ---------------------------------------------------------------- bubbles
 
 let toastText = null;
@@ -1158,6 +1335,13 @@ let toastTimer = null;
 /** The weekly card, when the toast is one: { when, range, total, sub, tasks, seen }. */
 let toastCard = null;
 let bubbleKey = null;
+/** The hotkeys that answer the permission bubble as the backend holds them, by
+ *  `HOTKEY_ACTIONS`; a key shows on a button only for one that is held. */
+let hotkeysLive = [false, false, false];
+/** What the hotkeys were last asked to be held for: "" none, "plain", or "always" too;
+ *  null at first, so a reloaded page tells the backend even when it wants none. */
+let hotkeysFor = null;
+const HOTKEY_ACTIONS = ["allow", "deny", "always"];
 
 function toast(text, { sticky = false, ms = TOAST_MS, onClick = null, card = null } = {}) {
   toastText = text;
@@ -1207,7 +1391,39 @@ function suggestionText(sug) {
 
 function renderBubble() {
   drawBubble();
+  syncHotkeys();
   placeBubble();
+}
+
+/** The hotkeys are held only while the bubble shows a request (hotkeys.rs). */
+function syncHotkeys() {
+  // A question card has no allow / deny to give, so it holds no hotkeys.
+  const req = shown && !perms[0]?.ask ? perms[0] : null;
+  const want = !req ? "" : req.payload.permission_suggestions?.length ? "always" : "plain";
+  if (want === hotkeysFor) return;
+  hotkeysFor = want;
+  invoke("permission_hotkeys", { on: Boolean(want), always: want === "always" });
+}
+
+/** A hotkey pressed: the request the bubble shows is answered as by its button. */
+function onPermHotkey(action) {
+  const req = perms[0];
+  const sug = req?.payload.permission_suggestions?.[0];
+  if (!req || !shown || req.ask || req.hotkeyed || (action === "always" && !sug)) return;
+  req.hotkeyed = true;
+  // The button shows pressed for a moment first, so it's clear which answer went.
+  bubble.querySelector(`.perm button[data-act="${action}"]`)?.classList.add("pressed");
+  setTimeout(() => perms.includes(req) && decide(req, action, sug), 140);
+}
+
+/** Puts the key of an action's hotkey on its button, when the hotkey is held. */
+function keyCap(b, action) {
+  const i = HOTKEY_ACTIONS.indexOf(action);
+  b.dataset.act = action;
+  if (!hotkeysLive[i]) return;
+  const combo = config.hotkeys[action];
+  b.append(el("kbd", "", combo.split("+").pop()));
+  b.title = [b.title, `快捷键 ${combo}`].filter(Boolean).join("\n");
 }
 
 function drawBubble() {
@@ -1223,8 +1439,10 @@ function drawBubble() {
   bubble.classList.toggle("leaving", Boolean((speech?.leaving || folding) && !perms.length && !toastText));
   if (perms.length) {
     const req = perms[0];
-    if (bubbleKey === `perm-${req.id}-${perms.length}`) return;
-    bubbleKey = `perm-${req.id}-${perms.length}`;
+    if (req.ask) return drawAsk(req);
+    const key = `perm-${req.id}-${perms.length}-${hotkeysLive}-${Object.values(config.hotkeys)}`;
+    if (bubbleKey === key) return;
+    bubbleKey = key;
     const p = req.payload;
     const s = sessions.get(p.session_id) || { entry: p._entry, cwd: p.cwd, title: p._title };
     const sug = (p.permission_suggestions || [])[0];
@@ -1238,13 +1456,18 @@ function drawBubble() {
     const args = summarize(p.tool_input);
     if (args) card.append(el("pre", "", args));
     const actions = el("div", "actions");
-    actions.append(button("拒绝", "deny", () => decide(req, "deny")));
+    const deny = button("拒绝", "deny", () => decide(req, "deny"));
+    keyCap(deny, "deny");
+    actions.append(deny);
     if (sug) {
       const b = button("总是允许", "", () => decide(req, "always", sug));
       b.title = suggestionText(sug);
+      keyCap(b, "always");
       actions.append(b);
     }
-    actions.append(button("允许", "allow", () => decide(req, "allow")));
+    const allow = button("允许", "allow", () => decide(req, "allow"));
+    keyCap(allow, "allow");
+    actions.append(allow);
     card.append(actions);
     const foot = el("div", "foot");
     foot.append(el("span", "", perms.length > 1 ? `还有 ${perms.length - 1} 个在排队` : ""));
@@ -1358,10 +1581,217 @@ async function decide(req, kind, suggestion) {
   removePerm(req.id);
   if (kind !== "pass") recap("approval");
   const s = sessions.get(req.payload.session_id);
-  if (s && s.state === "waiting") s.state = "working";
+  // A question handed back is still waiting for its answer, there.
+  if (s && s.state === "waiting" && !(kind === "pass" && req.ask)) s.state = "working";
   await invoke("resolve_permission", { id: req.id, body });
   if (kind === "deny") playOnce(pick(ANIMS.denied), { force: true, minMs: 1800 });
   else if (kind !== "pass") playOnce(pick(ANIMS.allowed), { force: true, minMs: 1200 });
+  render();
+}
+
+// ---------------------------------------------------------------- questions
+
+// AskUserQuestion, answered in the bubble: one page per question. A choice question has
+// its options plus a box to write one's own answer; with `kind` "text" or "number" (forms
+// in newer Claude Code) there is only the box.
+
+const ASK_KINDS = [undefined, "choice", "text", "number"];
+
+/** What has been answered so far, for a request the bubble can show; null otherwise. */
+function askState(p) {
+  const qs = p.tool_input?.questions;
+  const fits = (q) => q && typeof q.question === "string" && ASK_KINDS.includes(q.kind) && (Array.isArray(q.options) || isTyped(q));
+  if (!Array.isArray(qs) || !qs.length || !qs.every(fits)) return null;
+  return {
+    page: 0,
+    anim: pick(ANIMS.asking),
+    picks: qs.map(() => new Set()), // indexes of the options picked
+    text: qs.map((q) => (q.kind === "number" ? String(q.defaultValue ?? q.min ?? "") : "")),
+    // Whether one's own answer counts, for a choice question.
+    own: qs.map(() => false),
+  };
+}
+
+const isTyped = (q) => q.kind === "text" || q.kind === "number";
+
+/** The answer to question `i` as Claude Code takes it (a label, the text written, or
+ *  for multi-select the labels joined with commas, which every version reads), or null
+ *  while there is none. */
+function askAnswer(q, a, i) {
+  const text = a.text[i].trim();
+  if (q.kind === "number") {
+    const n = Number(text);
+    return text && Number.isFinite(n) && !(n < q.min) && !(n > q.max) ? text : null;
+  }
+  if (q.kind === "text") return text || null;
+  const picked = q.options.filter((_, j) => a.picks[i].has(j)).map((o) => String(o.label));
+  if (a.own[i] && text) picked.push(text);
+  if (!picked.length) return null;
+  return q.multiSelect ? picked.join(", ") : picked[0];
+}
+
+function drawAsk(req) {
+  const a = req.ask;
+  const p = req.payload;
+  const qs = p.tool_input.questions;
+  const key = `ask-${req.id}-${a.page}-${perms.length}`;
+  if (bubbleKey === key) return;
+  // Drawn again while typing (another request joined the queue): the box keeps the focus.
+  const typing = document.activeElement?.closest?.("#bubble input");
+  bubbleKey = key;
+  const s = sessions.get(p.session_id) || { entry: p._entry, cwd: p.cwd, title: p._title };
+  const i = a.page;
+  const q = qs[i];
+  const last = i === qs.length - 1;
+
+  bubble.innerHTML = "";
+  const card = el("div", "perm ask");
+  const top = el("div", "top");
+  top.append(el("span", "chip", q.header || "提问"));
+  const who = el("span", "who", sessionName(s));
+  who.title = sessionName(s);
+  top.append(who);
+  const steps = el("span", "steps");
+  if (qs.length > 1) {
+    qs.forEach((_, j) => {
+      const dotEl = el("button", j === i ? "now" : "");
+      dotEl.title = `第 ${j + 1} 题`;
+      dotEl.onclick = () => askGo(req, j);
+      steps.append(dotEl);
+    });
+  }
+  top.append(steps);
+  card.append(top);
+  if (p.tool_input.title) card.append(el("div", "hint", p.tool_input.title));
+  card.append(el("div", "what", q.question));
+  if (q.description) card.append(el("div", "hint", q.description));
+
+  const list = el("div", "opts");
+  const rows = [];
+  if (!isTyped(q)) {
+    q.options.forEach((o, j) => {
+      const b = el("button", "opt");
+      b.append(el("span", q.multiSelect ? "mark multi" : "mark"));
+      const txt = el("span", "txt");
+      txt.append(el("span", "label", String(o.label)));
+      if (o.description) {
+        const d = el("span", "desc", String(o.description));
+        d.title = String(o.description);
+        txt.append(d);
+      }
+      b.append(txt);
+      b.onclick = () => {
+        if (q.multiSelect) {
+          if (!a.picks[i].delete(j)) a.picks[i].add(j);
+        } else {
+          a.picks[i] = new Set([j]);
+          a.own[i] = false;
+        }
+        sync();
+        // One pick answers it: on to the next question, after a moment to see it ticked.
+        if (!q.multiSelect && !last) setTimeout(() => perms[0] === req && a.page === i && askGo(req, i + 1), 260);
+      };
+      rows.push([b, () => a.picks[i].has(j)]);
+      list.append(b);
+    });
+  }
+  const own = el("label", isTyped(q) ? "opt own typed" : "opt own");
+  const ownMark = el("span", q.multiSelect ? "mark multi" : "mark");
+  if (!isTyped(q)) {
+    own.append(ownMark);
+    ownMark.onclick = (e) => {
+      // Ticks or unticks one's own answer; the box itself is clicked to write in it.
+      e.preventDefault();
+      a.own[i] = !a.own[i];
+      if (a.own[i] && !q.multiSelect) a.picks[i].clear();
+      sync();
+      if (a.own[i]) input.focus();
+    };
+    rows.push([own, () => a.own[i]]);
+  }
+  const input = el("input");
+  input.type = q.kind === "number" ? "number" : "text";
+  input.spellcheck = false;
+  input.value = a.text[i];
+  input.placeholder = q.kind === "text" ? q.placeholder || "写下你的回答…" : q.kind === "number" ? "" : "其他：自己写…";
+  if (q.kind === "number") {
+    for (const k of ["min", "max", "step"]) if (q[k] !== undefined) input[k] = q[k];
+  }
+  // The pet's window has to take the keyboard to be typed into.
+  own.addEventListener("pointerdown", () => invoke("chat_focus"));
+  input.addEventListener("input", () => {
+    a.text[i] = input.value;
+    if (!isTyped(q)) {
+      a.own[i] = input.value.trim() !== "";
+      if (a.own[i] && !q.multiSelect) a.picks[i].clear();
+    }
+    sync();
+  });
+  input.addEventListener("keydown", (e) => {
+    // Not for the chat's keys (Esc there closes the chat).
+    e.stopPropagation();
+    if (e.key === "Enter" && !e.isComposing && !next.disabled) next.click();
+    else if (e.key === "Escape") input.blur();
+  });
+  own.append(input);
+  if (q.kind === "number") {
+    const range = [q.min, q.max].every((v) => v !== undefined) ? `${q.min}–${q.max}` : "";
+    own.append(el("span", "unit", [q.unit, range && `（${range}）`].filter(Boolean).join(" ")));
+  }
+  list.append(own);
+  card.append(list);
+
+  // Handing it back to the native UI on the left, so the buttons stay where they are.
+  const actions = el("div", "actions");
+  const side = el("span", "side");
+  const pass = el("a", "", "去原界面回答");
+  pass.onclick = () => decide(req, "pass");
+  side.append(pass);
+  if (perms.length > 1) side.append(el("span", "", `还有 ${perms.length - 1} 个在排队`));
+  actions.append(side);
+  if (i > 0) actions.append(button("上一题", "back", () => askGo(req, i - 1)));
+  const next = button(last ? "提交" : "下一题", "allow", () => (last ? askSubmit(req) : askGo(req, i + 1)));
+  actions.append(next);
+  card.append(actions);
+
+  /** Shows what is picked, which questions have an answer, and whether to go on. */
+  function sync() {
+    for (const [row, on] of rows) row.classList.toggle("on", on());
+    [...steps.children].forEach((d, j) => d.classList.toggle("done", askAnswer(qs[j], a, j) !== null));
+    next.disabled = askAnswer(q, a, i) === null;
+    // The option picked shows all of its description, which may make the bubble taller.
+    queueHitRects();
+  }
+  sync();
+  bubble.append(card);
+  bubble.hidden = false;
+  if (typing || (isTyped(q) && document.hasFocus())) input.focus({ preventScroll: true });
+}
+
+function askGo(req, page) {
+  req.ask.page = page;
+  renderBubble();
+  queueHitRects();
+}
+
+/** Sends the answers: the call's input as it was asked, with `answers` keyed by each
+ *  question's text. A question still without one is shown instead. */
+async function askSubmit(req) {
+  const a = req.ask;
+  const qs = req.payload.tool_input.questions;
+  const answers = {};
+  for (let i = 0; i < qs.length; i++) {
+    const answer = askAnswer(qs[i], a, i);
+    if (answer === null) return askGo(req, i);
+    answers[qs[i].question] = answer;
+  }
+  const decision = { behavior: "allow", updatedInput: { ...req.payload.tool_input, answers } };
+  const body = JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision } });
+  removePerm(req.id);
+  const s = sessions.get(req.payload.session_id);
+  if (s && s.state === "waiting") s.state = "working";
+  await invoke("resolve_permission", { id: req.id, body });
+  playOnce(pick(ANIMS.answered), { force: true, minMs: 1500 });
   render();
 }
 
@@ -1377,7 +1807,7 @@ function queueHitRects() {
     const chatParts = chatEl.classList.contains("away")
       ? []
       : [...chatEl.querySelectorAll(".msg:not(.gone):not(.standby) > .card, .msg:not(.gone):not(.nox):not(.standby) > .x")];
-    const rects = [petHit, bubble, label, dot]
+    const rects = [petHit, bubble, label, dot, quotaEl]
       .filter((e) => !e.hidden)
       .concat(chatParts)
       .map((e) => e.getBoundingClientRect())
@@ -2291,6 +2721,7 @@ function applyConfig(c) {
   if (chat && !c.ai.enabled) closeChat();
   document.documentElement.style.setProperty("--size", `${c.size}px`);
   if (livelinessChanged) rest();
+  renderQuota();
   queueHitRects();
 }
 
@@ -2299,12 +2730,19 @@ async function boot() {
   for (const m of list) manifest[m.slug] = m;
   allSlugs = list.map((m) => m.slug);
   funSlugs = allSlugs.filter((s) => !NOT_FOR_FUN.includes(s));
+  await invoke("collection_known", { slugs: allSlugs });
   applyConfig(await invoke("get_config"));
 
   await listen("hook-event", (e) => onHook(e.payload));
   await listen("permission-request", (e) => {
+    const req = { id: e.payload.id, payload: e.payload.payload };
+    if (req.payload.tool_name === "AskUserQuestion") {
+      req.ask = askState(req.payload);
+      // Asked in a way the bubble can't show: answered in the native UI, as before.
+      if (!req.ask) return invoke("resolve_permission", { id: req.id, body: "" });
+    }
     stir(AWAKE_AFTER_WORK_MS);
-    perms.push({ id: e.payload.id, payload: e.payload.payload });
+    perms.push(req);
     const s = session(e.payload.payload);
     if (s.state !== "waiting") wait(s);
     render();
@@ -2316,11 +2754,19 @@ async function boot() {
     // When the bubble only gave up waiting, Claude Code is still asking there.
     const s = req && sessions.get(req.payload.session_id);
     if (e.payload.answered && s?.state === "waiting" && !perms.some((x) => x.payload.session_id === s.id)) s.state = "working";
-    // Reacts as to an answer in the bubble, when it shows which answer it was.
     if (req && e.payload.outcome) recap("approval");
-    if (req && e.payload.outcome === "allow") playOnce(pick(ANIMS.allowed), { force: true, minMs: 1200 });
+    // Reacts as to an answer in the bubble, when it shows which answer it was. A question
+    // answered elsewhere: its PostToolUse may have played that already.
+    if (req?.ask && e.payload.outcome === "allow") {
+      if (!ANIMS.answered.includes(oneShot?.slug)) playOnce(pick(ANIMS.answered), { force: true, minMs: 1500 });
+    } else if (req && e.payload.outcome === "allow") playOnce(pick(ANIMS.allowed), { force: true, minMs: 1200 });
     else if (req && e.payload.outcome === "deny") playOnce(pick(ANIMS.denied), { force: true, minMs: 1800 });
     render();
+  });
+  await listen("perm-hotkey", (e) => onPermHotkey(e.payload));
+  await listen("hotkeys", (e) => {
+    hotkeysLive = e.payload;
+    renderBubble();
   });
   await listen("user-event", (e) => onUserEvent(e.payload));
   await listen("ai", (e) => onAi(e.payload));
@@ -2333,7 +2779,7 @@ async function boot() {
   await listen("shown", (e) => setShown(e.payload));
   await listen("play", (e) => {
     stir(AWAKE_AFTER_POKE_MS);
-    playOnce(e.payload, { force: true, minMs: 3000 });
+    playOnce(e.payload, { force: true, minMs: 3000, preview: true });
   });
 
   // Files dragged onto the pet. Nothing is done with them.
@@ -2354,6 +2800,13 @@ async function boot() {
   $("bubble-area").addEventListener("transitionend", queueHitRects);
 
   greet();
+  // After the greeting, so that a window close to its limit is what it reacts to last.
+  quota = await invoke("quota_get");
+  renderQuota();
+  await listen("quota", (e) => {
+    quota = e.payload;
+    renderQuota();
+  });
   ticker = setInterval(tick, 1000);
   // Runs while the pet is hidden too: Claude goes on working then.
   recap("time", { busy: 0 });

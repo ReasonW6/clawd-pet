@@ -55,7 +55,7 @@ fn is_ours(h: &Value) -> bool {
         .is_some_and(|u| u.starts_with(&base_url()))
 }
 
-fn read_settings() -> Result<Value, String> {
+pub fn read_settings() -> Result<Value, String> {
     let path = settings_path();
     match std::fs::read_to_string(&path) {
         Ok(s) if s.trim().is_empty() => Ok(json!({})),
@@ -65,7 +65,7 @@ fn read_settings() -> Result<Value, String> {
     }
 }
 
-fn write_settings(v: &Value) -> Result<(), String> {
+pub fn write_settings(v: &Value) -> Result<(), String> {
     let path = settings_path();
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;

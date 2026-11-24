@@ -3,14 +3,18 @@
 mod ai;
 mod autostart;
 mod claude_app;
+mod collection;
 mod config;
 mod desktop_sessions;
 mod edges;
 mod git;
 mod hooks;
+mod hotkeys;
 mod memory;
+mod quota;
 mod recap;
 mod screen;
+mod secrets;
 mod server;
 mod sysmon;
 mod transcript;
@@ -83,7 +87,7 @@ fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
 
 #[tauri::command]
 fn get_config(state: State<AppState>) -> Config {
-    state.config.lock().unwrap().clone()
+    secrets::hide(state.config.lock().unwrap().clone())
 }
 
 #[tauri::command]
@@ -100,10 +104,13 @@ fn apply_config(app: &AppHandle, state: &AppState, mut config: Config, settings:
         // The window position is owned by the pet window, not the settings form.
         config.x = current.x;
         config.y = current.y;
+        // The page never has the keys (`secrets::hide`).
+        secrets::keep(&mut config.ai, &current.ai);
         std::mem::replace(&mut *current, config.clone())
     };
     state.shared.bubbles.store(config.bubbles, Ordering::SeqCst);
     transcript::show_replies(config.replies);
+    hotkeys::configure(&config.hotkeys);
     if old.size != config.size || old.ai.enabled != config.ai.enabled {
         if let Some(w) = main_window(app) {
             resize_anchored(&w, window_size(&old), window_size(&config));
@@ -113,6 +120,7 @@ fn apply_config(app: &AppHandle, state: &AppState, mut config: Config, settings:
         state.rewatch();
     }
     state.save();
+    let config = secrets::hide(config);
     let _ = if settings { app.emit("config", config) } else { app.emit_to("main", "config", config) };
     if let Some(w) = main_window(app) {
         step_aside(app, state, &w);
@@ -228,6 +236,25 @@ fn resolve_permission(id: u64, body: String, state: State<AppState>) -> bool {
     state.shared.resolve(id, body)
 }
 
+/// The bubble shows a permission request (`on`), with an "always allow" button or not:
+/// the hotkeys that answer it are held only meanwhile.
+#[tauri::command]
+fn permission_hotkeys(on: bool, always: bool) {
+    hotkeys::bubble(on, always);
+}
+
+/// The settings page is taking a new hotkey: none are held meanwhile, so it gets the keys.
+#[tauri::command]
+fn hotkeys_pause(paused: bool) {
+    hotkeys::pause(paused);
+}
+
+/// Whether a hotkey can be had (`hotkeys::check`).
+#[tauri::command]
+fn hotkey_check(combo: String) -> Result<(), String> {
+    hotkeys::check(&combo)
+}
+
 #[tauri::command]
 fn show_menu(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
     let menu = build_menu(&app).map_err(|e| e.to_string())?;
@@ -247,6 +274,26 @@ fn hooks_set(install: bool) -> Result<bool, String> {
         hooks::uninstall()?;
     }
     Ok(hooks::is_installed())
+}
+
+#[tauri::command]
+fn quota_get() -> quota::Quota {
+    quota::get()
+}
+
+#[tauri::command(async)]
+fn statusline_get() -> bool {
+    quota::is_installed()
+}
+
+#[tauri::command(async)]
+fn statusline_set(install: bool) -> Result<bool, String> {
+    if install {
+        quota::install()?;
+    } else {
+        quota::uninstall()?;
+    }
+    Ok(quota::is_installed())
 }
 
 /// (can be turned on in this build, is on)
@@ -407,13 +454,41 @@ fn ai_cancel() {
 
 /// The models a provider offers, going by `ai` as edited in the settings.
 #[tauri::command]
-async fn ai_models(ai: config::AiConfig, provider: String) -> Result<Vec<String>, String> {
+async fn ai_models(mut ai: config::AiConfig, provider: String, state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    secrets::keep(&mut ai, &state.config.lock().unwrap().ai);
     ai::models(ai, provider).await
 }
 
 #[tauri::command]
 fn ai_key_page(provider: String) {
     ai::open_key_page(&provider);
+}
+
+/// Which API keys there are, for the settings page (`secrets::status`).
+#[tauri::command]
+fn ai_keys(state: State<AppState>) -> serde_json::Value {
+    secrets::status(&state.config.lock().unwrap().ai)
+}
+
+/// Saves the API key for `which` (a provider id, or "exa") in the Credential Manager;
+/// an empty one removes it. Gives back the keys there are then.
+#[tauri::command]
+fn ai_key_set(which: String, key: String, state: State<AppState>) -> Result<serde_json::Value, String> {
+    let mut cfg = state.config.lock().unwrap();
+    if secrets::set(&mut cfg.ai, &which, &key)? {
+        cfg.save(&state.config_path);
+    }
+    Ok(secrets::status(&cfg.ai))
+}
+
+/// Moves the API key of provider `from` to provider `to` (`secrets::rename`).
+#[tauri::command]
+fn ai_key_move(from: String, to: String, state: State<AppState>) -> Result<(), String> {
+    let mut cfg = state.config.lock().unwrap();
+    if secrets::rename(&mut cfg.ai, &from, &to)? {
+        cfg.save(&state.config_path);
+    }
+    Ok(())
 }
 
 /// Opens a link from a chat reply in the default browser; only web and mail links.
@@ -547,6 +622,7 @@ fn on_menu(app: &AppHandle, id: &str) {
             app.state::<AppState>().save();
             memory::flush();
             recap::flush();
+            collection::flush();
             app.exit(0);
         }
         "toggle_visible" => {
@@ -717,6 +793,7 @@ fn spawn_background_loop(app: AppHandle) {
                 }
                 memory::flush();
                 recap::flush();
+                collection::flush();
             }
             let dragging = st.dragging.load(Ordering::SeqCst);
             if dragging && !sysmon::left_button_down() {
@@ -750,9 +827,15 @@ fn main() {
             focus_claude,
             drag_started,
             resolve_permission,
+            permission_hotkeys,
+            hotkeys_pause,
+            hotkey_check,
             show_menu,
             hooks_installed,
             hooks_set,
+            quota_get,
+            statusline_get,
+            statusline_set,
             autostart_get,
             autostart_set,
             open_settings,
@@ -767,6 +850,9 @@ fn main() {
             ai_cancel,
             ai_models,
             ai_key_page,
+            ai_keys,
+            ai_key_set,
+            ai_key_move,
             open_link,
             chat_focus,
             memory_event,
@@ -778,7 +864,11 @@ fn main() {
             recap_event,
             recap_get,
             recap_card,
-            recap_open
+            recap_open,
+            collection::collection_known,
+            collection::collection_seen,
+            collection::collection_get,
+            collection::collection_visit
         ])
         .setup(|app| {
             // The port doubles as a single-instance lock.
@@ -799,12 +889,19 @@ fn main() {
                 let _ = std::fs::copy(old_dir.join("config.json"), &config_path);
             }
             let mut cfg = Config::load(&config_path);
+            // Keys still in config.json go to the Credential Manager, and out of the file
+            // once there; any the vault turns down stay where they were.
+            if secrets::migrate(&mut cfg.ai) {
+                cfg.save(&config_path);
+            }
             if cfg.sys.folders.is_none() {
                 cfg.sys.folders = Some(default_folders(&handle));
                 cfg.save(&config_path);
             }
             let config = Arc::new(Mutex::new(cfg.clone()));
             memory::load(data_dir.join("memory"), config.clone());
+            quota::init(handle.clone(), data_dir.clone());
+            collection::load(data_dir.join("collection.json"));
             recap::load(data_dir.join("recap.json"));
             let shared = Arc::new(Shared::default());
             shared.bubbles.store(cfg.bubbles, Ordering::SeqCst);
@@ -832,6 +929,7 @@ fn main() {
             autostart::refresh();
             sysmon::spawn_poller(events.clone(), config.clone());
             transcript::init(handle.clone());
+            hotkeys::start(handle.clone(), &cfg.hotkeys);
             server::serve(listener, handle.clone(), shared);
             // Noted down in a chat that a quit cut short: into the note now.
             if memory::has_memos() {
@@ -861,6 +959,10 @@ fn main() {
         })
         .on_menu_event(|app, e| on_menu(app, e.id().as_ref()))
         .on_window_event(|window, event| {
+            // Closed while taking a new hotkey.
+            if window.label() == "settings" && matches!(event, tauri::WindowEvent::Destroyed) {
+                hotkeys::pause(false);
+            }
             if window.label() != "main" {
                 return;
             }
