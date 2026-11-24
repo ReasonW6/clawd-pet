@@ -83,7 +83,7 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 - `pet.js` 的 `play` 在 GIF 加载好、换上 `sprite` 时调 `collection_seen`。隐藏时 `play` 不加载，所以不算；重新显示时接着演的那个（`resumeSlug`，等于隐藏前最后算过的 `countedSlug`）不再算一次；图鉴发来的 `play` 走 `playOnce(..., { preview: true })`，也不算。每次算都发 `collected`（带 `first`、`count`）给设置页，图鉴开着时次数跟着变。启动时先用 `collection_known` 把 manifest 里的全部 slug 交给后端：不在里面的不记，数里程碑时也不算已经改名、删掉的。
 - 记录（`since`、`visited`、`cheered`、`pending`、每个 slug 的 `first` 和 `count`）在内存里改，由 `main.rs` 的 2 秒保存循环和退出时 `flush` 写进 `~/.clawd-pet/collection.json`（`memory::write`：先写 `.tmp` 再 rename）。新收集到、里程碑、`visited` 变了马上写；只有次数变了（`counted`）最多每分钟写一次，退出时（`flush(true)`）补上。
 - 启动时文件不存在才从零开始；读不了（被杀毒、同步盘占着）就这次运行不写盘（`writable`），解析不了就先改名成 `collection.json.bad` 再开新的，改名失败也不写盘。
-- 里程碑是每 `STEP`（50）个和全部收集齐。开始收集（`since`）后 24 小时内不庆祝，免得老用户第一天连着庆祝；之后第一次新收集到时，只庆祝已达到的最高那个。达到时只记进 `pending`，前端把它放进 `collectCheer`，在 `idleLife` 里等用户在场（`!leftAlone`）、没有别的气泡时播 `ANIMS.collected` / `collectedAll`，演完调 `collection_cheered` 才记进 `cheered`。没演就退出的，下次启动时 `collection_known` 把它交回前端。
+- 里程碑是每 `STEP`（50）个和全部收集齐。开始收集（`since`）后 24 小时内不庆祝，免得老用户第一天连着庆祝；之后第一次新收集到时，只庆祝已达到的最高那个。达到时只记进 `pending`，前端把它放进 `collectCheer`，在 `idleLife` 里等用户在场（`!leftAlone`）、没有别的气泡时播 `ANIMS.collected` / `collectedAll`，开演时调 `collection_cheered` 才记进 `cheered`。没演就退出的，下次启动时 `collection_known` 把它交回前端。
 - 设置页：缩略图用 `ImageDecoder` 取 GIF 中间一帧画在 canvas 上，没见过的用 `source-in` 填成影子色；滚到附近才解码（`IntersectionObserver`），解码结果按 slug 缓存。卡片只在鼠标放上去时换成 GIF。没见过的名字不显示、搜不到，点了不发 `play`。「新」是上次打开图鉴以后收集的：第一次点图鉴标签时调 `collection_visit` 记下时间，这一页里用的还是之前的；从没打开过就算最近一天的。
 
 ### 聊天改设置（`change_setting`）

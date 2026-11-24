@@ -1264,8 +1264,14 @@ async function initGallery() {
   // Every play on the pet, with its count; a new one is collected.
   listen("collected", (e) => {
     const { slug, first, count } = e.payload;
+    const fresh = !seen[slug];
     seen[slug] = { first, count };
-    render();
+    // The grid is built anew only for a new one: the pet plays something every few
+    // seconds, and rebuilding the cards would drop the one hovered or being clicked.
+    if (fresh) return render();
+    if (picked === slug) {
+      $("preview-meta").textContent = `${longDate(first)}第一次见 · 在桌面上演过 ${count} 次`;
+    }
   });
   render();
   const latest = list.filter((m) => seen[m.slug]).sort((a, b) => seen[b.slug].first - seen[a.slug].first)[0];
