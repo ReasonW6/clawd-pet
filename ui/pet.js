@@ -1241,9 +1241,6 @@ let toastText = null;
 let toastAction = null;
 let toastTimer = null;
 let bubbleKey = null;
-/** The hotkeys that answer the permission bubble as the backend holds them, by
- *  `HOTKEY_ACTIONS`; a key shows on a button only for one that is held. */
-let hotkeysLive = [false, false, false];
 /** What the hotkeys were last asked to be held for: "" none, "plain", or "always" too;
  *  null at first, so a reloaded page tells the backend even when it wants none. */
 let hotkeysFor = null;
@@ -1252,9 +1249,6 @@ const HOTKEY_ACTIONS = ["allow", "deny", "always"];
  *  meant for the one before, or one already on its way as it was answered elsewhere,
  *  doesn't answer one the user hasn't looked at. */
 const HOTKEY_SETTLE_MS = 700;
-/** Short marks for the modifiers on a button's key cap; the tooltip has the whole combo. */
-// Spelled out as Windows keyboards print them: the Mac's marks (⌃ ⌥) mean nothing there.
-const MOD_NAMES = { ctrl: "Ctrl", alt: "Alt", shift: "Shift", win: "Win" };
 
 function toast(text, { sticky = false, ms = TOAST_MS, onClick = null } = {}) {
   toastText = text;
@@ -1331,16 +1325,10 @@ function onPermHotkey(action) {
   setTimeout(() => perms.includes(req) && decide(req, action, sug), 140);
 }
 
-/** Puts the key of an action's hotkey on its button, when the hotkey is held. */
+/** Marks a button with its action, for a hotkey press to show it pressed. The hotkeys
+ *  themselves aren't shown on the buttons. */
 function keyCap(b, action) {
-  const i = HOTKEY_ACTIONS.indexOf(action);
   b.dataset.act = action;
-  if (!hotkeysLive[i]) return;
-  const combo = config.hotkeys[action];
-  const parts = combo.split("+").map((x) => x.trim());
-  const key = parts.pop().toUpperCase();
-  b.append(el("kbd", "", [...parts.map((m) => MOD_NAMES[m.toLowerCase()] || m), key].join("+")));
-  b.title = [b.title, `快捷键 ${combo}`].filter(Boolean).join("\n");
 }
 
 function drawBubble() {
@@ -1358,7 +1346,7 @@ function drawBubble() {
     const req = perms[0];
     if (shown && req.shownAt === undefined) req.shownAt = performance.now();
     if (req.ask) return drawAsk(req);
-    const key = `perm-${req.id}-${perms.length}-${hotkeysLive}-${Object.values(config.hotkeys)}`;
+    const key = `perm-${req.id}-${perms.length}`;
     if (bubbleKey === key) return;
     bubbleKey = key;
     const p = req.payload;
@@ -2679,10 +2667,6 @@ async function boot() {
     render();
   });
   await listen("perm-hotkey", (e) => onPermHotkey(e.payload));
-  await listen("hotkeys", (e) => {
-    hotkeysLive = e.payload;
-    renderBubble();
-  });
   await listen("user-event", (e) => onUserEvent(e.payload));
   await listen("ai", (e) => onAi(e.payload));
   await listen("dream", (e) => onDream(e.payload));
