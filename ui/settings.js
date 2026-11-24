@@ -468,6 +468,25 @@ async function initGitWatch() {
   };
 }
 
+// ---------------------------------------------------------------- status line relay
+
+async function initStatusline() {
+  const box = $("statusline");
+  const note = $("statusline-note").innerHTML;
+  box.checked = await invoke("statusline_get");
+  box.onchange = async () => {
+    box.disabled = true;
+    try {
+      box.checked = await invoke("statusline_set", { install: box.checked });
+      $("statusline-note").innerHTML = note;
+    } catch (e) {
+      box.checked = !box.checked;
+      $("statusline-note").textContent = String(e);
+    }
+    box.disabled = false;
+  };
+}
+
 // ---------------------------------------------------------------- Claude Code hooks
 
 function showHooks(installed) {
@@ -484,6 +503,149 @@ function showHooks(installed) {
       $("hook-error").hidden = false;
     }
   };
+}
+
+// ---------------------------------------------------------------- permission hotkeys
+
+/** [action, button it stands for, note]; in config.hotkeys by action. */
+const HOTKEYS = [
+  ["allow", "允许"],
+  ["deny", "拒绝"],
+  ["always", "总是允许", "气泡上有这个按钮时才有用"],
+];
+const MODIFIERS = ["Control", "Alt", "Shift", "Meta"];
+/** Each action's row: { keys, small, err }. */
+const hotkeyRows = {};
+/** The key capture going on: { action, mods }. */
+let capturing = null;
+
+const heldMods = (e) => [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win"].filter(Boolean);
+
+/** A key a hotkey can end with: a letter, a digit or F1–F24, by where it is on the
+ *  keyboard, so that any layout gives the same combo. */
+function comboKey(e) {
+  const m = /^(?:Key([A-Z])|Digit([0-9])|(F(?:[1-9]|1[0-9]|2[0-4])))$/.exec(e.code);
+  return m && (m[1] || m[2] || m[3]);
+}
+
+function initHotkeys() {
+  for (const [action, name, note = ""] of HOTKEYS) {
+    const text = el("span", "text");
+    const small = el("small", "", note);
+    text.append(el("b", "", name), small);
+    const keys = el("button", "keys");
+    keys.onclick = () => (capturing?.action === action ? endCapture() : startCapture(action));
+    const row = el("div", "row");
+    row.append(text, keys);
+    const err = el("div", "error");
+    err.hidden = true;
+    $("hotkey-list").append(row, err);
+    hotkeyRows[action] = { keys, small, note, err };
+    drawKeys(action);
+  }
+  for (const key of ["bubbles", "hotkeys.enabled"]) document.querySelector(`[data-key="${key}"]`).addEventListener("input", showHotkeys);
+  // While capturing, every key is for the capture (Tab and Enter too), not for the page.
+  document.addEventListener("keydown", captureKey, true);
+  document.addEventListener("keyup", (e) => {
+    if (!capturing) return;
+    capturing.mods = heldMods(e);
+    drawKeys(capturing.action);
+  }, true);
+  window.addEventListener("blur", endCapture);
+  showHotkeys();
+}
+
+/** The combos only matter with the bubbles on, and are set only with the hotkeys on. */
+function showHotkeys() {
+  $("hotkeys-card").hidden = !config.bubbles;
+  $("hotkey-list").hidden = !config.hotkeys.enabled;
+  if (!config.hotkeys.enabled) endCapture();
+  for (const [action] of HOTKEYS) checkHotkey(action);
+}
+
+/** Says so under the combo when another program holds it. */
+async function checkHotkey(action) {
+  const combo = config.hotkeys[action];
+  const problem = config.hotkeys.enabled && combo ? await invoke("hotkey_check", { combo }).then(() => "", String) : "";
+  // A newer combo may have been set meanwhile.
+  if (combo === config.hotkeys[action]) showHotkeyError(action, problem);
+}
+
+function showHotkeyError(action, text) {
+  const { keys, err } = hotkeyRows[action];
+  err.textContent = text;
+  err.hidden = !text;
+  keys.classList.toggle("taken", Boolean(text));
+}
+
+/** The combo as key caps; while capturing, the modifiers held so far. */
+function drawKeys(action) {
+  const { keys } = hotkeyRows[action];
+  const live = capturing?.action === action;
+  keys.classList.toggle("capturing", live);
+  keys.innerHTML = "";
+  const parts = live ? capturing.mods : config.hotkeys[action].split("+").filter(Boolean);
+  parts.forEach((part, i) => {
+    if (i) keys.append(el("span", "plus", "+"));
+    keys.append(el("kbd", "", part));
+  });
+  if (live) {
+    if (parts.length) keys.append(el("span", "plus", "+"));
+    else keys.append(el("span", "waiting", "按下组合键"));
+    keys.append(el("i", "caret"));
+  } else if (!parts.length) {
+    keys.append(el("span", "none", "未设置"));
+  }
+}
+
+function startCapture(action) {
+  endCapture();
+  capturing = { action, mods: [] };
+  // The pet lets go of its hotkeys meanwhile, or pressing one would reach it, not the page.
+  invoke("hotkeys_pause", { paused: true });
+  hotkeyRows[action].small.textContent = "Esc 取消 · Backspace 清除";
+  showHotkeyError(action, "");
+  drawKeys(action);
+}
+
+function endCapture() {
+  if (!capturing) return;
+  const { action } = capturing;
+  capturing = null;
+  invoke("hotkeys_pause", { paused: false });
+  hotkeyRows[action].small.textContent = hotkeyRows[action].note;
+  drawKeys(action);
+  // What a key pressed meanwhile was turned down for gives way to how the combo stands.
+  showHotkeyError(action, "");
+  checkHotkey(action);
+}
+
+function captureKey(e) {
+  if (!capturing) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.repeat) return;
+  const { action } = capturing;
+  const mods = heldMods(e);
+  if (MODIFIERS.includes(e.key)) {
+    capturing.mods = mods;
+    return drawKeys(action);
+  }
+  if (e.key === "Escape" && !mods.length) return endCapture();
+  if ((e.key === "Backspace" || e.key === "Delete") && !mods.length) return setHotkey(action, "");
+  const key = comboKey(e);
+  if (!key) return showHotkeyError(action, "最后一个键要是字母、数字或 F1–F24");
+  if (!mods.some((m) => m !== "Shift")) return showHotkeyError(action, "要带上 Ctrl、Alt 或 Win，免得打字时被它抢走");
+  const combo = [...mods, key].join("+");
+  const twin = HOTKEYS.find(([other]) => other !== action && config.hotkeys[other] === combo);
+  if (twin) return showHotkeyError(action, `和「${twin[1]}」的快捷键重复了`);
+  setHotkey(action, combo);
+}
+
+function setHotkey(action, combo) {
+  config.hotkeys[action] = combo;
+  save();
+  endCapture();
 }
 
 // ---------------------------------------------------------------- AI chat
@@ -510,15 +672,20 @@ function provider() {
   return providers.find((p) => p.id === config.ai.provider && !TEMPLATES.includes(p.id)) || providers[0];
 }
 
-const profile = () => (config.ai.profiles[provider().id] ??= { apiKey: "", baseUrl: "", model: "", reasoning: "" });
+const profile = () => (config.ai.profiles[provider().id] ??= { baseUrl: "", model: "", reasoning: "" });
 
 /** Settings from before providers of one's own: what was set for a template becomes one. */
-function migrateCustom() {
+async function migrateCustom() {
   for (const [kind, name] of [["custom", "自定义"], ["custom-anthropic", "自定义（Anthropic）"]]) {
     const old = config.ai.profiles[kind];
     // Anything set (a key alone too) would be out of reach once the templates aren't listed.
-    if (config.ai.provider !== kind && !Object.values(old ?? {}).some(Boolean)) continue;
+    if (config.ai.provider !== kind && !Object.values(old ?? {}).some(Boolean) && !keys[kind]) continue;
     const mine = { id: `my-${kind}-${Date.now().toString(36)}`, name, kind };
+    if (keys[kind]) {
+      // Left as it was if the key can't move: the next time the page opens tries again.
+      if (!(await invoke("ai_key_move", { from: kind, to: mine.id }).then(() => true, () => false))) continue;
+      showKeys(await invoke("ai_keys"));
+    }
     config.ai.customProviders.push(mine);
     if (old) config.ai.profiles[mine.id] = old;
     delete config.ai.profiles[kind];
@@ -529,7 +696,8 @@ function migrateCustom() {
 
 async function initAi() {
   providers = await invoke("ai_providers");
-  migrateCustom();
+  showKeys(await invoke("ai_keys"));
+  await migrateCustom();
   $("ai-provider").onchange = () => {
     const id = $("ai-provider").value;
     if (id === ADD) addProvider();
@@ -554,7 +722,6 @@ async function initAi() {
       save();
     };
   };
-  field("ai-key", "apiKey");
   field("ai-base", "baseUrl");
   $("ai-name").oninput = () => {
     provider().mine.name = $("ai-name").value.trim();
@@ -601,6 +768,10 @@ async function initAi() {
       $(button).title = show ? "隐藏" : "显示";
     };
   }
+  vaults.push(
+    (providerVault = vault($("ai-key-vault"), () => provider().id, () => (provider().needsKey ? "必填，粘贴后回车保存" : "不需要就留空"))),
+    vault($("ai-exa-vault"), () => "exa", () => "可以不填"),
+  );
   $("ai-key-link").onclick = () => invoke("ai_key_page", { provider: provider().id });
   $("ai-exa-link").onclick = () => invoke("ai_key_page", { provider: "exa" });
   $("ai-fetch").onclick = fetchModels;
@@ -676,6 +847,7 @@ function deleteProvider() {
     return;
   }
   const id = provider().id;
+  invoke("ai_key_set", { which: id, key: "" }).then(showKeys, () => {});
   config.ai.customProviders = config.ai.customProviders.filter((c) => c.id !== id);
   delete config.ai.profiles[id];
   switchProvider("deepseek"); // the default (config.rs)
@@ -696,8 +868,7 @@ function showAi() {
     for (const radio of document.querySelectorAll("input[name=ai-kind]")) radio.checked = radio.value === (p.mine.kind === "custom-anthropic" ? "custom-anthropic" : "custom");
   }
   disarmProviderDelete();
-  $("ai-key").value = mine.apiKey;
-  $("ai-key").placeholder = p.needsKey ? "必填" : "不需要就留空";
+  providerVault.reset();
   $("ai-key-link").hidden = !p.keyUrl;
   $("ai-base").value = mine.baseUrl;
   $("ai-base").placeholder = p.baseUrl || "必填，如 https://example.com/v1";
@@ -715,6 +886,118 @@ function showSummary() {
   const p = provider();
   $("provider-summary").textContent = `${p.name} · ${profile().model || p.model || "还没选模型"}`;
   $("ai-search-note").textContent = p.search ? "问到新闻、天气这类事会自己去查，有的服务商按次收费" : `${p.name} 没有自带的联网搜索，可以用 Exa`;
+}
+
+// ---- API keys: in the Windows Credential Manager, never in the config; the page only
+// learns which there are (`ai_keys`), by their last few characters.
+
+/** By provider id ("exa" for Exa's): { tail, plain }, plain while the vault couldn't take it. */
+let keys = {};
+/** Why the vault turned a key down. */
+let keyTrouble = null;
+const vaults = [];
+let providerVault;
+
+function showKeys(status) {
+  keys = status.keys;
+  keyTrouble = status.trouble;
+  for (const v of vaults) v.show();
+}
+
+/** A key box: a saved key by its last characters, to replace or remove; or a box to type one
+ *  into, which saves it a moment after typing stops, on Enter and on leaving the box. */
+function vault(box, which, placeholder) {
+  const input = box.querySelector("input");
+  const remove = box.querySelector(".vault-remove");
+  const warn = box.closest(".row").nextElementSibling;
+  let editing = false;
+  let sent = "";
+  let failed = "";
+  let timer = 0;
+  let disarmTimer = 0;
+
+  const disarm = () => {
+    clearTimeout(disarmTimer);
+    remove.classList.remove("armed");
+    remove.textContent = "移除";
+  };
+  const show = () => {
+    const key = keys[which()];
+    box.classList.toggle("saved", !!key && !editing);
+    box.classList.toggle("plain", !!key?.plain);
+    box.querySelector(".vault-where").textContent = key?.plain ? "明文保存" : "凭据管理器";
+    box.querySelector(".vault-tail").textContent = key?.tail || "••••";
+    box.querySelector(".vault-saved").title = key?.plain
+      ? "Windows 凭据管理器没能存下，还以明文放在 config.json 里"
+      : `存在 Windows 凭据管理器里，名字是 clawd-pet/${which()}`;
+    input.placeholder = key ? "粘贴新的密钥，回车保存，Esc 取消" : placeholder();
+    const plain = key?.plain ? `Windows 凭据管理器没能存下这个密钥${keyTrouble ? `：${keyTrouble}` : ""}。它还以明文放在 config.json 里，重新填一次或者重启桌宠时会再试。` : "";
+    warn.textContent = failed || plain;
+    warn.hidden = !warn.textContent;
+    disarm();
+  };
+  const commit = async () => {
+    clearTimeout(timer);
+    const [w, value] = [which(), input.value.trim()];
+    if (!value) return true;
+    if (value === sent) return !failed;
+    sent = value;
+    try {
+      const status = await invoke("ai_key_set", { which: w, key: value });
+      failed = "";
+      showKeys(status);
+      return true;
+    } catch (e) {
+      if (which() !== w) return false;
+      sent = ""; // the same key may be tried again
+      failed = String(e);
+      show();
+      return false;
+    }
+  };
+  /** Back to the saved key (if any), with nothing typed. */
+  const reset = () => {
+    clearTimeout(timer);
+    editing = false;
+    sent = failed = "";
+    input.value = "";
+    show();
+  };
+
+  input.oninput = () => {
+    editing = true; // stays the box to type in until left, saved or not
+    clearTimeout(timer);
+    timer = setTimeout(commit, 800);
+  };
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") input.blur();
+    else if (e.key === "Escape") reset();
+  };
+  input.onblur = async () => {
+    const w = which();
+    if (await commit() && which() === w) reset();
+  };
+  box.querySelector(".vault-replace").onclick = () => {
+    editing = true;
+    show();
+    input.focus();
+  };
+  remove.onclick = async () => {
+    if (!remove.classList.contains("armed")) {
+      remove.classList.add("armed");
+      remove.textContent = "确定";
+      disarmTimer = setTimeout(disarm, 2500);
+      return;
+    }
+    try {
+      showKeys(await invoke("ai_key_set", { which: which(), key: "" }));
+    } catch (e) {
+      failed = String(e);
+      show();
+    }
+  };
+  show();
+  return { show, reset };
 }
 
 /** The address row stays folded away while the provider's own address is used. */
@@ -1062,6 +1345,314 @@ function disarmForget() {
   $("memory-forget").textContent = "全部忘掉";
 }
 
+// ---------------------------------------------------------------- recap
+
+// What got done with Claude (recap.rs), a day, a week (Monday to Sunday) or a month at a
+// time. Days start at 05:00, so an hour row runs from 05 to 04. A day missing, or an hour
+// not in its `seen` bits, is no data (the pet wasn't running), shown apart from a zero.
+
+/** The hours of a day in the order they come: 05 … 23, 00 … 04. */
+const RECAP_HOURS = [...Array(24)].map((_, i) => (i + 5) % 24);
+const WEEKDAYS = "一二三四五六日";
+/** Busy minutes in an hour from which a cell takes the next shade. */
+const SHADES = [10, 25, 45];
+
+let recap = { days: {} };
+let recapView = "week";
+/** The first day of the period shown, "YYYY-MM-DD". */
+let recapStart = null;
+
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const parseDay = (day) => {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(y, m - 1, d);
+};
+const addDays = (day, n) => {
+  const d = parseDay(day);
+  d.setDate(d.getDate() + n);
+  return ymd(d);
+};
+const weekday = (day) => (parseDay(day).getDay() + 6) % 7;
+/** Minutes after 05:00: the order times of day come in within one day. */
+const dayMinute = (hm) => {
+  const [h, m] = hm.split(":").map(Number);
+  return (h * 60 + m + 1440 - 300) % 1440;
+};
+
+/** The first day of the period `view` that `day` is in. */
+function periodStart(view, day) {
+  if (view === "week") return addDays(day, -weekday(day));
+  if (view === "month") return `${day.slice(0, 8)}01`;
+  return day;
+}
+
+function periodDays(view, start) {
+  if (view === "day") return [start];
+  const n = view === "week" ? 7 : new Date(parseDay(start).getFullYear(), parseDay(start).getMonth() + 1, 0).getDate();
+  return [...Array(n)].map((_, i) => addDays(start, i));
+}
+
+function shiftPeriod(view, start, by) {
+  if (view === "day") return addDays(start, by);
+  if (view === "week") return addDays(start, 7 * by);
+  const d = parseDay(start);
+  return ymd(new Date(d.getFullYear(), d.getMonth() + by, 1));
+}
+
+/** [number, unit], the number possibly with a unit of its own inside: "3 小时 5 分". */
+function durationText(secs) {
+  const m = Math.round(secs / 60);
+  if (m < 60) return [m, "分钟"];
+  // Past ten hours the minutes no longer matter, and would not fit.
+  if (m >= 600) return [Math.round(m / 6) / 10, "小时"];
+  const h = Math.floor(m / 60);
+  return m % 60 ? [`${h}<small>小时</small>${m % 60}`, "分"] : [h, "小时"];
+}
+
+// Little icons, drawn on a pixel grid like the pet.
+const ICONS = {
+  done: ["......X", ".....XX", "X...XX.", "XX.XX..", ".XXX...", "..X....", "......."],
+  busy: ["XXXXXXX", ".X...X.", "..X.X..", "...X...", "..XXX..", ".XXXXX.", "XXXXXXX"],
+  last: ["..XXX..", ".X...X.", "X..X..X", "X..XX.X", "X.....X", ".X...X.", "..XXX.."],
+  late: ["..XXX..", ".XX....", "XX.....", "XX...X.", "XX.....", ".XX....", "..XXX.."],
+  sessions: ["XXXXXXX", "X.....X", "X.X.X.X", "X.....X", "XXXXXXX", ".XX....", ".X....."],
+  approvals: ["XXXXXXX", "X.....X", "X....XX", "XX..X.X", "X.XX..X", ".X...X.", "..XXX.."],
+  errors: ["....XX.", "...XXXX", "..XX.XX", ".XX.XX.", "XX.XX..", "XXXX...", ".XX...."],
+  peak: ["...XXX.", "..XXX..", ".XXX...", "XXXXXX.", "...XXX.", "..XX...", ".XX...."],
+};
+
+function icon(name) {
+  const rows = ICONS[name];
+  const rects = rows.flatMap((row, y) => [...row].map((c, x) => (c === "X" ? `<rect x="${x}" y="${y}" width="1" height="1"/>` : "")));
+  return `<svg class="pix" viewBox="0 0 ${rows[0].length} ${rows.length}" aria-hidden="true">${rects.join("")}</svg>`;
+}
+
+async function showRecap() {
+  recap = await invoke("recap_get");
+  // Without the hooks there is nothing to count.
+  $("recap-nohooks").hidden = await invoke("hooks_installed");
+  if (recap.open) openRecapWeek(recap.open);
+  drawRecap();
+}
+
+/** From the weekly card: that week. */
+function openRecapWeek(week) {
+  recapView = "week";
+  recapStart = week;
+  document.querySelector('input[name=recap-view][value="week"]').checked = true;
+  showTab("recap");
+}
+
+function drawRecap() {
+  const today = memDay();
+  recapStart ??= periodStart(recapView, today);
+  const days = periodDays(recapView, recapStart);
+  const data = days.map((d) => recap.days[d] || null);
+  const end = days.at(-1);
+  const earliest = Object.keys(recap.days).sort()[0] || today;
+  $("recap-prev").disabled = recapStart <= earliest;
+  $("recap-next").disabled = end >= today;
+  $("recap-range").textContent = rangeText(days, today);
+  drawStats(days, data);
+  $("recap-when-title").textContent = recapView === "day" ? "每个钟头忙了多久" : "什么时候在忙";
+  if (recapView === "day") drawHours(days[0], data[0], today);
+  else drawHeat(days, data, today);
+  drawProjects(data);
+}
+
+function rangeText(days, today) {
+  const [a, b] = [parseDay(days[0]), parseDay(days.at(-1))];
+  const md = (d) => `${d.getMonth() + 1} 月 ${d.getDate()} 日`;
+  if (recapView === "day") {
+    const name = days[0] === today ? "今天" : days[0] === addDays(today, -1) ? "昨天" : `周${WEEKDAYS[weekday(days[0])]}`;
+    return `${md(a)} · ${name}`;
+  }
+  if (recapView === "week") {
+    const name = days[0] === periodStart("week", today) ? "本周" : days[0] === periodStart("week", addDays(today, -7)) ? "上周" : "";
+    const span = a.getMonth() === b.getMonth() ? `${md(a)} – ${b.getDate()} 日` : `${md(a)} – ${md(b)}`;
+    return name ? `${span} · ${name}` : span;
+  }
+  return `${a.getFullYear()} 年 ${a.getMonth() + 1} 月`;
+}
+
+const sum = (list) => list.reduce((a, b) => a + b, 0);
+
+function drawStats(days, data) {
+  const box = $("recap-stats");
+  box.innerHTML = "";
+  const seen = data.filter(Boolean);
+  const tasks = sum(seen.map((d) => sum(d.done)));
+  const busy = sum(seen.map((d) => sum(d.busy)));
+  // The latest finish, and on which day when there is more than one.
+  let last = null;
+  data.forEach((d, i) => {
+    if (d?.last && (!last || dayMinute(d.last) > dayMinute(last.at))) last = { at: d.last, day: days[i] };
+  });
+  // Finished between 23:00 and 05:00.
+  const late = sum(seen.map((d) => d.done[23] + d.done[0] + d.done[1] + d.done[2] + d.done[3] + d.done[4]));
+  const hours = RECAP_HOURS.map((h) => sum(seen.map((d) => d.busy[h])));
+  const peak = Math.max(...hours);
+  const peakHour = RECAP_HOURS[hours.indexOf(peak)];
+  const none = !seen.length;
+  const tiles = [
+    ["done", "搞定的任务", tasks, "个"],
+    ["busy", "一起忙了", ...durationText(busy)],
+    ["last", "最晚收工", last ? last.at.replace(/^0/, "") : "", last && recapView !== "day" ? `周${WEEKDAYS[weekday(last.day)]}` : ""],
+    ["late", "深夜收工", late, "次"],
+    ["sessions", "会话", sum(seen.map((d) => d.sessions)), "个"],
+    ["approvals", "批过的权限", sum(seen.map((d) => d.approvals)), "次"],
+    ["errors", "出错", sum(seen.map((d) => d.errors)), "次"],
+    ["peak", "最忙的钟点", peak ? `${peakHour}–${(peakHour + 1) % 24}` : "", peak ? "点" : ""],
+  ];
+  for (const [name, title, value, unit] of tiles) {
+    const tile = el("div", "stat");
+    tile.innerHTML = `<span class="name">${icon(name)}${title}</span><span class="value"></span>`;
+    const v = tile.querySelector(".value");
+    // No data is a dash; nothing done is a zero.
+    if (none || value === "") {
+      v.textContent = "—";
+      v.classList.add("empty");
+    } else {
+      v.innerHTML = `${value}<small>${unit}</small>`;
+    }
+    box.append(tile);
+  }
+}
+
+function shade(secs) {
+  const m = secs / 60;
+  if (!m) return "l0";
+  return `l${1 + SHADES.filter((x) => m >= x).length}`;
+}
+
+function cellTitle(day, h, d) {
+  const span = `${String(h).padStart(2, "0")}:00–${String((h + 1) % 24).padStart(2, "0")}:00`;
+  const when = `${parseDay(day).getMonth() + 1}/${parseDay(day).getDate()} 周${WEEKDAYS[weekday(day)]} ${span}`;
+  if (!d || !(d.seen & (1 << h))) return `${when}\n没开着`;
+  const m = Math.round(d.busy[h] / 60);
+  return `${when}\n${m ? `忙了 ${m} 分钟` : "没在忙"}${d.done[h] ? ` · 搞定 ${d.done[h]} 个` : ""}`;
+}
+
+/** Whether hour `h` of `day` is still to come. */
+function ahead(day, h, today) {
+  if (day > today) return true;
+  if (day < today) return false;
+  const now = new Date();
+  return RECAP_HOURS.indexOf(h) > RECAP_HOURS.indexOf(now.getHours());
+}
+
+/** A week or a month: a row for each day, a cell for each hour. */
+function drawHeat(days, data, today) {
+  const box = $("recap-heat");
+  box.innerHTML = "";
+  box.className = `heat ${recapView}`;
+  box.append(el("span"));
+  for (const h of RECAP_HOURS) box.append(el("span", "hour", h % 3 ? "" : String(h)));
+  days.forEach((day, i) => {
+    const d = data[i];
+    const name = el("span", "day");
+    const w = weekday(day);
+    name.innerHTML = recapView === "week" ? `周${WEEKDAYS[w]}<small>${parseDay(day).getDate()}</small>` : `${parseDay(day).getDate()}<small>周${WEEKDAYS[w]}</small>`;
+    name.classList.toggle("today", day === today);
+    name.classList.toggle("weekend", w >= 5);
+    box.append(name);
+    for (const h of RECAP_HOURS) {
+      const cell = el("i", "cell");
+      if (ahead(day, h, today)) cell.classList.add("ahead");
+      else if (!d || !(d.seen & (1 << h))) cell.classList.add("none");
+      else cell.classList.add(shade(d.busy[h]));
+      if (d?.done[h]) cell.classList.add("did");
+      if (!cell.classList.contains("ahead")) cell.title = cellTitle(day, h, d);
+      box.append(cell);
+    }
+  });
+}
+
+/** One day: a bar for each hour, how many minutes of it were busy, with the tasks done in it. */
+function drawHours(day, d, today) {
+  const box = $("recap-heat");
+  box.innerHTML = "";
+  box.className = "hours";
+  for (const h of RECAP_HOURS) {
+    const col = el("div", "col");
+    const bar = el("i", "bar");
+    if (ahead(day, h, today)) col.classList.add("ahead");
+    else if (!d || !(d.seen & (1 << h))) col.classList.add("none");
+    else {
+      // In 5-minute steps, so the bars keep to a pixel grid.
+      bar.style.setProperty("--h", Math.ceil(d.busy[h] / 300));
+      bar.classList.add(shade(d.busy[h]));
+      col.title = cellTitle(day, h, d);
+    }
+    col.append(el("span", "n", d?.done[h] ? String(d.done[h]) : ""), bar, el("span", "hour", h % 3 ? "" : String(h)));
+    box.append(col);
+  }
+}
+
+function drawProjects(data) {
+  const box = $("recap-projects");
+  box.innerHTML = "";
+  const totals = new Map();
+  for (const d of data) for (const [name, [n, m]] of Object.entries(d?.projects || {})) {
+    const t = totals.get(name) || [0, 0];
+    totals.set(name, [t[0] + n, t[1] + m]);
+  }
+  const top = [...totals].sort((a, b) => b[1][0] - a[1][0] || b[1][1] - a[1][1]).slice(0, 6);
+  if (!top.length) {
+    const empty = el("div", "recap-empty");
+    const seen = data.some(Boolean);
+    empty.innerHTML = `<img src="assets/clawd/${seen ? "read_doze" : "life_bed_sleep"}.gif" alt="" /><span></span>`;
+    empty.querySelector("span").textContent = seen ? "这段时间还没一起完成任务，歇着也挺好～" : "这段时间我没开着，没有记录";
+    box.append(empty);
+    return;
+  }
+  const most = top[0][1][0];
+  for (const [name, [n, m]] of top) {
+    const row = el("div", "row project");
+    const label = el("span", "text");
+    label.append(el("b", "", name));
+    const bar = el("span", "track");
+    const fill = el("i");
+    fill.style.width = `${Math.max(4, (n / most) * 100)}%`;
+    bar.append(fill);
+    const [v, unit] = durationText(m * 60);
+    const count = el("span", "count");
+    count.innerHTML = `${n} 个<small> · ${v}${unit}</small>`;
+    row.append(label, bar, count);
+    row.title = name;
+    box.append(row);
+  }
+}
+
+function initRecap() {
+  for (const radio of document.querySelectorAll("input[name=recap-view]")) {
+    radio.onchange = () => {
+      // To the period around today if the one shown has it, else around its first day.
+      const today = memDay();
+      const days = periodDays(recapView, recapStart || today);
+      recapView = radio.value;
+      recapStart = periodStart(recapView, days.includes(today) ? today : days[0]);
+      drawRecap();
+    };
+  }
+  $("recap-prev").onclick = () => {
+    recapStart = shiftPeriod(recapView, recapStart, -1);
+    drawRecap();
+  };
+  $("recap-next").onclick = () => {
+    recapStart = shiftPeriod(recapView, recapStart, 1);
+    drawRecap();
+  };
+  document.querySelector('nav button[data-tab="recap"]').addEventListener("click", showRecap);
+  listen("recap-open", (e) => {
+    openRecapWeek(e.payload);
+    showRecap();
+  });
+  // New numbers come in as Claude works: once a minute while the page shows them.
+  setInterval(() => $("tab-recap").classList.contains("active") && showRecap(), 60 * 1000);
+  showRecap();
+}
+
 // ---------------------------------------------------------------- autostart
 
 async function initAutostart() {
@@ -1082,40 +1673,192 @@ async function initAutostart() {
 
 // ---------------------------------------------------------------- gallery
 
+// A collection of what the pet has played on the desktop (collection.rs): those show in
+// color and move under the mouse; the rest stay silhouettes named "???" until it plays them.
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Animations per milestone, as collection.rs cheers them. */
+const COLLECT_STEP = 50;
+/** slug -> a promise of a frame from the middle of the animation, or null. */
+const keyFrames = new Map();
+
+function keyFrame(slug) {
+  if (!keyFrames.has(slug)) {
+    const load = async () => {
+      const data = await fetch(`assets/clawd/${slug}.gif`).then((r) => r.arrayBuffer());
+      if (!window.ImageDecoder) return createImageBitmap(new Blob([data], { type: "image/gif" }));
+      const decoder = new ImageDecoder({ data, type: "image/gif" });
+      try {
+        await decoder.tracks.ready;
+        await decoder.completed;
+        const { image } = await decoder.decode({ frameIndex: Math.floor(decoder.tracks.selectedTrack.frameCount / 2) });
+        try {
+          return await createImageBitmap(image);
+        } finally {
+          image.close();
+        }
+      } finally {
+        decoder.close();
+      }
+    };
+    keyFrames.set(slug, load().catch(() => null));
+  }
+  return keyFrames.get(slug);
+}
+
+/** Draws `slug`'s key frame on a canvas, or just its outline in the shadow color. */
+async function drawFrame(canvas, slug, shadow) {
+  const frame = await keyFrame(slug);
+  if (!frame) return;
+  const g = canvas.getContext("2d");
+  g.globalCompositeOperation = "copy";
+  g.drawImage(frame, 0, 0, canvas.width, canvas.height);
+  if (!shadow) return;
+  g.globalCompositeOperation = "source-in";
+  g.fillStyle = getComputedStyle(canvas).getPropertyValue("--shadow").trim() || "#d6ccbd";
+  g.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+const longDate = (ms) => new Date(ms).toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" });
+
 async function initGallery() {
   const list = await fetch("assets/clawd/manifest.json").then((r) => r.json());
+  const record = await invoke("collection_get");
+  const seen = record?.seen || {};
+  // New: collected since the gallery was last opened (on a first visit, in the last day).
+  const newSince = record?.visited || Date.now() - DAY_MS;
+  const isNew = (m) => seen[m.slug]?.first > newSince;
   let theme = "";
-  $("gallery-count").textContent = `共 ${list.length} 个`;
+  let filter = "all";
+  let picked = null;
 
-  const render = () => {
-    const q = $("search").value.trim().toLowerCase();
-    $("grid").innerHTML = "";
-    for (const m of list) {
-      if (theme && m.theme !== theme) continue;
-      if (q && !`${m.zh} ${m.en} ${m.slug}`.toLowerCase().includes(q)) continue;
-      const b = el("button", "", m.zh);
-      b.title = `${m.en} · ${m.slug}`;
-      b.onclick = () => {
-        $("preview").src = `assets/clawd/${m.slug}.gif`;
-        $("preview-name").textContent = `${m.zh} · ${m.slug}`;
-        emitTo("main", "play", m.slug);
-      };
-      $("grid").append(b);
+  if (record?.since) $("gallery-count").textContent = `${longDate(record.since)}开始收集`;
+  $("total").textContent = list.length;
+  $("progress-fill").parentElement.style.setProperty("--tick", `${(COLLECT_STEP / list.length) * 100}%`);
+
+  // Tiles get their picture once scrolled near.
+  const lazy = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        lazy.unobserve(e.target);
+        drawFrame(e.target.querySelector("canvas"), e.target.dataset.slug, e.target.classList.contains("unseen"));
+      }
+    },
+    { root: document.querySelector("main"), rootMargin: "300px 0px" },
+  );
+
+  /** Shows `m` up top; a click on its tile (`tile`) also has the pet play it, if collected. */
+  const choose = (m, tile) => {
+    const have = seen[m.slug];
+    $("preview").hidden = !have;
+    $("preview-shadow").hidden = Boolean(have);
+    if (!tile) {
+      // Before any click: the latest one collected.
+      $("preview").src = `assets/clawd/${m.slug}.gif`;
+      $("preview-name").textContent = `最近收集：${m.zh}`;
+      $("preview-meta").textContent = `${longDate(have.first)}第一次见 · 点卡片让它在桌面上演一遍`;
+      return;
+    }
+    picked = m.slug;
+    $("grid").querySelectorAll(".picked").forEach((t) => t.classList.remove("picked"));
+    tile.classList.add("picked");
+    if (have) {
+      $("preview").src = `assets/clawd/${m.slug}.gif`;
+      $("preview-name").textContent = m.zh;
+      $("preview-meta").textContent = `${longDate(have.first)}第一次见 · 在桌面上演过 ${have.count} 次`;
+      emitTo("main", "play", m.slug);
+    } else {
+      drawFrame($("preview-shadow"), m.slug, true);
+      $("preview-name").textContent = "???";
+      $("preview-meta").textContent = `${m.themeZh} · 还没见它演过，多陪它待一会儿吧`;
     }
   };
 
-  const themes = [["", "全部"], ...new Map(list.map((m) => [m.theme, m.themeZh]))];
-  for (const [id, name] of themes) {
-    const chip = el("button", id === theme ? "active" : "", name);
-    chip.onclick = () => {
-      theme = id;
-      $("themes").querySelectorAll("button").forEach((c) => c.classList.toggle("active", c === chip));
+  const tile = (m) => {
+    const have = seen[m.slug];
+    const t = el("button", `tile ${have ? "seen" : "unseen"}${m.slug === picked ? " picked" : ""}`);
+    t.dataset.slug = m.slug;
+    const canvas = el("canvas");
+    canvas.width = canvas.height = 40;
+    t.append(canvas, el("span", "", have ? m.zh : "???"));
+    if (isNew(m)) t.append(el("i", "badge", "NEW"));
+    t.title = have ? `${m.zh}\n${longDate(have.first)}第一次见` : "还没见它演过";
+    if (have) {
+      // Moves while the mouse is on it.
+      t.onmouseenter = () => {
+        const gif = el("img");
+        gif.src = `assets/clawd/${m.slug}.gif`;
+        t.append(gif);
+      };
+      t.onmouseleave = () => t.querySelector("img")?.remove();
+    }
+    t.onclick = () => choose(m, t);
+    lazy.observe(t);
+    return t;
+  };
+
+  const render = () => {
+    const owned = list.filter((m) => seen[m.slug]);
+    const fresh = owned.filter(isNew).length;
+    $("have").textContent = owned.length;
+    $("gallery-pct").textContent = owned.length === list.length ? "全部收集齐啦 🎉" : `${Math.floor((owned.length / list.length) * 100)}%`;
+    $("progress-fill").style.width = `${(owned.length / list.length) * 100}%`;
+    $("new-filter").hidden = !fresh;
+    $("new-count").textContent = fresh;
+    if (!fresh && filter === "new") {
+      filter = "all";
+      document.querySelector('[name="collect"][value="all"]').checked = true;
+    }
+
+    // Theme chips, each with how much of it is collected.
+    $("themes").innerHTML = "";
+    for (const [id, name] of [["", "全部"], ...new Map(list.map((m) => [m.theme, m.themeZh]))]) {
+      const of = list.filter((m) => !id || m.theme === id);
+      const got = of.filter((m) => seen[m.slug]).length;
+      const chip = el("button", `${id === theme ? "active" : ""}${id && got === of.length ? " done" : ""}`, name);
+      if (id) chip.append(el("small", "", `${got}/${of.length}`));
+      chip.onclick = () => {
+        theme = id;
+        render();
+      };
+      $("themes").append(chip);
+    }
+
+    // Names of the ones not seen yet stay a secret, from the search too.
+    const q = $("search").value.trim().toLowerCase();
+    lazy.disconnect();
+    $("grid").innerHTML = "";
+    for (const m of list) {
+      const have = seen[m.slug];
+      if (theme && m.theme !== theme) continue;
+      if ((filter === "have" && !have) || (filter === "missing" && have) || (filter === "new" && !isNew(m))) continue;
+      if (q && !(have && `${m.zh} ${m.en} ${m.slug}`.toLowerCase().includes(q))) continue;
+      $("grid").append(tile(m));
+    }
+    const empty = !$("grid").childElementCount;
+    $("grid-empty").hidden = !empty;
+    if (empty) {
+      $("grid-empty").textContent = q ? "没找到。没见过的动画，名字还是秘密哦" : filter === "missing" ? "这些都收集齐啦 🎉" : "还没有收集到，多陪它待一会儿吧～";
+    }
+  };
+
+  for (const radio of document.querySelectorAll('[name="collect"]')) {
+    radio.onchange = () => {
+      filter = radio.value;
       render();
     };
-    $("themes").append(chip);
   }
   $("search").oninput = render;
+  // What shows as new stays new until the gallery is opened the next time.
+  document.querySelector('nav button[data-tab="gallery"]').addEventListener("click", () => invoke("collection_visit"), { once: true });
+  listen("collected", (e) => {
+    seen[e.payload] ??= { first: Date.now(), count: 1 };
+    render();
+  });
   render();
+  const latest = list.filter((m) => seen[m.slug]).sort((a, b) => seen[b.slug].first - seen[a.slug].first)[0];
+  if (latest) choose(latest);
 }
 
 // ---------------------------------------------------------------- boot
@@ -1134,10 +1877,13 @@ async function boot() {
   initFullscreenExclude();
   initGitWatch();
   showHooks(await invoke("hooks_installed"));
+  initStatusline();
+  initHotkeys();
   initAutostart();
   initAi();
   initMemory();
   initGallery();
+  initRecap();
 }
 
 boot();

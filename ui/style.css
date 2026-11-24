@@ -129,6 +129,110 @@ body {
   cursor: pointer;
 }
 
+/* The weekly card: a tag and the dates, the count, a bar for each day, the latest finish. */
+.weekly {
+  width: 212px;
+}
+
+.weekly .head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.weekly .tag {
+  padding: 0 6px;
+  background: var(--clawd);
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: bold;
+  line-height: 16px;
+  box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.15);
+}
+
+.weekly .range,
+.weekly .more {
+  color: #8a8a8a;
+  font-size: 11px;
+}
+
+.weekly .big {
+  font-size: 13px;
+}
+
+.weekly .big b {
+  margin: 0 1px;
+  color: var(--clawd);
+  font-size: 20px;
+  line-height: 1;
+}
+
+/* Bars in 4px steps (--h, 0 to 6), each with a darker cap, over a ground line. */
+.weekly .bars {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin: 6px 2px 4px;
+  padding: 0 4px;
+  border-bottom: 2px solid var(--ink);
+}
+
+.weekly .bar {
+  position: relative;
+  width: 16px;
+  height: 28px;
+}
+
+.weekly .bar i {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: 0;
+  height: calc(var(--h) * 4px);
+  background: var(--clawd);
+  box-shadow: inset 0 4px 0 #c4612f;
+}
+
+.weekly .bar.zero i {
+  height: 2px;
+  background: #e8dccb;
+  box-shadow: none;
+}
+
+.weekly .bar.none i {
+  height: 2px;
+  background: repeating-linear-gradient(90deg, #cfc4b4 0 2px, transparent 2px 4px);
+  box-shadow: none;
+}
+
+.weekly .bar span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 32px;
+  color: #8a8a8a;
+  font-size: 10px;
+  line-height: 1;
+  text-align: center;
+}
+
+.weekly .foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 12px;
+}
+
+.weekly .foot .more {
+  flex: none;
+  color: var(--clawd);
+  font-weight: bold;
+}
+
 /* What Claude just said: one line, two at most. */
 .speech {
   position: relative;
@@ -232,6 +336,7 @@ body {
   min-height: 0;
   /* Narrower when the pet is against a side of the screen. */
   width: min(276px, calc(100vw - 48px - var(--off-left, 0px) - var(--off-right, 0px)));
+  container-type: inline-size;
 }
 
 .perm .who {
@@ -306,9 +411,36 @@ body {
   box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.15);
 }
 
-.perm button:active {
+.perm button:active,
+.perm button.pressed {
   transform: translate(1px, 1px);
   box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.15);
+}
+
+/* The key of the hotkey that does the same (pet.js keyCap), a small key cap. */
+.perm button kbd {
+  display: inline-block;
+  min-width: 9px;
+  margin: 0 -3px 0 6px;
+  padding: 0 3px;
+  border: 1px solid currentColor;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  font: bold 9px/12px "Cascadia Mono", Consolas, monospace;
+  text-align: center;
+  vertical-align: 1px;
+  opacity: 0.45;
+}
+
+.perm button.allow kbd {
+  opacity: 0.75;
+}
+
+/* No room for them on a narrow bubble, against a side of the screen. */
+@container (max-width: 250px) {
+  .perm button kbd {
+    display: none;
+  }
 }
 
 .perm button.allow {
@@ -332,6 +464,283 @@ body {
   color: #8a8a8a;
   cursor: pointer;
   text-decoration: underline;
+}
+
+/* ---- a question from Claude (AskUserQuestion), one page per question */
+
+/* Only the options give way when there is little room. */
+.ask > * {
+  flex: none;
+}
+
+.ask .top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+
+.ask .top .who {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.ask .chip {
+  flex: none;
+  max-width: 120px;
+  padding: 1px 7px;
+  border: 1.5px solid var(--clawd);
+  border-radius: 999px;
+  color: #c4612f;
+  background: #fff1e8;
+  font-size: 10.5px;
+  font-weight: bold;
+  line-height: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Which question this is: a little pixel square for each, ticked off as answered. */
+.ask .steps {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+
+.ask .steps button {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.ask .steps button.done {
+  background: var(--ink);
+}
+
+.ask .steps button.now {
+  width: 14px;
+  background: var(--clawd);
+}
+
+.ask .steps button:active {
+  transform: none;
+}
+
+.ask .hint {
+  margin: -3px 0 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #8a8a8a;
+}
+
+/* Gives way first when there is little room above the pet, as a command does. */
+.ask .opts {
+  flex: 0 1 auto;
+  min-height: 40px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  /* Room for the rows' shadows, which the scroll box would clip. */
+  margin: 0 -4px 8px;
+  padding: 1px 4px 3px;
+}
+
+.ask .opts::-webkit-scrollbar {
+  width: 8px;
+}
+
+.ask .opts::-webkit-scrollbar-thumb {
+  background: rgba(43, 43, 43, 0.22);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
+}
+
+.ask .opt {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.12);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ask .opt:hover {
+  background: #fff7f1;
+}
+
+.ask .opt.on {
+  background: #ffe9dc;
+}
+
+/* Radio for one pick, a box for several; filled with the crab's orange once picked. */
+.ask .mark {
+  flex: none;
+  position: relative;
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
+  box-sizing: border-box;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: #fff;
+}
+
+.ask .mark.multi {
+  border-radius: 3px;
+}
+
+.ask .on > .mark {
+  background: var(--clawd);
+}
+
+.ask .on > .mark::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: inherit;
+  background: #fff;
+}
+
+.ask .on > .mark.multi::after {
+  inset: 0 0 0 2px;
+  width: 3px;
+  height: 5px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  border-radius: 0;
+  background: none;
+  transform: translate(0, -1px) rotate(45deg);
+}
+
+.ask .txt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ask .label {
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.ask .desc {
+  margin-top: 1px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #7d7d7d;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow-wrap: anywhere;
+}
+
+/* One line each, so more options fit; the one picked says it all. */
+.ask .on .desc {
+  -webkit-line-clamp: 4;
+}
+
+/* One's own answer: a row like the others, with a box to write in. */
+.ask .own {
+  align-items: center;
+  cursor: text;
+  box-shadow: none;
+  border-style: dashed;
+  background: #fffdf9;
+}
+
+.ask .own.on {
+  border-style: solid;
+  background: #ffe9dc;
+}
+
+.ask .own .mark {
+  margin-top: 0;
+  cursor: pointer;
+}
+
+.ask .own.typed {
+  border-style: solid;
+  background: #fff;
+}
+
+.ask .own input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  color: inherit;
+  caret-color: var(--clawd);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.ask .own input::placeholder {
+  color: #a8a8a8;
+}
+
+.ask .own:focus-within {
+  border-color: var(--clawd);
+}
+
+.ask .unit {
+  flex: none;
+  font-size: 11px;
+  color: #8a8a8a;
+}
+
+.ask .actions {
+  align-items: center;
+}
+
+.ask .side {
+  display: flex;
+  flex-direction: column;
+  margin-right: auto;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #8a8a8a;
+}
+
+.ask .side a {
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.ask .actions .back {
+  background: #f1f1f1;
+}
+
+.perm button:disabled {
+  opacity: 0.45;
+  cursor: default;
+  box-shadow: none;
+  transform: none;
 }
 
 /* The status line under the pet, and next to it the dot that stands in for folded words. */
@@ -407,6 +816,168 @@ body[data-peek="left"] #status {
     transform: scale(0.3);
     opacity: 0;
   }
+}
+
+/* Claude plan usage: two pixel bars, the 5-hour window over the weekly one. Faint until
+   looked at or close to a limit; grey once the numbers are old. */
+#quota {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  height: 20px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(43, 43, 43, 0.82);
+  opacity: 0.55;
+  transition: opacity 0.25s;
+}
+
+#quota:hover,
+#quota.near {
+  opacity: 1;
+}
+
+#quota.stale {
+  opacity: 0.4;
+}
+
+#quota[hidden],
+#quota-card[hidden] {
+  display: none;
+}
+
+/* Ten 2 px pixels with 1 px gaps; --fill (pet.js) is how many of them, in px. */
+#quota i {
+  position: relative;
+  display: block;
+  width: 29px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.2);
+  -webkit-mask: repeating-linear-gradient(90deg, #000 0 2px, transparent 2px 3px);
+  mask: repeating-linear-gradient(90deg, #000 0 2px, transparent 2px 3px);
+}
+
+#quota i::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--fill, 0px);
+  background: var(--clawd);
+  transition: width 0.4s steps(4);
+}
+
+#quota i.week::after {
+  background: #f4c7a1;
+}
+
+#quota i.hot::after {
+  background: #ff6a4d;
+}
+
+#quota i.full::after {
+  animation: quota-blink 1.4s steps(1) infinite;
+}
+
+#quota i.stale::after {
+  background: #a8a8a8;
+}
+
+@keyframes quota-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* The details, over the pet's feet while the bars are hovered. */
+#quota-card {
+  position: absolute;
+  left: calc(8px + var(--off-left, 0px));
+  right: calc(8px + var(--off-right, 0px));
+  bottom: calc(38px + var(--off-bottom, 0px));
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.qcard {
+  min-width: 186px;
+  padding: 8px 12px 7px;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  filter: drop-shadow(2px 3px 0 rgba(0, 0, 0, 0.13));
+  animation: pop 0.16s ease-out;
+  transform-origin: 50% 100%;
+}
+
+.qrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.qrow + .qrow,
+.qsub + .qrow {
+  margin-top: 6px;
+}
+
+.qname {
+  width: 3.4em;
+  font-weight: bold;
+}
+
+/* Twenty 4 px pixels with 1 px gaps. */
+.qbar {
+  position: relative;
+  flex: none;
+  width: 99px;
+  height: 6px;
+  background: rgba(43, 43, 43, 0.12);
+  -webkit-mask: repeating-linear-gradient(90deg, #000 0 4px, transparent 4px 5px);
+  mask: repeating-linear-gradient(90deg, #000 0 4px, transparent 4px 5px);
+}
+
+.qbar b {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--clawd);
+}
+
+.qbar.hot b {
+  background: #ff6a4d;
+}
+
+.qbar.stale b {
+  background: #a8a8a8;
+}
+
+.qpct {
+  margin-left: auto;
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
+}
+
+.qsub {
+  margin: 2px 0 0 calc(3.4em + 8px);
+  color: #8a8a8a;
+  font-size: 11px;
+}
+
+.qfoot {
+  margin-top: 7px;
+  padding-top: 5px;
+  border-top: 1px dashed rgba(43, 43, 43, 0.2);
+  color: #8a8a8a;
+  font-size: 11px;
+}
+
+.qfoot.stale {
+  color: #c0703f;
 }
 
 /* ---------------------------------------------------------------- AI chat */

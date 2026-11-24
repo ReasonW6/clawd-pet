@@ -19,6 +19,7 @@
         <button data-tab="character" class="active">性格</button>
         <button data-tab="routine">作息</button>
         <button data-tab="claude">Claude 联动</button>
+        <button data-tab="recap">回顾</button>
         <button data-tab="ai">AI 聊天</button>
         <button data-tab="system">系统联动</button>
         <button data-tab="gallery">动画图鉴</button>
@@ -134,7 +135,65 @@
             <input type="checkbox" class="switch" data-key="replies" />
           </label>
         </div>
+        <div class="card" id="hotkeys-card">
+          <label class="row">
+            <span class="text"><b>快捷键审批</b><small>气泡出现时按组合键作答，不用碰鼠标；气泡一收起就还给别的程序</small></span>
+            <input type="checkbox" class="switch" data-key="hotkeys.enabled" />
+          </label>
+          <div id="hotkey-list" class="list"></div>
+        </div>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>显示 Claude 额度</b><small>状态标签旁两条像素小条：上面 5 小时，下面本周；鼠标移上去看详情，快用完时它会提醒你</small></span>
+            <input type="checkbox" class="switch" data-key="quota" />
+          </label>
+          <label class="row">
+            <span class="text"><b>从终端版读取额度</b><small id="statusline-note">在 <code>~/.claude/settings.json</code> 里换上一个状态栏中继（会先备份），原来的状态栏照常显示；能拿到重置时间</small></span>
+            <input type="checkbox" class="switch" id="statusline" />
+          </label>
+        </div>
+        <p class="hint">额度只有 Pro / Max 订阅才有。开着 Claude 桌面版就能看到用量（它每 5～15 分钟记一次，不带重置时间）。重置时间要靠终端里的 Claude Code，它每次回复后通过状态栏报一次；桌面版和 VS Code 扩展不跑状态栏。中继脚本用 Git Bash 运行。</p>
         <p class="hint">桌宠没运行时，Claude Code 照常工作，不受影响。</p>
+      </section>
+
+      <!-- ------------------------------------------------ 回顾 -->
+      <section id="tab-recap">
+        <h2>回顾 <small>你和 Claude 一起忙了些什么</small></h2>
+        <div class="recap-bar">
+          <span class="segmented" id="recap-view">
+            <label><input type="radio" name="recap-view" value="day" /><span>按天</span></label>
+            <label><input type="radio" name="recap-view" value="week" checked /><span>按周</span></label>
+            <label><input type="radio" name="recap-view" value="month" /><span>按月</span></label>
+          </span>
+          <span class="recap-nav">
+            <button id="recap-prev" title="往前"><i class="chevron left"></i></button>
+            <b id="recap-range"></b>
+            <button id="recap-next" title="往后"><i class="chevron right"></i></button>
+          </span>
+        </div>
+        <p class="hint" id="recap-nohooks" hidden>还没装 Claude Code 联动，它看不到 Claude 在忙什么。去「Claude 联动」里装上就好。</p>
+        <div class="card recap-stats" id="recap-stats"></div>
+
+        <h3 id="recap-when-title">什么时候在忙</h3>
+        <div class="card recap-when">
+          <div id="recap-heat"></div>
+          <div class="recap-legend">
+            <span><i class="cell none"></i>没开着</span>
+            <span><i class="cell l0"></i>没在忙</span>
+            <span>少<i class="cell l1"></i><i class="cell l2"></i><i class="cell l3"></i><i class="cell l4"></i>多</span>
+          </div>
+        </div>
+
+        <h3>忙的项目</h3>
+        <div class="card" id="recap-projects"></div>
+
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>每周小结卡片</b><small>周日晚上闲下来时，它举着小卡片告诉你这周一起搞定了什么</small></span>
+            <input type="checkbox" class="switch" data-key="weeklyCard" />
+          </label>
+        </div>
+        <p class="hint">只记次数、时长、几点和项目文件夹名，不记会话标题、你说的话和文件内容；不打分，也不跟谁比。全部留在本机的 <code>~/.clawd-pet/recap.json</code>，保留约半年。</p>
       </section>
 
       <!-- ------------------------------------------------ AI 聊天 -->
@@ -171,11 +230,21 @@
           </label>
           <div class="row" id="ai-exa-key-row">
             <span class="text"><b>Exa API 密钥</b><small>不填用免费额度，每天约 50 次；填了按次计费，还能用更深的 deep 搜索 <a id="ai-exa-link" class="link">去申请 ↗</a></small></span>
-            <span class="secret">
-              <input type="password" id="ai-exa-key" data-key="ai.exaKey" placeholder="可以不填" spellcheck="false" autocomplete="off" />
-              <button id="ai-exa-key-show" class="icon eye" title="显示"><i class="glyph-eye"></i></button>
+            <span class="vault" id="ai-exa-vault">
+              <span class="vault-saved">
+                <i class="glyph-lock"></i>
+                <span class="vault-where">凭据管理器</span>
+                <span class="vault-tail"></span>
+                <button class="vault-replace">替换</button>
+                <button class="vault-remove">移除</button>
+              </span>
+              <span class="secret">
+                <input type="password" id="ai-exa-key" spellcheck="false" autocomplete="off" />
+                <button id="ai-exa-key-show" class="icon eye" title="显示"><i class="glyph-eye"></i></button>
+              </span>
             </span>
           </div>
+          <div class="error vault-warn" hidden></div>
           <div class="error clash-warn" hidden></div>
         </div>
 
@@ -195,7 +264,7 @@
           </a>
         </div>
 
-        <p class="hint">聊天内容和截图只发给你选的服务商，联网搜索的搜索词交给负责搜索的一方。API 密钥明文保存在 <code>~/.clawd-pet/config.json</code>。网络走系统代理。</p>
+        <p class="hint">聊天内容和截图只发给你选的服务商，联网搜索的搜索词交给负责搜索的一方。API 密钥存在 Windows 凭据管理器里（名字是 <code>clawd-pet/…</code>），不写进配置文件。网络走系统代理。</p>
       </section>
 
       <!-- ------------------------------------------------ 服务商与模型（AI 聊天的子页面） -->
@@ -226,11 +295,21 @@
           </div>
           <div class="row">
             <span class="text"><b>API 密钥</b><small><a id="ai-key-link" class="link">去申请 ↗</a></small></span>
-            <span class="secret">
-              <input type="password" id="ai-key" spellcheck="false" autocomplete="off" />
-              <button id="ai-key-show" class="icon eye" title="显示"><i class="glyph-eye"></i></button>
+            <span class="vault" id="ai-key-vault">
+              <span class="vault-saved">
+                <i class="glyph-lock"></i>
+                <span class="vault-where">凭据管理器</span>
+                <span class="vault-tail"></span>
+                <button class="vault-replace">替换</button>
+                <button class="vault-remove">移除</button>
+              </span>
+              <span class="secret">
+                <input type="password" id="ai-key" spellcheck="false" autocomplete="off" />
+                <button id="ai-key-show" class="icon eye" title="显示"><i class="glyph-eye"></i></button>
+              </span>
             </span>
           </div>
+          <div class="error vault-warn" hidden></div>
         </div>
 
         <div class="card">
@@ -365,15 +444,30 @@
       <!-- ------------------------------------------------ 图鉴 -->
       <section id="tab-gallery">
         <h2>动画图鉴 <small id="gallery-count"></small></h2>
-        <div class="gallery-head">
-          <img id="preview" alt="" />
-          <div>
-            <div id="preview-name">点一个名字，让它演给你看</div>
-            <input type="search" id="search" placeholder="搜索动画…" />
-            <div id="themes" class="chips"></div>
+        <div class="card gallery-head">
+          <div id="preview-frame">
+            <img id="preview" alt="" hidden />
+            <canvas id="preview-shadow" width="40" height="40" hidden></canvas>
+          </div>
+          <div class="gallery-info">
+            <div class="tally"><b>已收集 <span id="have">0</span> / <span id="total">0</span></b><small id="gallery-pct"></small></div>
+            <div class="progress"><i id="progress-fill"></i></div>
+            <div id="preview-name">点一张卡片看看</div>
+            <small id="preview-meta">它在桌面上演过的动画会收进这里，没见过的只有影子</small>
           </div>
         </div>
+        <div class="gallery-tools">
+          <span class="segmented" id="collect-filter">
+            <label><input type="radio" name="collect" value="all" checked /><span>全部</span></label>
+            <label><input type="radio" name="collect" value="have" /><span>已收集</span></label>
+            <label><input type="radio" name="collect" value="missing" /><span>未收集</span></label>
+            <label id="new-filter" hidden><input type="radio" name="collect" value="new" /><span>新收集 <em id="new-count"></em></span></label>
+          </span>
+          <input type="search" id="search" placeholder="搜索已收集的…" />
+        </div>
+        <div id="themes" class="chips"></div>
         <div id="grid"></div>
+        <p id="grid-empty" hidden></p>
       </section>
     </main>
     </div>

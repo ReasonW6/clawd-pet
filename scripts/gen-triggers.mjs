@@ -143,19 +143,23 @@ const claude = section(
 
     sub("需要你确认"),
     row({ when: "Claude 请求权限（开着审批气泡）", how: "<code>PermissionRequest</code>。头顶弹出「拒绝 / 总是允许 / 允许」，直到你作答，或你在原界面答了：终端里答完马上收起；桌面版不告诉钩子，允许了 Bash / PowerShell 命令，它一开始跑就收起（看 Claude Code 给每次运行建的输出文件；同一会话还有别的调用在跑、或别的 Bash / PowerShell / Monitor 请求挂着时，改等命令跑完），别的工具要等那次调用跑完；拒绝了要等会话记录里出现它的结果，这一轮结束或被叫停时也收起。等满约 10 分钟气泡自己放弃，这时仍算等你确认。优先级仅次于被拎起来。", play: ["loop"], code: "ANIMS.permission", slugs: ANIMS.permission }),
-    row({ when: "你允许了权限请求", how: "在气泡里点「允许」或「总是允许」；或在桌面版里允许了、看得出来的时候（那次调用跑起来或跑完了，或会话记录里有它的结果）。终端里答完它马上断开连接，看不出答了什么，不播。", play: ["force", 1200], code: "ANIMS.allowed", slugs: ANIMS.allowed }),
-    row({ when: "你拒绝了权限请求", how: "在气泡里点「拒绝」；或在桌面版里拒绝并留言（会话记录里那次调用的结果是拒绝）。不留言直接拒绝会叫停这一轮，播的是叫停的动画；终端里同样不播。", play: ["force", 1800], code: "ANIMS.denied", slugs: ANIMS.denied }),
+    row({ when: "你允许了权限请求", how: "在气泡里点「允许」或「总是允许」，或按它们的快捷键（默认 Ctrl+Shift+Y / Ctrl+Shift+A，只在气泡显示时有效）；或在桌面版里允许了、看得出来的时候（那次调用跑起来或跑完了，或会话记录里有它的结果）。终端里答完它马上断开连接，看不出答了什么，不播。", play: ["force", 1200], code: "ANIMS.allowed", slugs: ANIMS.allowed }),
+    row({ when: "你拒绝了权限请求", how: "在气泡里点「拒绝」，或按它的快捷键（默认 Ctrl+Shift+N）；或在桌面版里拒绝并留言（会话记录里那次调用的结果是拒绝）。不留言直接拒绝会叫停这一轮，播的是叫停的动画；终端里同样不播。", play: ["force", 1800], code: "ANIMS.denied", slugs: ANIMS.denied }),
     row({ when: "要你去原界面作答", how: "气泡关着时的权限请求，或 <code>Notification</code> 的 permission_prompt / elicitation_dialog，直接是这个。提问、计划、填表先用下面各自的动画等着，约 45 秒还没回应、播完手头这一轮后才换成这个。", play: ["loop"], code: "ANIMS.waiting", slugs: ANIMS.waiting }),
-    row({ when: "Claude 向你提问", how: "AskUserQuestion 的 <code>PreToolUse</code>。一脸问号地等你作答，约 45 秒没回应才变得不耐烦。", play: ["loop"], code: "ANIMS.asking", slugs: ANIMS.asking }),
+    row({ when: "Claude 向你提问", how: "AskUserQuestion 的 <code>PreToolUse</code>。一脸问号地等你作答，约 45 秒没回应才变得不耐烦。开着审批气泡时，紧接着的 <code>PermissionRequest</code> 在头顶弹出问题卡：一题一页，点选项（多选的打勾）或在「其他」框里自己写，也可以点「去原界面回答」；卡片挂着时一直是这个动画，不会变得不耐烦。在原界面先答了，卡片和权限气泡一样收起。", play: ["loop"], code: "ANIMS.asking", slugs: ANIMS.asking }),
     row({ when: "计划写好了", how: "ExitPlanMode 的 <code>PreToolUse</code>，计划交给你审。约 45 秒没回应才变得不耐烦。", play: ["loop"], code: "ANIMS.planReady", slugs: ANIMS.planReady }),
     row({ when: "MCP 服务器要你填表", how: "<code>Elicitation</code> 到 <code>ElicitationResult</code> 之间。约 45 秒没回应才变得不耐烦。", play: ["loop"], code: "ANIMS.elicitation", slugs: ANIMS.elicitation }),
-    row({ when: "你答完了", how: "AskUserQuestion 的 <code>PostToolUse</code>，或 <code>ElicitationResult</code> 里你选了提交。", play: ["force", 1500], code: "ANIMS.answered", slugs: ANIMS.answered }),
+    row({ when: "你答完了", how: "在问题卡里点「提交」；AskUserQuestion 的 <code>PostToolUse</code>，或问题卡在你从原界面答完后收起、看得出你答了的时候；或 <code>ElicitationResult</code> 里你选了提交。", play: ["force", 1500], code: "ANIMS.answered", slugs: ANIMS.answered }),
     row({ when: "计划获批", how: "ExitPlanMode 的 <code>PostToolUse</code>，接着开工。", play: ["force", 1500], code: "ANIMS.planApproved", slugs: ANIMS.planApproved }),
 
     sub("出错"),
     row({ when: "一次工具调用失败", how: "<code>PostToolUseFailure</code>（你主动中断的不算）。", play: ["force", 1500], code: "ANIMS.toolError", slugs: ANIMS.toolError }),
     row({ when: "同一轮里第 3 次失败", how: "同一条消息的处理过程中累计到第 3 次工具失败时，换成这个。", play: ["force", 3000], code: "ANIMS.manyErrors", slugs: ANIMS.manyErrors }),
     row({ when: "API 出错，这一轮中止", how: "<code>StopFailure</code>（限流、服务器错误等）。", play: ["force", 3000], say: "呜…出错了（错误类型）", code: "ANIMS.apiError", slugs: ANIMS.apiError }),
+
+    sub("额度"),
+    row({ when: "某个额度窗口用掉 80%", how: "开着「显示 Claude 额度」时，5 小时或本周的用量（来自桌面版或终端的状态栏，40 分钟内的新数字）第一次到 80%。每个窗口每一级只提醒一次，用量回到 50% 以下（窗口重置了）再重新算。两个窗口同时到，只提醒更急的那个。睡着时只弹气泡。", play: ["force", 2500], say: "5 小时额度用掉 86% 啦，悠着点用～（21:30 重置）", code: "ANIMS.quotaNear", slugs: ANIMS.quotaNear }),
+    row({ when: "某个额度窗口用掉 95%", how: "同上，到 95% 时。", play: ["force", 2500], say: "5 小时额度快见底了（97%，21:30 重置）", code: "ANIMS.quotaOut", slugs: ANIMS.quotaOut }),
 
     sub("完成"),
     row({ when: "Claude 答完了", how: "<code>Stop</code>，耗时不到 5 分钟。开着「头顶显示对话进度」时，气泡换成 Claude 最后一句话的第一行加一个勾，动画和气泡一起留 15 秒，这期间点气泡或小螃蟹会切到桌面版里的这个会话，然后气泡缩回去；关着时弹「搞定啦」，动画播 2.6 秒。动画只在没有别的会话在忙时播。", play: ["polite", 2600], say: "项目名 搞定啦～", code: "ANIMS.done", slugs: ANIMS.done }),
@@ -264,6 +268,9 @@ const life = section(
     sub("问候与提醒"),
     row({ when: "桌宠启动", how: "按钟点说早上好 / 中午好 / 下午好 / 晚上好；当天是节日则改播节日动画。", play: ["polite", 1800], say: "下午好～", code: "ANIMS.hello", slugs: ANIMS.hello }),
     row({ when: "认识满 7 / 30 / 100 / 365 天", how: "打开了「记忆」才有：从打开记忆后第一次见面算起。达成的那天、它手头的场景演完时庆祝一次；当时在忙、在睡觉或者在聊天，就等闲下来。", play: ["polite", 3500], say: "我们认识一周啦～", code: "ANIMS.milestone", slugs: ANIMS.milestone }),
+    row({ when: "每周小结", how: "周日 19:00 以后（含当晚凌晨），你在电脑前、Claude 没在忙、它手头的场景演完时，举起一张小卡片：这周一起搞定了几个任务、最晚忙到几点，每天一根小柱子；卡片留 20 秒，动画陪着播完。点卡片打开设置里那一周的回顾。周日晚上没碰上，就在之后第一次闲下来时补上上周的；那周一个任务都没完成就不举。每 10 分钟看一次，每周最多一次；可在设置的「回顾」里关掉。", play: ["polite", 20000], say: "上周一起搞定了 N 个任务", code: "ANIMS.weeklyCard", slugs: ANIMS.weeklyCard }),
+    row({ when: "动画图鉴收集满 50 / 100 / 150 … 个", how: "它在桌面上演过的动画才算收集到（隐藏时、在图鉴里点着看的都不算）。收集到的那一刻记下，等你在电脑前、Claude 没在忙、它手头的场景演完时庆祝一次。开始收集后的第一天不庆祝，之后第一次收集到新的时补一次，只庆祝达到的最高那个。", play: ["polite", 3500], say: "动画图鉴收集突破 100 个啦～", code: "ANIMS.collected", slugs: ANIMS.collected }),
+    row({ when: "动画图鉴全部收集齐", how: "同上。", play: ["polite", 3500], say: "动画图鉴全部收集齐啦！每个样子你都见过了🎉", code: "ANIMS.collectedAll", slugs: ANIMS.collectedAll }),
     `<div class="note">打开了「记忆」和「主动提起」时，它会说做梦时准备的话：起床时有适合早上说的就用它代替早安（午睡醒来用当天的），平时你在电脑前、它手头的场景演完时也会冒一句（每天最多 2 次，间隔至少 2 小时，每 10 分钟看一次）。点这个气泡会打开聊天，这句话就是开场白。换了人设，旧人设准备的话不再说。关掉「爱说话」则都不说。</div>`,
     ...NUDGES.map((n, i) => row({ when: `${n.at} 提醒`, how: "到点后 10 分钟内、它手头的场景演完时说一次，每天一次。关掉「爱说话」则不提醒。", play: ["polite", 3000], say: n.say, code: `NUDGES[${i}]`, slugs: n.anims })),
   ],
@@ -321,7 +328,7 @@ const touch = section(
     row({ when: "聊天：回复中", how: "回复一个字一个字打出来的时候。", play: ["loop"], code: "ANIMS.chatTyping", slugs: ANIMS.chatTyping }),
     row({ when: "聊天：回复留在头顶", how: "回完了、输入框没开着，直到关掉聊天。没在回复、输入框也没开着（或者开着但空着、你点去了别处）满 4 分钟，聊天会自己关掉。", play: ["loop"], code: "ANIMS.chatIdle", slugs: ANIMS.chatIdle }),
     row({ when: "聊天：看一眼屏幕", how: "模型觉得要看你的屏幕、调用截图工具时（设置里允许看屏幕才有）。回复上会标出「看了一眼屏幕」。", play: ["force", 0], code: "ANIMS.chatSnap", slugs: ANIMS.chatSnap }),
-    `<div class="note">不走固定动画的操作：<b>双击</b>（没开 AI 聊天时）和右键菜单的<b>「随机来一段」</b>从随机惊喜的范围里抽一个播 2.5 秒以上；设置里的<b>动画图鉴</b>点哪个播哪个；<b>右键</b>弹菜单；<b>托盘图标</b>单击显示/隐藏、双击打开设置。</div>`,
+    `<div class="note">不走固定动画的操作：<b>双击</b>（没开 AI 聊天时）和右键菜单的<b>「随机来一段」</b>从随机惊喜的范围里抽一个播 2.5 秒以上；设置里的<b>动画图鉴</b>点哪个已收集的就播哪个（没收集到的不播，图鉴里点着看的也不算收集）；<b>右键</b>弹菜单；<b>托盘图标</b>单击显示/隐藏、双击打开设置。</div>`,
   ],
 );
 

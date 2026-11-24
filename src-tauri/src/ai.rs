@@ -725,7 +725,7 @@ fn target(ai: &AiConfig, provider: &str, need_model: bool) -> Result<Target, Str
     if base.is_empty() {
         return Err("先在设置里填上 API 地址吧～".into());
     }
-    let key = profile.api_key.trim();
+    let key = crate::secrets::key(&profile.api_key, provider);
     if p.needs_key && key.is_empty() {
         return Err("先在设置里填上 API 密钥吧～".into());
     }
@@ -2453,9 +2453,10 @@ pub fn start(app: AppHandle, ai: AiConfig, nickname: String, birthday: String, n
                 let links = asked && !looked && reads_urls;
                 // Exa and the provider's own search don't go together; the settings page
                 // turns one off as the other goes on.
+                let exa_key = if ai.exa { crate::secrets::key(&ai.exa_key, crate::secrets::EXA) } else { String::new() };
                 let mut web = match t.search {
                     _ if ai.exa && knows(&NO_TOOLS, &model) => Web::NoTools,
-                    _ if ai.exa => Web::Exa { key: !ai.exa_key.trim().is_empty() },
+                    _ if ai.exa => Web::Exa { key: !exa_key.is_empty() },
                     _ if !ai.search => Web::Off,
                     Search::None => Web::None,
                     _ if knows(&NO_SEARCH, &model) => Web::None,
@@ -2470,7 +2471,7 @@ pub fn start(app: AppHandle, ai: AiConfig, nickname: String, birthday: String, n
                 loop {
                     let memory = if memo { format!("{memory}\n{MEMO_RULE}") } else { memory.clone() };
                     let tool_eye = if let Sight::Tool = sight { eye.as_ref() } else { None };
-                    let exa = matches!(web, Web::Exa { .. }).then_some(ai.exa_key.trim());
+                    let exa = matches!(web, Web::Exa { .. }).then_some(exa_key.as_str());
                     let search = matches!(web, Web::On { .. });
                     let system = system_prompt(&nickname, &birthday, &now, &ai.identity, &persona, &memory, &opener, setting, sight, web);
                     match converse(&app, id, chat, &t, &system, &history, tool_eye, looked, exa, search, links, memo, setting).await {
@@ -2548,8 +2549,8 @@ pub async fn complete(ai: &AiConfig, system: &str, user: &str) -> Result<String,
     })
 }
 
-/// The models the provider offers, with the key and address in `ai` (the settings
-/// being edited, which may not be saved yet).
+/// The models the provider offers, with the address in `ai` (the settings being
+/// edited, which may not be saved yet) and the provider's saved key.
 pub async fn models(ai: AiConfig, provider: String) -> Result<Vec<String>, String> {
     let t = target(&ai, &provider, false)?;
     let url = match t.wire {
