@@ -242,6 +242,12 @@ function play(slug, restart = false) {
     if (seq !== playSeq) return;
     sprite.src = url;
     if (preview || again) return;
+    // Following the cursor switches between the gaze frames many times a second: each
+    // direction counts once while the pet keeps looking.
+    const glance = ANIMS.gaze.includes(slug);
+    if (!glance) glanced.clear();
+    else if (glanced.has(slug)) return;
+    else glanced.add(slug);
     countedSlug = slug;
     collect(slug);
   };
@@ -254,6 +260,8 @@ let collectCheer = 0;
  *  pet shows again. */
 let countedSlug = null;
 let resumeSlug = null;
+/** The gaze directions counted since the pet started following the cursor. */
+const glanced = new Set();
 
 async function collect(slug) {
   const cheer = await invoke("collection_seen", { slug }).catch(() => null);
@@ -1146,6 +1154,7 @@ function stateText(s) {
 function desiredSlug() {
   if (dragging) return dragAnim;
   if (perms.length) return perms[0].ask?.anim || ANIMS.permission[0];
+  if (tucked()) return peekSlug();
   const lead = leader();
   if (oneShot?.force) return oneShot.slug;
   // Chatting, it stays at its desk with the user; the label still tells how Claude is doing.
@@ -1160,12 +1169,13 @@ function desiredSlug() {
     return lead.anim || ANIMS.thinking[0];
   }
   if (asleep) return dreamSlug() || sleepAnim;
-  return idleBase;
+  return gazing() ? ANIMS.gaze[gaze.dir] : idleBase;
 }
 
 function render() {
   // Its own life makes way as soon as Claude has something going on.
   if (oneShot?.life && (perms.length || anyBusy())) cancelLife();
+  peekDrawn = peekState();
   const slug = desiredSlug();
   // Bubbles sit just above where this animation's drawing starts.
   document.documentElement.style.setProperty("--content-top", manifest[slug]?.top ?? 0);
@@ -1180,7 +1190,9 @@ function render() {
 function renderLabel() {
   const lead = leader();
   let text = "";
-  if (lead) {
+  if (dragging && peekPush) {
+    text = "松手就躲到边上 👀";
+  } else if (lead) {
     // Under the name of the session at the top of its family, with how many of those
     // started from it are busy.
     const root = rootOf(lead);
@@ -1414,6 +1426,8 @@ function renderBubble() {
   drawBubble();
   syncHotkeys();
   placeBubble();
+  // Out from behind the edge for a bubble, or back in once it's gone.
+  if (peekSide && peekState() !== peekDrawn) render();
 }
 
 /** The hotkeys are held only while the bubble shows a request (hotkeys.rs). */
@@ -1513,7 +1527,7 @@ function drawBubble() {
     bubble.hidden = false;
     return;
   }
-  if (speech && !folded) {
+  if (speech && !folded && !tucked()) {
     // Whose words, when more than one session is going.
     const s = sessions.get(speech.sid);
     const busy = [...sessions.values()].filter((x) => x.state !== "idle" && x !== s).length;
@@ -1835,11 +1849,14 @@ async function askSubmit(req) {
 
 let hitQueued = false;
 let hitSent = "";
+/** The last `set_hit_rects`, for `set_peek` to wait on. */
+let hitDone = Promise.resolve();
 function queueHitRects() {
   if (hitQueued) return;
   hitQueued = true;
   requestAnimationFrame(() => {
     hitQueued = false;
+    const tellPeek = syncPeek();
     const chatParts = chatEl.classList.contains("away")
       ? []
       : [...chatEl.querySelectorAll(".msg:not(.gone):not(.standby) > .card, .msg:not(.gone):not(.nox):not(.standby) > .x")];
@@ -1854,9 +1871,14 @@ function queueHitRects() {
     const r = petHit.getBoundingClientRect();
     const body = [r.x, r.y, r.width, r.height].map(Math.round);
     const key = `${rects.join()}|${body}`;
-    if (key === hitSent) return;
-    hitSent = key;
-    invoke("set_hit_rects", { rects, body });
+    if (key !== hitSent) {
+      hitSent = key;
+      hitDone = invoke("set_hit_rects", { rects, body }).catch(() => {});
+    }
+    // Where to cut the pet goes after where its body is: the backend can't tell if it
+    // may tuck in there without knowing that (on the first report after a restart).
+    // Always after the last report, so that the cuts go out in the order they were made.
+    if (tellPeek) hitDone.then(tellPeek);
   });
 }
 
@@ -1894,6 +1916,123 @@ function placeBubble() {
   bubble.style.setProperty("--shift", `${left - (area.clientWidth - w) / 2}px`);
   // From the padding box's left, as the tail is placed.
   bubble.style.setProperty("--tail-x", `${clamp(over + w - 42 - left, 24, w - 28)}px`);
+}
+
+// ---------------------------------------------------------------- eye-follow
+
+// Resting, with the cursor close by (gaze.rs), it follows the cursor with its eyes,
+// and a moment after the cursor has gone it goes back to what it rested with. Only
+// ever instead of resting: anything else it does comes first.
+const GAZE_LINGER_MS = 1500;
+let gaze = { dir: 0, near: false };
+let gazeUntil = 0;
+
+function onGaze(g) {
+  if (!g.near && peekHover) {
+    // The cursor is well away, so not on the pet, whether or not the page saw it leave.
+    clearTimeout(peekLeaveTimer);
+    peekHover = false;
+  }
+  if (g.near) {
+    gaze = g;
+  } else if (gaze.near) {
+    gaze = { dir: gaze.dir, near: false };
+    gazeUntil = now() + GAZE_LINGER_MS;
+    setTimeout(render, GAZE_LINGER_MS);
+  }
+  render();
+}
+
+const gazing = () => gaze.near || now() < gazeUntil;
+
+// ---------------------------------------------------------------- edge peek
+
+// The pet can tuck itself behind the left or right side of the screen and peek out
+// (edges.rs): from the menu, or dropped after being dragged hard against that side.
+// The screen's edge then cuts it PEEK_CUT columns (of 40) in from the side facing in;
+// with the cursor on it, it slides out a little and waves. For a bubble or the chat it
+// comes all the way out, and tucks back in once they are gone. A click, the menu or
+// dragging it away brings it out for good.
+const PEEK_CUT = { tucked: 22, hover: 26 };
+const PEEK_HOVER_LEAVE_MS = 600;
+let peekSide = null; // "left" | "right"
+let peekHover = false;
+let peekPush = null; // the side it is being dragged hard against
+let peekSent = "";
+let peekDrawn = null;
+let peekLeaveTimer = null;
+
+/** All the way out for anything in a bubble, and while it's held. */
+const peekOut = () => Boolean(perms.length || toastText || (speech?.done && !folded) || chat || msgs.size || dragging);
+
+/** "tucked" | "hover" | "out", or null when not peeking. */
+function peekState() {
+  if (!peekSide) return null;
+  // The cursor must also be near by gaze.rs: a quick flick away can turn the window
+  // click-through before the page sees the mouse leave. onGaze clears a stale hover
+  // once the cursor is far; this only covers the moment before that.
+  return peekOut() ? "out" : peekHover && gaze.near && !asleep ? "hover" : "tucked";
+}
+
+const tucked = () => Boolean(peekSide) && !peekOut();
+
+function peekSlug() {
+  const [rest, hi, sleep] = ANIMS.peek[peekSide];
+  return asleep ? sleep : peekState() === "hover" ? hi : rest;
+}
+
+/** Where the screen's edge is to cut the window, in px from its left. */
+function peekCut(state) {
+  if (state === "out") {
+    const body = petHit.getBoundingClientRect();
+    return peekSide === "right" ? body.right : body.left;
+  }
+  const box = sprite.getBoundingClientRect();
+  const show = (PEEK_CUT[state] / 40) * box.width;
+  return peekSide === "right" ? box.left + show : box.right - show;
+}
+
+/** Lays the page out for peeking, and gives back what tells the backend where to cut
+ *  the pet, when that changed (from queueHitRects, which sends it after the body). */
+function syncPeek() {
+  const state = peekState();
+  document.body.dataset.peek = state === "tucked" || state === "hover" ? peekSide : "";
+  if (!peekSide) return null;
+  const side = peekSide;
+  const cut = Math.round(peekCut(state));
+  const key = `${side}|${cut}`;
+  if (key === peekSent) return null;
+  peekSent = key;
+  return () => {
+    // Out of peeking (a click, the menu, a drag) or cut elsewhere since: this is old news.
+    if (peekSide !== side || peekSent !== key) return;
+    invoke("set_peek", { side, cut }).then((ok) => {
+      // Not there: the backend has put it back on the screen and forgotten the side.
+      if (!ok && peekSide === side) {
+        peekSide = null;
+        peekHover = false;
+        peekSent = "";
+        render();
+      }
+    });
+  };
+}
+
+function enterPeek(side) {
+  if (!side) return leavePeek();
+  peekSide = side;
+  peekHover = petHit.matches(":hover");
+  peekSent = "";
+  render();
+}
+
+function leavePeek() {
+  if (!peekSide) return;
+  peekSide = null;
+  peekHover = false;
+  peekSent = "";
+  invoke("set_peek", { side: null, cut: 0 });
+  render();
 }
 
 // ---------------------------------------------------------------- interaction
@@ -1954,6 +2093,12 @@ petHit.addEventListener("mouseup", (e) => {
 
 petHit.addEventListener("mouseenter", () => {
   rub.lastX = null;
+  // Tucked behind an edge, it slides out a little to say hello.
+  clearTimeout(peekLeaveTimer);
+  if (peekSide && !peekHover) {
+    peekHover = true;
+    render();
+  }
   renderLabel();
   queueHitRects();
   // Notice a cursor that lingers.
@@ -1967,6 +2112,12 @@ petHit.addEventListener("mouseenter", () => {
 
 petHit.addEventListener("mouseleave", () => {
   clearTimeout(noticeTimer);
+  if (peekHover) {
+    peekLeaveTimer = setTimeout(() => {
+      peekHover = false;
+      render();
+    }, PEEK_HOVER_LEAVE_MS);
+  }
   renderLabel();
   queueHitRects();
 });
@@ -1982,7 +2133,11 @@ function startDrag() {
   dragging = true;
   dragAnim = pick(ANIMS.dragged);
   clearTimeout(noticeTimer);
-  invoke("drag_started");
+  invoke("drag_started"); // also out of peeking at an edge, in edges.rs
+  peekSide = null;
+  peekHover = false;
+  peekPush = null;
+  peekSent = "";
   getCurrentWindow().startDragging();
   render();
 }
@@ -1990,6 +2145,10 @@ function startDrag() {
 function onDragEnd() {
   dragging = false;
   stir(AWAKE_AFTER_POKE_MS);
+  // Dropped while pushed hard against a side of the screen: it tucks itself in there.
+  const side = peekPush;
+  peekPush = null;
+  if (side) return enterPeek(side);
   playOnce(pick(ANIMS.dropped), { force: true, minMs: 1500 });
 }
 
@@ -1998,6 +2157,8 @@ function onDragEnd() {
 // once, and it ignores further clicks until that tantrum has played out.
 function onPetClick() {
   const t = now();
+  // A click on it peeking out from behind an edge brings it out.
+  if (tucked()) return leavePeek();
   if (chat) return chatPoke();
   if (followSpeech()) return;
   if (t < ignoreClicksUntil) return;
@@ -2815,6 +2976,14 @@ async function boot() {
   await listen("dream", (e) => onDream(e.payload));
   await listen("drag-end", onDragEnd);
   await listen("edges", (e) => onEdges(e.payload));
+  await listen("gaze", (e) => onGaze(e.payload));
+  await listen("peek", (e) => enterPeek(e.payload));
+  await listen("peek-none", () => toast("这块屏幕两边都挨着别的屏幕或任务栏，没地方躲呀", { ms: 4000 }));
+  await listen("peek-push", (e) => {
+    peekPush = e.payload;
+    renderLabel();
+  });
+  if (config.peek) enterPeek(config.peek);
   onEdges(await invoke("get_edges"));
   await listen("config", (e) => applyConfig(e.payload));
   await listen("play-random", () => playRandom());

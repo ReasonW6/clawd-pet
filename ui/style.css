@@ -730,6 +730,22 @@ body {
   gap: 5px;
 }
 
+/* Tucked behind a side of the screen (pet.js sets data-peek), under the half that shows. */
+body[data-peek="right"] #status,
+body[data-peek="left"] #status {
+  transform: none;
+  max-width: calc(100% - 16px - var(--off-left, 0px) - var(--off-right, 0px));
+}
+
+body[data-peek="right"] #status {
+  left: auto;
+  right: calc(8px + var(--off-right, 0px));
+}
+
+body[data-peek="left"] #status {
+  left: calc(8px + var(--off-left, 0px));
+}
+
 #label {
   min-width: 0;
   padding: 3px 10px;

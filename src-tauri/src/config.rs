@@ -228,6 +228,9 @@ pub struct Config {
     pub size: u32,
     pub x: Option<i32>,
     pub y: Option<i32>,
+    /// The side of the screen the pet is tucked behind, peeking out; like the position,
+    /// owned by the pet window.
+    pub peek: Option<crate::edges::Side>,
     /// 0 = calm (no idle activities) … 3 = hyperactive.
     pub liveliness: u8,
     /// How the pet addresses the user in greetings.
@@ -267,6 +270,7 @@ impl Default for Config {
             size: 200,
             x: None,
             y: None,
+            peek: None,
             liveliness: 2,
             nickname: String::new(),
             birthday: String::new(),

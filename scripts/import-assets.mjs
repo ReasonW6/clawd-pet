@@ -40,7 +40,7 @@ fs.mkdirSync(out, { recursive: true });
 
 /** Theme names, as in clawd-400's site/build.py (the repository's manifest has only the
  *  id), and for the pet's own scenes. */
-const THEME_ZH = { video: "视频重现", summer: "夏日篇", emotions: "情绪", life: "日常", dev: "编程", sports: "运动", costumes: "角色扮演", seasons: "节日季节", git: "Git", claude: "Claude Code", dream: "做梦" };
+const THEME_ZH = { video: "视频重现", summer: "夏日篇", emotions: "情绪", life: "日常", dev: "编程", sports: "运动", costumes: "角色扮演", seasons: "节日季节", git: "Git", claude: "Claude Code", dream: "做梦", chat: "聊天", gaze: "眼神", peek: "躲边上" };
 
 /** The grid the pixel art is drawn on. */
 const ART = 40;

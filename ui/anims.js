@@ -82,6 +82,12 @@ window.ANIMS = {
   dropped: ["emo_dizzy", "emo_relieved"],
   fileHover: ["emo_awe"],
   fileDrop: ["dev_drag_drop"],
+  // Resting, with the cursor close by, it follows it with its eyes. By direction, in the
+  // order gaze.rs numbers them: straight at you (the cursor on it), then up, clockwise.
+  gaze: ["gaze_c", "gaze_n", "gaze_ne", "gaze_e", "gaze_se", "gaze_s", "gaze_sw", "gaze_w", "gaze_nw"],
+  // Tucked behind a side of the screen (edge peek), by side: peeking out, slid out a
+  // little more with the cursor on it, asleep.
+  peek: { right: ["peek_r", "peek_hi_r", "peek_sleep_r"], left: ["peek_l", "peek_hi_l", "peek_sleep_l"] },
 
   // ---------------------------------------------------------- AI chat (all at one desk)
   chatListen: ["chat_listen"], // the input box is open
@@ -609,7 +615,7 @@ window.MOODS = {
 };
 
 // Never picked as a random "surprise": they'd be mistaken for a real state.
-window.NOT_FOR_FUN = ["life_bed_sleep", "read_doze", ...window.ANIMS.dreamNight, ...window.ANIMS.dreamNap, "dev_bsod", "emo_pretty_please", "emo_impatient", "walk_out_door", "dev_thinking"];
+window.NOT_FOR_FUN = ["life_bed_sleep", "read_doze", ...window.ANIMS.dreamNight, ...window.ANIMS.dreamNap, "dev_bsod", "emo_pretty_please", "emo_impatient", "walk_out_door", "dev_thinking", ...window.ANIMS.gaze, ...window.ANIMS.peek.right, ...window.ANIMS.peek.left];
 
 // Small talk at fixed times ("HH:MM"), once a day.
 window.NUDGES = [
