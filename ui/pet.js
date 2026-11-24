@@ -1330,8 +1330,11 @@ async function decide(req, kind, suggestion) {
 // ---------------------------------------------------------------- questions
 
 // AskUserQuestion, answered in the bubble: one page per question. A choice question has
-// its options plus a box to write one's own answer; with `kind` "text" or "number" (forms
-// in newer Claude Code) there is only the box.
+// its options plus a box to write one's own answer; with `kind` "text" or "number" there
+// is only the box. The public AskUserQuestion docs have only question / header / options /
+// multiSelect: `kind`, `title`, `unit`, `placeholder`, `min` / `max` / `step` and
+// `defaultValue` are read in case a newer Claude Code sends such forms, and haven't been
+// checked against one.
 
 const ASK_KINDS = [undefined, "choice", "text", "number"];
 
@@ -1344,7 +1347,9 @@ function askState(p) {
     page: 0,
     anim: pick(ANIMS.asking),
     picks: qs.map(() => new Set()), // indexes of the options picked
-    text: qs.map((q) => (q.kind === "number" ? String(q.defaultValue ?? q.min ?? "") : "")),
+    // Only a default the question gives is filled in: the smallest number allowed would
+    // count as answered without the user having looked.
+    text: qs.map((q) => (q.kind === "number" ? String(q.defaultValue ?? "") : "")),
     // Whether one's own answer counts, for a choice question.
     own: qs.map(() => false),
   };
@@ -1372,8 +1377,18 @@ function drawAsk(req) {
   const a = req.ask;
   const p = req.payload;
   const qs = p.tool_input.questions;
-  const key = `ask-${req.id}-${a.page}-${perms.length}`;
-  if (bubbleKey === key) return;
+  const key = `ask-${req.id}-${a.page}`;
+  // Another request joining the queue only changes the count, in place: drawing the card
+  // again would lose the caret and break off what an input method is composing.
+  const queued = perms.length > 1 ? `还有 ${perms.length - 1} 个在排队` : "";
+  if (bubbleKey === key) {
+    const line = bubble.querySelector(".ask .queued");
+    if (line && line.textContent !== queued) {
+      line.textContent = queued;
+      queueHitRects();
+    }
+    return;
+  }
   // Drawn again while typing (another request joined the queue): the box keeps the focus.
   const typing = document.activeElement?.closest?.("#bubble input");
   bubbleKey = key;
@@ -1451,7 +1466,7 @@ function drawAsk(req) {
   input.type = q.kind === "number" ? "number" : "text";
   input.spellcheck = false;
   input.value = a.text[i];
-  input.placeholder = q.kind === "text" ? q.placeholder || "写下你的回答…" : q.kind === "number" ? "" : "其他：自己写…";
+  input.placeholder = q.kind === "text" ? q.placeholder || "写下你的回答…" : q.kind === "number" ? q.placeholder || "填一个数" : "其他：自己写…";
   if (q.kind === "number") {
     for (const k of ["min", "max", "step"]) if (q[k] !== undefined) input[k] = q[k];
   }
@@ -1485,7 +1500,7 @@ function drawAsk(req) {
   const pass = el("a", "", "去原界面回答");
   pass.onclick = () => decide(req, "pass");
   side.append(pass);
-  if (perms.length > 1) side.append(el("span", "", `还有 ${perms.length - 1} 个在排队`));
+  side.append(el("span", "queued", queued));
   actions.append(side);
   if (i > 0) actions.append(button("上一题", "back", () => askGo(req, i - 1)));
   const next = button(last ? "提交" : "下一题", "allow", () => (last ? askSubmit(req) : askGo(req, i + 1)));
@@ -2491,7 +2506,10 @@ async function boot() {
     // Answered in Claude Code itself: back to work, unless it is asking something else.
     // When the bubble only gave up waiting, Claude Code is still asking there.
     const s = req && sessions.get(req.payload.session_id);
-    if (e.payload.answered && s?.state === "waiting" && !perms.some((x) => x.payload.session_id === s.id)) s.state = "working";
+    // A question answered in the terminal (outcome unknown) is left waiting: its PostToolUse
+    // comes right after and plays "you answered" only while the session still waits.
+    const unknownAsk = req?.ask && e.payload.outcome == null;
+    if (e.payload.answered && !unknownAsk && s?.state === "waiting" && !perms.some((x) => x.payload.session_id === s.id)) s.state = "working";
     // Reacts as to an answer in the bubble, when it shows which answer it was. A question
     // answered elsewhere: its PostToolUse may have played that already.
     if (req?.ask && e.payload.outcome === "allow") {
