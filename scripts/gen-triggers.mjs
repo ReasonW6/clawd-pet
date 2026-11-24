@@ -264,6 +264,8 @@ const life = section(
     sub("问候与提醒"),
     row({ when: "桌宠启动", how: "按钟点说早上好 / 中午好 / 下午好 / 晚上好；当天是节日则改播节日动画。", play: ["polite", 1800], say: "下午好～", code: "ANIMS.hello", slugs: ANIMS.hello }),
     row({ when: "认识满 7 / 30 / 100 / 365 天", how: "打开了「记忆」才有：从打开记忆后第一次见面算起。达成的那天、它手头的场景演完时庆祝一次；当时在忙、在睡觉或者在聊天，就等闲下来。", play: ["polite", 3500], say: "我们认识一周啦～", code: "ANIMS.milestone", slugs: ANIMS.milestone }),
+    row({ when: "动画图鉴收集满 50 / 100 / 150 … 个", how: "它在桌面上演过的动画才算收集到（隐藏时、在图鉴里点着看的都不算）。收集到的那一刻记下，等你在电脑前、Claude 没在忙、它手头的场景演完时庆祝一次。开始收集后的第一天不庆祝，之后第一次收集到新的时补一次，只庆祝达到的最高那个。", play: ["polite", 3500], say: "动画图鉴收集突破 100 个啦～", code: "ANIMS.collected", slugs: ANIMS.collected }),
+    row({ when: "动画图鉴全部收集齐", how: "同上。", play: ["polite", 3500], say: "动画图鉴全部收集齐啦！每个样子你都见过了🎉", code: "ANIMS.collectedAll", slugs: ANIMS.collectedAll }),
     `<div class="note">打开了「记忆」和「主动提起」时，它会说做梦时准备的话：起床时有适合早上说的就用它代替早安（午睡醒来用当天的），平时你在电脑前、它手头的场景演完时也会冒一句（每天最多 2 次，间隔至少 2 小时，每 10 分钟看一次）。点这个气泡会打开聊天，这句话就是开场白。换了人设，旧人设准备的话不再说。关掉「爱说话」则都不说。</div>`,
     ...NUDGES.map((n, i) => row({ when: `${n.at} 提醒`, how: "到点后 10 分钟内、它手头的场景演完时说一次，每天一次。关掉「爱说话」则不提醒。", play: ["polite", 3000], say: n.say, code: `NUDGES[${i}]`, slugs: n.anims })),
   ],
@@ -315,7 +317,7 @@ const touch = section(
     row({ when: "聊天：回复中", how: "回复一个字一个字打出来的时候。", play: ["loop"], code: "ANIMS.chatTyping", slugs: ANIMS.chatTyping }),
     row({ when: "聊天：回复留在头顶", how: "回完了、输入框没开着，直到关掉聊天。没在回复、输入框也没开着（或者开着但空着、你点去了别处）满 4 分钟，聊天会自己关掉。", play: ["loop"], code: "ANIMS.chatIdle", slugs: ANIMS.chatIdle }),
     row({ when: "聊天：看一眼屏幕", how: "模型觉得要看你的屏幕、调用截图工具时（设置里允许看屏幕才有）。回复上会标出「看了一眼屏幕」。", play: ["force", 0], code: "ANIMS.chatSnap", slugs: ANIMS.chatSnap }),
-    `<div class="note">不走固定动画的操作：<b>双击</b>（没开 AI 聊天时）和右键菜单的<b>「随机来一段」</b>从随机惊喜的范围里抽一个播 2.5 秒以上；设置里的<b>动画图鉴</b>点哪个播哪个；<b>右键</b>弹菜单；<b>托盘图标</b>单击显示/隐藏、双击打开设置。</div>`,
+    `<div class="note">不走固定动画的操作：<b>双击</b>（没开 AI 聊天时）和右键菜单的<b>「随机来一段」</b>从随机惊喜的范围里抽一个播 2.5 秒以上；设置里的<b>动画图鉴</b>点哪个已收集的就播哪个（没收集到的不播，图鉴里点着看的也不算收集）；<b>右键</b>弹菜单；<b>托盘图标</b>单击显示/隐藏、双击打开设置。</div>`,
   ],
 );
 

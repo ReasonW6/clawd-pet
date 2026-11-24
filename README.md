@@ -104,7 +104,8 @@ Claude 没活给它的时候，它演完一个「场景」歇一会儿，再演�
 - **改设置**：模型支持工具调用时，你在聊天里说“以后叫我老板”“别叫我宝宝”“别再提醒我久坐了”“安静点”“变大一点”，它会直接去改，回复上标出「⚙️ 改了设置」，设置窗口开着的话也跟着变。能改的只有称呼、生日、爱说话、活跃度、久坐提醒、按时睡觉和大小，取值范围和设置页一样；一轮最多改 3 项。网页、搜索结果、截图里的文字要它改不算数；别的设置它会让你去设置里改。模型用不了工具时，它会告诉你去设置里改。
 - **推理**：在「服务商与模型」里模型的下面，每个服务商分开记。默认「默认」，请求里不带任何推理参数，按服务商自己的默认。其他档位按服务商和模型列出，名字和各家文档一致（`off` 显示为「关」，其余如 `minimal`、`low`、`medium`、`high`、`xhigh`、`max`，通义千问和硅基流动的部分模型是思考长度上限 `1k`、`4k`、`16k`），换了模型档位跟着变；没有可调档位的模型（比如 Haiku 4.5、腾讯混元）就只按它自己的来。发法按各家文档：OpenAI 兼容的大多是 `reasoning_effort`，DeepSeek、Kimi、智谱、豆包、千帆用 `thinking` 开关再加档位，通义千问和硅基流动用 `enable_thinking` 加 `thinking_budget`，OpenRouter 用它统一的 `reasoning`，Anthropic 用 `output_config.effort`（「关」是关掉 thinking）。每家的限制写在这个选项的鼠标悬停提示里。模型因为这档推理拒绝请求时，错误里会提示去设置里换一档。DeepSeek 关掉思考时不让截图工具和它自带的搜索一起用，这时设置里会标红提醒，聊天会报错，不会悄悄去掉其中一个；用 Exa 搜索没有这个限制。
 - **服务商**：Anthropic、OpenAI、Gemini、xAI、Mistral、Groq、OpenRouter，DeepSeek、Kimi、智谱、通义千问、豆包、硅基流动、MiniMax、腾讯混元、百度千帆、阶跃星辰，本地的 Ollama、LM Studio，以及任意 OpenAI / Anthropic 兼容接口：在服务商列表最下面「＋ 添加服务商」，起个名字、填好地址和密钥，就和内置的服务商一样随时切换，可以加好几个。每家的密钥、地址、模型分开记，「获取列表」从服务商那里拉可用模型，列表里也能「自己填」。请求走系统代理设置，本机地址（Ollama、LM Studio）除外；改了代理不用重启。
-- 密钥明文保存在 `%USERPROFILE%\.clawd-pet\config.json`。
+- 密钥存在 Windows 凭据管理器里，每个密钥一条普通凭据，名字是 `clawd-pet/<服务商 id>`（Exa 的是 `clawd-pet/exa`），在控制面板的「凭据管理器 › Windows 凭据」里能看到；`config.json` 里不放密钥。设置页只显示密钥的最后 4 个字符，可以替换或移除，填进去的新密钥会自动存好。
+  - 旧版本把密钥明文存在 `%USERPROFILE%\.clawd-pet\config.json` 里。新版本启动时把它们搬进凭据管理器，读回来核对无误才从文件里删掉；凭据管理器存不进去的仍留在文件里照常使用，设置页会标出来，下次启动再试。搬过之后，旧版本的桌宠就读不到这些密钥了。
 
 ### 记忆
 
@@ -129,6 +130,16 @@ Claude 没活给它的时候，它演完一个「场景」歇一会儿，再演�
 - 悬停：显示它正在干什么
 - 右键小螃蟹或托盘图标：显示隐藏、随机来一段、设置、退出
 - 托盘图标：单击显示/隐藏，双击打开设置
+
+## 动画图鉴
+
+设置里的「动画图鉴」是一本收集册：它在桌面上演过的动画才算收集到，隐藏时演的、在图鉴里点着看的都不算。从装上这个版本开始记，以前演过的不补。
+
+- 收集到的是彩色卡片，鼠标放上去会动；点一下，上面显示大图、第一次见的日期和演过几次，它也会在桌面上再演一遍。
+- 没见过的只有影子和「???」：名字搜不到，点了也不演。
+- 顶部是总进度，每 50 个一道刻度；主题标签上是各主题的进度。可以只看已收集、未收集，或者上次打开图鉴以后新收集的（卡片右上角标着 NEW）。
+- 每收集满 50 个、以及全部收集齐时，它会庆祝一下，等你在电脑前、Claude 也没在忙的时候。开始收集的第一天什么都是新的，不庆祝；之后第一次收集到新的时补一次。
+- 记录在 `%USERPROFILE%\.clawd-pet\collection.json`，最多每 2 秒写一次。
 
 ## 修改动画
 
@@ -176,7 +187,9 @@ python ../clawd-400-src/lint.py scenes/claude.py
 | [`ui/markdown.js`](ui/markdown.js) | 把聊天回复的 Markdown 和公式画成 HTML |
 | [`ui/settings.html`](ui/settings.html) | 设置窗口（性格 / 作息 / Claude 联动 / AI 聊天 / 系统联动 / 动画图鉴） |
 | [`src-tauri/src/ai.rs`](src-tauri/src/ai.rs) | AI 聊天：服务商目录、流式请求（OpenAI / Anthropic 两种接口）、截图工具、联网搜索、记忆和改设置的工具 |
+| [`src-tauri/src/secrets.rs`](src-tauri/src/secrets.rs) | API 密钥存取：Windows 凭据管理器、从 `config.json` 搬过去、不让前端拿到密钥 |
 | [`src-tauri/src/memory.rs`](src-tauri/src/memory.rs) | 记忆：笔记和事件计数的存取、聊完后和睡觉时让模型改写笔记、要主动提起的话 |
+| [`src-tauri/src/collection.rs`](src-tauri/src/collection.rs) | 动画图鉴：记下在桌面上演过哪些动画、第一次见的时间和次数，判断收集的里程碑 |
 | [`src-tauri/src/screen.rs`](src-tauri/src/screen.rs) | 截取桌宠所在的屏幕（不含桌宠自己），压成 JPEG |
 | [`src-tauri/src/server.rs`](src-tauri/src/server.rs) | 接收 hook 的本地 HTTP 服务，挂起权限请求 |
 | [`src-tauri/src/hotkeys.rs`](src-tauri/src/hotkeys.rs) | 审批气泡的全局快捷键：只在气泡显示时注册 |

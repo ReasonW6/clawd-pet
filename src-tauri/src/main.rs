@@ -3,6 +3,7 @@
 mod ai;
 mod autostart;
 mod claude_app;
+mod collection;
 mod config;
 mod desktop_sessions;
 mod edges;
@@ -11,6 +12,7 @@ mod hooks;
 mod hotkeys;
 mod memory;
 mod screen;
+mod secrets;
 mod server;
 mod sysmon;
 mod transcript;
@@ -83,7 +85,7 @@ fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
 
 #[tauri::command]
 fn get_config(state: State<AppState>) -> Config {
-    state.config.lock().unwrap().clone()
+    secrets::hide(state.config.lock().unwrap().clone())
 }
 
 #[tauri::command]
@@ -100,6 +102,8 @@ fn apply_config(app: &AppHandle, state: &AppState, mut config: Config, settings:
         // The window position is owned by the pet window, not the settings form.
         config.x = current.x;
         config.y = current.y;
+        // The page never has the keys (`secrets::hide`).
+        secrets::keep(&mut config.ai, &current.ai);
         std::mem::replace(&mut *current, config.clone())
     };
     state.shared.bubbles.store(config.bubbles, Ordering::SeqCst);
@@ -114,6 +118,7 @@ fn apply_config(app: &AppHandle, state: &AppState, mut config: Config, settings:
         state.rewatch();
     }
     state.save();
+    let config = secrets::hide(config);
     let _ = if settings { app.emit("config", config) } else { app.emit_to("main", "config", config) };
     if let Some(w) = main_window(app) {
         step_aside(app, state, &w);
@@ -404,13 +409,41 @@ fn ai_cancel() {
 
 /// The models a provider offers, going by `ai` as edited in the settings.
 #[tauri::command]
-async fn ai_models(ai: config::AiConfig, provider: String) -> Result<Vec<String>, String> {
+async fn ai_models(mut ai: config::AiConfig, provider: String, state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    secrets::keep(&mut ai, &state.config.lock().unwrap().ai);
     ai::models(ai, provider).await
 }
 
 #[tauri::command]
 fn ai_key_page(provider: String) {
     ai::open_key_page(&provider);
+}
+
+/// Which API keys there are, for the settings page (`secrets::status`).
+#[tauri::command]
+fn ai_keys(state: State<AppState>) -> serde_json::Value {
+    secrets::status(&state.config.lock().unwrap().ai)
+}
+
+/// Saves the API key for `which` (a provider id, or "exa") in the Credential Manager;
+/// an empty one removes it. Gives back the keys there are then.
+#[tauri::command]
+fn ai_key_set(which: String, key: String, state: State<AppState>) -> Result<serde_json::Value, String> {
+    let mut cfg = state.config.lock().unwrap();
+    if secrets::set(&mut cfg.ai, &which, &key)? {
+        cfg.save(&state.config_path);
+    }
+    Ok(secrets::status(&cfg.ai))
+}
+
+/// Moves the API key of provider `from` to provider `to` (`secrets::rename`).
+#[tauri::command]
+fn ai_key_move(from: String, to: String, state: State<AppState>) -> Result<(), String> {
+    let mut cfg = state.config.lock().unwrap();
+    if secrets::rename(&mut cfg.ai, &from, &to)? {
+        cfg.save(&state.config_path);
+    }
+    Ok(())
 }
 
 /// Opens a link from a chat reply in the default browser; only web and mail links.
@@ -543,6 +576,7 @@ fn on_menu(app: &AppHandle, id: &str) {
         "quit" => {
             app.state::<AppState>().save();
             memory::flush();
+            collection::flush();
             app.exit(0);
         }
         "toggle_visible" => {
@@ -712,6 +746,7 @@ fn spawn_background_loop(app: AppHandle) {
                     st.save();
                 }
                 memory::flush();
+                collection::flush();
             }
             let dragging = st.dragging.load(Ordering::SeqCst);
             if dragging && !sysmon::left_button_down() {
@@ -765,6 +800,9 @@ fn main() {
             ai_cancel,
             ai_models,
             ai_key_page,
+            ai_keys,
+            ai_key_set,
+            ai_key_move,
             open_link,
             chat_focus,
             memory_event,
@@ -772,7 +810,11 @@ fn main() {
             memory_dream,
             memory_topic,
             memory_get,
-            memory_edit
+            memory_edit,
+            collection::collection_known,
+            collection::collection_seen,
+            collection::collection_get,
+            collection::collection_visit
         ])
         .setup(|app| {
             // The port doubles as a single-instance lock.
@@ -793,12 +835,18 @@ fn main() {
                 let _ = std::fs::copy(old_dir.join("config.json"), &config_path);
             }
             let mut cfg = Config::load(&config_path);
+            // Keys still in config.json go to the Credential Manager, and out of the file
+            // once there; any the vault turns down stay where they were.
+            if secrets::migrate(&mut cfg.ai) {
+                cfg.save(&config_path);
+            }
             if cfg.sys.folders.is_none() {
                 cfg.sys.folders = Some(default_folders(&handle));
                 cfg.save(&config_path);
             }
             let config = Arc::new(Mutex::new(cfg.clone()));
             memory::load(data_dir.join("memory"), config.clone());
+            collection::load(data_dir.join("collection.json"));
             let shared = Arc::new(Shared::default());
             shared.bubbles.store(cfg.bubbles, Ordering::SeqCst);
             transcript::show_replies(cfg.replies);

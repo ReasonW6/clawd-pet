@@ -27,6 +27,7 @@ cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得�
 - Claude 桌面版是 MSIX 打包应用，从 Claude Code 里启动的进程（`npm run dev`、直接运行 exe、运行安装包）都在它的容器里：
   - 对 `%APPDATA%`、`%LOCALAPPDATA%` 和 HKCU 的写入被重定向到 `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache` 和 Claude 的私有注册表，读到的也是合并后的视图。自启动和卸载登记也会只写进虚拟注册表。用户目录本身和 `%TEMP%` 是共享的，所以配置和 git-trace 都放在 `~/.clawd-pet` 下，不放进 AppData。
   - Claude 退出时，这些进程会被一起结束。
+  - Windows 凭据管理器不被重定向：容器里外读写的是同一份（实测过：容器里用 cmdkey 写的凭据，`explorer.exe` 转手启动的进程读得到，反过来也一样），所以开发版和正式版看到的是同一组 API 密钥。
   - 要让桌宠独立运行，或者读写真实的配置和注册表，用 `explorer.exe <exe 或 .cmd>` 转手启动。
 - 调试 WebView：启动前设置环境变量 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`，然后用 `http://127.0.0.1:9223/json` 列出页面，通过 CDP 执行 JS、截图（主窗口和设置窗口各是一个 page）。这个变量会整个替换 `tauri.conf.json` 里的 `additionalBrowserArgs`，所以值要写成那里的全部参数再加上 `--remote-debugging-port=9223`，否则调试时跑的是 GPU 渲染，和正式运行不一样。
 
@@ -36,7 +37,7 @@ cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得�
 
 Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
-- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）和 `config`（只在聊天改了设置时）；只发给主窗口的还有 `dream`（做梦开始、结束）、`edges`（来自 `edges.rs`），以及 `perm-hotkey`、`hotkeys`（来自 `hotkeys.rs`）。
+- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）、`config`（只在聊天改了设置时）和 `collected`（图鉴新收集到一个，带 slug）；只发给主窗口的还有 `dream`（做梦开始、结束）、`edges`（来自 `edges.rs`），以及 `perm-hotkey`、`hotkeys`（来自 `hotkeys.rs`）。
 - 前端调用的命令都在 `main.rs` 的 `generate_handler!` 里注册；`window.__TAURI__` 是全局对象（`withGlobalTauri`），前端没有打包器和 import。
 
 ### Claude Code 联动
@@ -76,6 +77,15 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 - 笔记用中立的第三人称写，不带人设口吻；只有 `topics` 按做梦时的人设写，并记下人设 id，换了人设就丢掉。
 - 称呼和生日以设置为准：`remember` 的说明和整理的提示词都不让记这两样，笔记里已有的在下次整理时删掉；聊天的系统提示直接从配置带上它们。聊天里改称呼走 `change_setting`。
 - 事件只记计数、时长和项目文件夹名，不记会话标题（桌面版的标题是从用户的话里生成的）。
+
+### 动画图鉴（`collection.rs`）
+
+设置页的图鉴是收集册：只有在桌面上真正演过的动画算收集到。
+
+- `pet.js` 的 `play` 在 GIF 加载好、换上 `sprite` 时调 `collection_seen`。隐藏时 `play` 不加载，所以不算；图鉴发来的 `play` 走 `playOnce(..., { preview: true })`，也不算。启动时先用 `collection_known` 把 manifest 里的全部 slug 交给后端：不在里面的不记，数里程碑时也不算已经改名、删掉的。
+- 记录（`since`、`visited`、`cheered`、每个 slug 的 `first` 和 `count`）在内存里改，置脏后由 `main.rs` 的 2 秒保存循环和退出时 `flush` 写进 `~/.clawd-pet/collection.json`（`memory::write`：先写 `.tmp` 再 rename）。
+- 里程碑是每 `STEP`（50）个和全部收集齐。开始收集（`since`）后 24 小时内不庆祝，免得老用户第一天连着庆祝；之后第一次新收集到时，只庆祝已达到的最高那个（`cheered` 记着）。前端把它放进 `collectCheer`，在 `idleLife` 里等用户在场（`!leftAlone`）、没有别的气泡时播 `ANIMS.collected` / `collectedAll`。
+- 设置页：缩略图用 `ImageDecoder` 取 GIF 中间一帧画在 canvas 上，没见过的用 `source-in` 填成影子色；滚到附近才解码（`IntersectionObserver`），解码结果按 slug 缓存。卡片只在鼠标放上去时换成 GIF。没见过的名字不显示、搜不到，点了不发 `play`。「新」是上次打开图鉴以后收集的：第一次点图鉴标签时调 `collection_visit` 记下时间，这一页里用的还是之前的；从没打开过就算最近一天的。
 
 ### 聊天改设置（`change_setting`）
 
@@ -135,3 +145,6 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 - 结构体带 `#[serde(default, rename_all = "camelCase")]`：新增字段会自动取默认值，改名时用 `#[serde(alias = ...)]` 兼容旧配置。
 - 改默认值不会影响已经存在的配置文件。
 - `set_config` 是设置页的唯一写入口；它会按需重设窗口大小、重建文件监听（`rewatch`），并重新判断全屏让开。
+- API 密钥（`secrets.rs`）存在 Windows 凭据管理器里，每个一条普通凭据，名字是 `clawd-pet/<服务商 id>`、`clawd-pet/exa`；用的是 `windows-sys` 的 `CredWriteW` / `CredReadW` / `CredDeleteW` / `CredEnumerateW`，密钥按 UTF-16 存（和 cmdkey 一样）。
+  - 启动时 `secrets::migrate` 把 `config.json` 里还有的 `apiKey` / `exaKey` 写进去、读回来核对，对上了才从配置里删掉再保存（`Config::save` 先写 `.tmp` 再 rename）；存不进去的留在配置里照常用（`secrets::key` 先看配置里的，再看凭据管理器），原因记在 `TROUBLE` 里给设置页看，下次启动再试。这两个字段为空时不写出来。
+  - 前端拿不到密钥：`get_config` 和 `config` 事件都过一遍 `secrets::hide`；设置页存回来的配置不带密钥，`apply_config` 用 `secrets::keep` 把配置里原有的放回去，`ai_models` 也一样。设置页只通过 `ai_keys`（每个密钥的最后 4 个字符，短于 12 个字符的不给；以及是不是还在配置里）、`ai_key_set`（空的就是删掉）、`ai_key_move`（旧的「自定义」模板设置变成用户自己的服务商时搬密钥）打交道。
