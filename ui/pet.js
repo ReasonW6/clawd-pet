@@ -376,7 +376,7 @@ function onHook(p) {
       s.nextBreak = s.turnStart + LONG_TASK_MS;
       break;
     case "PreToolUse": {
-      // These wait for the user's answer in the native UI.
+      // These wait for the user's answer (a question may get it in the bubble).
       if (p.tool_name === "AskUserQuestion" || p.tool_name === "ExitPlanMode") {
         // Always a fresh wait: any earlier "waiting" belongs to a previous request.
         wait(s, p.tool_name === "ExitPlanMode" ? ANIMS.planReady : ANIMS.asking);
@@ -461,7 +461,7 @@ function onHook(p) {
       }
       break;
     case "PermissionRequest": // only reaches here when the bubble isn't used
-      // AskUserQuestion / ExitPlanMode come here too, right after their PreToolUse.
+      // So does ExitPlanMode, always, right after its PreToolUse.
       if (s.state !== "waiting") wait(s);
       break;
     case "Reply":
@@ -1019,7 +1019,7 @@ function sessionName(s) {
 }
 
 function stateText(s) {
-  if (s.state === "waiting") return "等你确认";
+  if (s.state === "waiting") return perms.some((x) => x.ask && x.payload.session_id === s.id) ? "等你回答" : "等你确认";
   if (s.state === "compacting") return "整理记忆";
   if (s.state === "thinking") return "思考中…";
   if (s.state === "working") {
@@ -1033,7 +1033,7 @@ function stateText(s) {
 
 function desiredSlug() {
   if (dragging) return dragAnim;
-  if (perms.length) return ANIMS.permission[0];
+  if (perms.length) return perms[0].ask?.anim || ANIMS.permission[0];
   const lead = leader();
   if (oneShot?.force) return oneShot.slug;
   // Chatting, it stays at its desk with the user; the label still tells how Claude is doing.
@@ -1150,7 +1150,8 @@ function renderBubble() {
 
 /** The hotkeys are held only while the bubble shows a request (hotkeys.rs). */
 function syncHotkeys() {
-  const req = shown ? perms[0] : null;
+  // A question card has no allow / deny to give, so it holds no hotkeys.
+  const req = shown && !perms[0]?.ask ? perms[0] : null;
   const want = !req ? "" : req.payload.permission_suggestions?.length ? "always" : "plain";
   if (want === hotkeysFor) return;
   hotkeysFor = want;
@@ -1162,7 +1163,7 @@ function syncHotkeys() {
 function onPermHotkey(action) {
   const req = perms[0];
   const sug = req?.payload.permission_suggestions?.[0];
-  if (!req || !shown || bubble.hidden || req.hotkeyed || (action === "always" && !sug)) return;
+  if (!req || !shown || bubble.hidden || req.ask || req.hotkeyed || (action === "always" && !sug)) return;
   // Not yet on show (undefined) counts as too soon too.
   if (!(performance.now() - req.shownAt >= HOTKEY_SETTLE_MS)) return;
   req.hotkeyed = true;
@@ -1191,6 +1192,7 @@ function drawBubble() {
   if (perms.length) {
     const req = perms[0];
     if (shown && req.shownAt === undefined) req.shownAt = performance.now();
+    if (req.ask) return drawAsk(req);
     const key = `perm-${req.id}-${perms.length}`;
     if (bubbleKey === key) return;
     bubbleKey = key;
@@ -1306,10 +1308,232 @@ async function decide(req, kind, suggestion) {
   }
   removePerm(req.id);
   const s = sessions.get(req.payload.session_id);
-  if (s && s.state === "waiting") s.state = "working";
+  // A question handed back is still waiting for its answer, there.
+  if (s && s.state === "waiting" && !(kind === "pass" && req.ask)) s.state = "working";
   await invoke("resolve_permission", { id: req.id, body });
   if (kind === "deny") playOnce(pick(ANIMS.denied), { force: true, minMs: 1800 });
   else if (kind !== "pass") playOnce(pick(ANIMS.allowed), { force: true, minMs: 1200 });
+  render();
+}
+
+// ---------------------------------------------------------------- questions
+
+// AskUserQuestion, answered in the bubble: one page per question. A choice question has
+// its options plus a box to write one's own answer; with `kind` "text" or "number" there
+// is only the box. The public AskUserQuestion docs have only question / header / options /
+// multiSelect: `kind`, `title`, `unit`, `placeholder`, `min` / `max` / `step` and
+// `defaultValue` are read in case a newer Claude Code sends such forms, and haven't been
+// checked against one.
+
+const ASK_KINDS = [undefined, "choice", "text", "number"];
+
+/** What has been answered so far, for a request the bubble can show; null otherwise. */
+function askState(p) {
+  const qs = p.tool_input?.questions;
+  const fits = (q) => q && typeof q.question === "string" && ASK_KINDS.includes(q.kind) && (Array.isArray(q.options) || isTyped(q));
+  if (!Array.isArray(qs) || !qs.length || !qs.every(fits)) return null;
+  return {
+    page: 0,
+    anim: pick(ANIMS.asking),
+    picks: qs.map(() => new Set()), // indexes of the options picked
+    // Only a default the question gives is filled in: the smallest number allowed would
+    // count as answered without the user having looked.
+    text: qs.map((q) => (q.kind === "number" ? String(q.defaultValue ?? "") : "")),
+    // Whether one's own answer counts, for a choice question.
+    own: qs.map(() => false),
+  };
+}
+
+const isTyped = (q) => q.kind === "text" || q.kind === "number";
+
+/** The answer to question `i` as Claude Code takes it (a label, the text written, or
+ *  for multi-select the labels joined with commas, which every version reads), or null
+ *  while there is none. */
+function askAnswer(q, a, i) {
+  const text = a.text[i].trim();
+  if (q.kind === "number") {
+    const n = Number(text);
+    return text && Number.isFinite(n) && !(n < q.min) && !(n > q.max) ? text : null;
+  }
+  if (q.kind === "text") return text || null;
+  const picked = q.options.filter((_, j) => a.picks[i].has(j)).map((o) => String(o.label));
+  if (a.own[i] && text) picked.push(text);
+  if (!picked.length) return null;
+  return q.multiSelect ? picked.join(", ") : picked[0];
+}
+
+function drawAsk(req) {
+  const a = req.ask;
+  const p = req.payload;
+  const qs = p.tool_input.questions;
+  const key = `ask-${req.id}-${a.page}`;
+  // Another request joining the queue only changes the count, in place: drawing the card
+  // again would lose the caret and break off what an input method is composing.
+  const queued = perms.length > 1 ? `还有 ${perms.length - 1} 个在排队` : "";
+  if (bubbleKey === key) {
+    const line = bubble.querySelector(".ask .queued");
+    if (line && line.textContent !== queued) {
+      line.textContent = queued;
+      queueHitRects();
+    }
+    return;
+  }
+  // Drawn again while typing (another request joined the queue): the box keeps the focus.
+  const typing = document.activeElement?.closest?.("#bubble input");
+  bubbleKey = key;
+  const s = sessions.get(p.session_id) || { entry: p._entry, cwd: p.cwd, title: p._title };
+  const i = a.page;
+  const q = qs[i];
+  const last = i === qs.length - 1;
+
+  bubble.innerHTML = "";
+  const card = el("div", "perm ask");
+  const top = el("div", "top");
+  top.append(el("span", "chip", q.header || "提问"));
+  const who = el("span", "who", sessionName(s));
+  who.title = sessionName(s);
+  top.append(who);
+  const steps = el("span", "steps");
+  if (qs.length > 1) {
+    qs.forEach((_, j) => {
+      const dotEl = el("button", j === i ? "now" : "");
+      dotEl.title = `第 ${j + 1} 题`;
+      dotEl.onclick = () => askGo(req, j);
+      steps.append(dotEl);
+    });
+  }
+  top.append(steps);
+  card.append(top);
+  if (p.tool_input.title) card.append(el("div", "hint", p.tool_input.title));
+  card.append(el("div", "what", q.question));
+  if (q.description) card.append(el("div", "hint", q.description));
+
+  const list = el("div", "opts");
+  const rows = [];
+  if (!isTyped(q)) {
+    q.options.forEach((o, j) => {
+      const b = el("button", "opt");
+      b.append(el("span", q.multiSelect ? "mark multi" : "mark"));
+      const txt = el("span", "txt");
+      txt.append(el("span", "label", String(o.label)));
+      if (o.description) {
+        const d = el("span", "desc", String(o.description));
+        d.title = String(o.description);
+        txt.append(d);
+      }
+      b.append(txt);
+      b.onclick = () => {
+        if (q.multiSelect) {
+          if (!a.picks[i].delete(j)) a.picks[i].add(j);
+        } else {
+          a.picks[i] = new Set([j]);
+          a.own[i] = false;
+        }
+        sync();
+        // One pick answers it: on to the next question, after a moment to see it ticked.
+        if (!q.multiSelect && !last) setTimeout(() => perms[0] === req && a.page === i && askGo(req, i + 1), 260);
+      };
+      rows.push([b, () => a.picks[i].has(j)]);
+      list.append(b);
+    });
+  }
+  const own = el("label", isTyped(q) ? "opt own typed" : "opt own");
+  const ownMark = el("span", q.multiSelect ? "mark multi" : "mark");
+  if (!isTyped(q)) {
+    own.append(ownMark);
+    ownMark.onclick = (e) => {
+      // Ticks or unticks one's own answer; the box itself is clicked to write in it.
+      e.preventDefault();
+      a.own[i] = !a.own[i];
+      if (a.own[i] && !q.multiSelect) a.picks[i].clear();
+      sync();
+      if (a.own[i]) input.focus();
+    };
+    rows.push([own, () => a.own[i]]);
+  }
+  const input = el("input");
+  input.type = q.kind === "number" ? "number" : "text";
+  input.spellcheck = false;
+  input.value = a.text[i];
+  input.placeholder = q.kind === "text" ? q.placeholder || "写下你的回答…" : q.kind === "number" ? q.placeholder || "填一个数" : "其他：自己写…";
+  if (q.kind === "number") {
+    for (const k of ["min", "max", "step"]) if (q[k] !== undefined) input[k] = q[k];
+  }
+  // The pet's window has to take the keyboard to be typed into.
+  own.addEventListener("pointerdown", () => invoke("chat_focus"));
+  input.addEventListener("input", () => {
+    a.text[i] = input.value;
+    if (!isTyped(q)) {
+      a.own[i] = input.value.trim() !== "";
+      if (a.own[i] && !q.multiSelect) a.picks[i].clear();
+    }
+    sync();
+  });
+  input.addEventListener("keydown", (e) => {
+    // Not for the chat's keys (Esc there closes the chat).
+    e.stopPropagation();
+    if (e.key === "Enter" && !e.isComposing && !next.disabled) next.click();
+    else if (e.key === "Escape") input.blur();
+  });
+  own.append(input);
+  if (q.kind === "number") {
+    const range = [q.min, q.max].every((v) => v !== undefined) ? `${q.min}–${q.max}` : "";
+    own.append(el("span", "unit", [q.unit, range && `（${range}）`].filter(Boolean).join(" ")));
+  }
+  list.append(own);
+  card.append(list);
+
+  // Handing it back to the native UI on the left, so the buttons stay where they are.
+  const actions = el("div", "actions");
+  const side = el("span", "side");
+  const pass = el("a", "", "去原界面回答");
+  pass.onclick = () => decide(req, "pass");
+  side.append(pass);
+  side.append(el("span", "queued", queued));
+  actions.append(side);
+  if (i > 0) actions.append(button("上一题", "back", () => askGo(req, i - 1)));
+  const next = button(last ? "提交" : "下一题", "allow", () => (last ? askSubmit(req) : askGo(req, i + 1)));
+  actions.append(next);
+  card.append(actions);
+
+  /** Shows what is picked, which questions have an answer, and whether to go on. */
+  function sync() {
+    for (const [row, on] of rows) row.classList.toggle("on", on());
+    [...steps.children].forEach((d, j) => d.classList.toggle("done", askAnswer(qs[j], a, j) !== null));
+    next.disabled = askAnswer(q, a, i) === null;
+    // The option picked shows all of its description, which may make the bubble taller.
+    queueHitRects();
+  }
+  sync();
+  bubble.append(card);
+  bubble.hidden = false;
+  if (typing || (isTyped(q) && document.hasFocus())) input.focus({ preventScroll: true });
+}
+
+function askGo(req, page) {
+  req.ask.page = page;
+  renderBubble();
+  queueHitRects();
+}
+
+/** Sends the answers: the call's input as it was asked, with `answers` keyed by each
+ *  question's text. A question still without one is shown instead. */
+async function askSubmit(req) {
+  const a = req.ask;
+  const qs = req.payload.tool_input.questions;
+  const answers = {};
+  for (let i = 0; i < qs.length; i++) {
+    const answer = askAnswer(qs[i], a, i);
+    if (answer === null) return askGo(req, i);
+    answers[qs[i].question] = answer;
+  }
+  const decision = { behavior: "allow", updatedInput: { ...req.payload.tool_input, answers } };
+  const body = JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision } });
+  removePerm(req.id);
+  const s = sessions.get(req.payload.session_id);
+  if (s && s.state === "waiting") s.state = "working";
+  await invoke("resolve_permission", { id: req.id, body });
+  playOnce(pick(ANIMS.answered), { force: true, minMs: 1500 });
   render();
 }
 
@@ -2253,8 +2477,14 @@ async function boot() {
 
   await listen("hook-event", (e) => onHook(e.payload));
   await listen("permission-request", (e) => {
+    const req = { id: e.payload.id, payload: e.payload.payload };
+    if (req.payload.tool_name === "AskUserQuestion") {
+      req.ask = askState(req.payload);
+      // Asked in a way the bubble can't show: answered in the native UI, as before.
+      if (!req.ask) return invoke("resolve_permission", { id: req.id, body: "" });
+    }
     stir(AWAKE_AFTER_WORK_MS);
-    perms.push({ id: e.payload.id, payload: e.payload.payload });
+    perms.push(req);
     const s = session(e.payload.payload);
     if (s.state !== "waiting") wait(s);
     render();
@@ -2265,9 +2495,15 @@ async function boot() {
     // Answered in Claude Code itself: back to work, unless it is asking something else.
     // When the bubble only gave up waiting, Claude Code is still asking there.
     const s = req && sessions.get(req.payload.session_id);
-    if (e.payload.answered && s?.state === "waiting" && !perms.some((x) => x.payload.session_id === s.id)) s.state = "working";
-    // Reacts as to an answer in the bubble, when it shows which answer it was.
-    if (req && e.payload.outcome === "allow") playOnce(pick(ANIMS.allowed), { force: true, minMs: 1200 });
+    // A question answered in the terminal (outcome unknown) is left waiting: its PostToolUse
+    // comes right after and plays "you answered" only while the session still waits.
+    const unknownAsk = req?.ask && e.payload.outcome == null;
+    if (e.payload.answered && !unknownAsk && s?.state === "waiting" && !perms.some((x) => x.payload.session_id === s.id)) s.state = "working";
+    // Reacts as to an answer in the bubble, when it shows which answer it was. A question
+    // answered elsewhere: its PostToolUse may have played that already.
+    if (req?.ask && e.payload.outcome === "allow") {
+      if (!ANIMS.answered.includes(oneShot?.slug)) playOnce(pick(ANIMS.answered), { force: true, minMs: 1500 });
+    } else if (req && e.payload.outcome === "allow") playOnce(pick(ANIMS.allowed), { force: true, minMs: 1200 });
     else if (req && e.payload.outcome === "deny") playOnce(pick(ANIMS.denied), { force: true, minMs: 1800 });
     render();
   });

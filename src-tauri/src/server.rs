@@ -587,8 +587,9 @@ fn emit_hook(app: &AppHandle, mut payload: Value) {
 
 fn permission(stream: TcpStream, app: &AppHandle, shared: &Shared, payload: Value) -> io::Result<()> {
     let tool = payload["tool_name"].as_str().unwrap_or_default();
-    // These need structured answers only the native UI can collect.
-    let native_only = matches!(tool, "AskUserQuestion" | "ExitPlanMode");
+    // Approving a plan is left to the native UI. AskUserQuestion is answered in the
+    // bubble: an allow with `updatedInput` carrying the `answers`.
+    let native_only = tool == "ExitPlanMode";
     if native_only || !shared.bubbles.load(Ordering::SeqCst) {
         respond(&stream, 200, "")?;
         emit_hook(app, payload);
