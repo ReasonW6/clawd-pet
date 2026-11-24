@@ -15,7 +15,7 @@ npm run triggers        # 由 ui/anims.js 重新生成 docs/triggers.html
 cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得多
 ```
 
-- 没有 lint，测试只有少数几个纯逻辑的单元测试（`cargo test collection`）。验证方式主要是 `cargo check`，加上实际运行。
+- 没有 lint，测试只有少数几个单元测试，要在 Windows 上 `cargo test`（`collection`、`secrets` 等）。`secrets` 的测试读写开发机真实的凭据管理器（`clawd-pet/test-<pid>-*`，测试结束时删掉，失败也删）。验证方式主要是 `cargo check`，加上实际运行。
 - `ui/assets/clawd/` 被 gitignore，是生成物；新克隆的仓库要先有素材来源并跑 `import-assets`，否则前端和 `npm run triggers` 都会缺 `manifest.json`。
 - 素材来源有两种，manifest 格式不同，`import-assets` 都能读：
   - `../clawd-400-src`：clawd-400 仓库的克隆。动画是 `scenes/*.py` 里的场景代码，在那里改完跑 `python generate.py` 重写 `gifs/` 和 `manifest.json`（几秒钟，结果是确定的），再回来 `import-assets`。修改动画走这条路，步骤见 README「修改动画」。
@@ -147,4 +147,4 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 - `set_config` 是设置页的唯一写入口；它会按需重设窗口大小、重建文件监听（`rewatch`），并重新判断全屏让开。
 - API 密钥（`secrets.rs`）存在 Windows 凭据管理器里，每个一条普通凭据，名字是 `clawd-pet/<服务商 id>`、`clawd-pet/exa`；用的是 `windows-sys` 的 `CredWriteW` / `CredReadW` / `CredDeleteW` / `CredEnumerateW`，密钥按 UTF-16 存（和 cmdkey 一样）。
   - 启动时 `secrets::migrate` 把 `config.json` 里还有的 `apiKey` / `exaKey` 写进去、读回来核对，对上了才从配置里删掉再保存（`Config::save` 先写 `.tmp` 再 rename）；存不进去的留在配置里照常用（`secrets::key` 先看配置里的，再看凭据管理器），原因记在 `TROUBLE` 里给设置页看，下次启动再试。这两个字段为空时不写出来。
-  - 前端拿不到密钥：`get_config` 和 `config` 事件都过一遍 `secrets::hide`；设置页存回来的配置不带密钥，`apply_config` 用 `secrets::keep` 把配置里原有的放回去，`ai_models` 也一样。设置页只通过 `ai_keys`（每个密钥的最后 4 个字符，短于 12 个字符的不给；以及是不是还在配置里）、`ai_key_set`（空的就是删掉）、`ai_key_move`（旧的「自定义」模板设置变成用户自己的服务商时搬密钥）打交道。
+  - 前端读不到密钥：`get_config` 和 `config` 事件都过一遍 `secrets::hide`；设置页存回来的配置不带密钥，`apply_config` 用 `secrets::keep` 把配置里原有的放回去。`ai_models` 只用已保存的配置，不收页面传来的（设置页先 `saveNow`）。这挡不住能调命令的页面先 `set_config` 改掉地址、再让后端带着密钥去请求：密钥没和地址绑在一起。设置页只通过 `ai_keys`（每个密钥的最后 4 个字符，短于 12 个字符的不给；以及是不是还在配置里）、`ai_key_set`（空的就是删掉）、`ai_key_move`（旧的「自定义」模板设置变成用户自己的服务商时搬密钥）打交道。
