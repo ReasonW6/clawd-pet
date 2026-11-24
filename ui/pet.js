@@ -94,7 +94,8 @@ async function remember(kind, detail = null) {
 /** Shows something the pet prepared to say, `when` "morning", "anytime" or "any"; a click on
  *  it starts a chat that opens with it. Resolves to whether there was one. */
 async function bringUp(when) {
-  if (!memOn() || !config.memory.proactive || !config.chatty) return false;
+  // With the bubble taken, the topic isn't fetched: fetching it uses it up.
+  if (!memOn() || !config.memory.proactive || !config.chatty || toastText) return false;
   const text = await invoke("memory_topic", { when });
   // Something else (the weekly card) took the bubble meanwhile: it isn't put aside.
   if (!text || toastText) return false;
@@ -817,7 +818,7 @@ function wakeUp(date) {
   if (!config.chatty) return;
   const hello = date.getHours() < 11 ? `早上好${nick()}！新的一天开始啦～` : "睡醒啦，继续开工～";
   // Something it prepared in its dream, if it did.
-  bringUp(date.getHours() < 11 ? "morning" : "anytime").then((said) => said || toast(hello));
+  bringUp(date.getHours() < 11 ? "morning" : "anytime").then((said) => said || toastText || toast(hello));
 }
 
 function holidaysToday(date) {
@@ -1378,7 +1379,8 @@ const HOTKEY_ACTIONS = ["allow", "deny", "always"];
  *  doesn't answer one the user hasn't looked at. */
 const HOTKEY_SETTLE_MS = 700;
 /** Short marks for the modifiers on a button's key cap; the tooltip has the whole combo. */
-const MOD_MARKS = { ctrl: "⌃", alt: "⌥", shift: "⇧", win: "⊞" };
+// Spelled out as Windows keyboards print them: the Mac's marks (⌃ ⌥) mean nothing there.
+const MOD_NAMES = { ctrl: "Ctrl", alt: "Alt", shift: "Shift", win: "Win" };
 
 function toast(text, { sticky = false, ms = TOAST_MS, onClick = null, card = null } = {}) {
   toastText = text;
@@ -1466,7 +1468,7 @@ function keyCap(b, action) {
   const combo = config.hotkeys[action];
   const parts = combo.split("+").map((x) => x.trim());
   const key = parts.pop().toUpperCase();
-  b.append(el("kbd", "", parts.map((m) => MOD_MARKS[m.toLowerCase()] || m).join("") + key));
+  b.append(el("kbd", "", [...parts.map((m) => MOD_NAMES[m.toLowerCase()] || m), key].join("+")));
   b.title = [b.title, `快捷键 ${combo}`].filter(Boolean).join("\n");
 }
 
