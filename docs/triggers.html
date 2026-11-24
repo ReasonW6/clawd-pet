@@ -478,7 +478,7 @@
 <div class="row">
   <div class="info">
     <h4>Claude 向你提问</h4>
-    <p>AskUserQuestion 的 <code>PreToolUse</code>。一脸问号地等你作答，约 45 秒没回应才变得不耐烦。</p>
+    <p>AskUserQuestion 的 <code>PreToolUse</code>。一脸问号地等你作答，约 45 秒没回应才变得不耐烦。开着审批气泡时，紧接着的 <code>PermissionRequest</code> 在头顶弹出问题卡：一题一页，点选项（多选的打勾）或在「其他」框里自己写，也可以点「去原界面回答」；卡片挂着时一直是这个动画，不会变得不耐烦。在原界面先答了，卡片和权限气泡一样收起。</p>
     <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
     <code>ANIMS.asking</code>
   </div>
@@ -505,7 +505,7 @@
 <div class="row">
   <div class="info">
     <h4>你答完了</h4>
-    <p>AskUserQuestion 的 <code>PostToolUse</code>，或 <code>ElicitationResult</code> 里你选了提交。</p>
+    <p>在问题卡里点「提交」；AskUserQuestion 的 <code>PostToolUse</code>，或问题卡在你从原界面答完后收起、看得出你答了的时候；或 <code>ElicitationResult</code> 里你选了提交。</p>
     <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">1.6 秒</span></p>
     <code>ANIMS.answered</code>
   </div>

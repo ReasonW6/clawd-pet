@@ -146,10 +146,10 @@ const claude = section(
     row({ when: "你允许了权限请求", how: "在气泡里点「允许」或「总是允许」；或在桌面版里允许了、看得出来的时候（那次调用跑起来或跑完了，或会话记录里有它的结果）。终端里答完它马上断开连接，看不出答了什么，不播。", play: ["force", 1200], code: "ANIMS.allowed", slugs: ANIMS.allowed }),
     row({ when: "你拒绝了权限请求", how: "在气泡里点「拒绝」；或在桌面版里拒绝并留言（会话记录里那次调用的结果是拒绝）。不留言直接拒绝会叫停这一轮，播的是叫停的动画；终端里同样不播。", play: ["force", 1800], code: "ANIMS.denied", slugs: ANIMS.denied }),
     row({ when: "要你去原界面作答", how: "气泡关着时的权限请求，或 <code>Notification</code> 的 permission_prompt / elicitation_dialog，直接是这个。提问、计划、填表先用下面各自的动画等着，约 45 秒还没回应、播完手头这一轮后才换成这个。", play: ["loop"], code: "ANIMS.waiting", slugs: ANIMS.waiting }),
-    row({ when: "Claude 向你提问", how: "AskUserQuestion 的 <code>PreToolUse</code>。一脸问号地等你作答，约 45 秒没回应才变得不耐烦。", play: ["loop"], code: "ANIMS.asking", slugs: ANIMS.asking }),
+    row({ when: "Claude 向你提问", how: "AskUserQuestion 的 <code>PreToolUse</code>。一脸问号地等你作答，约 45 秒没回应才变得不耐烦。开着审批气泡时，紧接着的 <code>PermissionRequest</code> 在头顶弹出问题卡：一题一页，点选项（多选的打勾）或在「其他」框里自己写，也可以点「去原界面回答」；卡片挂着时一直是这个动画，不会变得不耐烦。在原界面先答了，卡片和权限气泡一样收起。", play: ["loop"], code: "ANIMS.asking", slugs: ANIMS.asking }),
     row({ when: "计划写好了", how: "ExitPlanMode 的 <code>PreToolUse</code>，计划交给你审。约 45 秒没回应才变得不耐烦。", play: ["loop"], code: "ANIMS.planReady", slugs: ANIMS.planReady }),
     row({ when: "MCP 服务器要你填表", how: "<code>Elicitation</code> 到 <code>ElicitationResult</code> 之间。约 45 秒没回应才变得不耐烦。", play: ["loop"], code: "ANIMS.elicitation", slugs: ANIMS.elicitation }),
-    row({ when: "你答完了", how: "AskUserQuestion 的 <code>PostToolUse</code>，或 <code>ElicitationResult</code> 里你选了提交。", play: ["force", 1500], code: "ANIMS.answered", slugs: ANIMS.answered }),
+    row({ when: "你答完了", how: "在问题卡里点「提交」；AskUserQuestion 的 <code>PostToolUse</code>，或问题卡在你从原界面答完后收起、看得出你答了的时候；或 <code>ElicitationResult</code> 里你选了提交。", play: ["force", 1500], code: "ANIMS.answered", slugs: ANIMS.answered }),
     row({ when: "计划获批", how: "ExitPlanMode 的 <code>PostToolUse</code>，接着开工。", play: ["force", 1500], code: "ANIMS.planApproved", slugs: ANIMS.planApproved }),
 
     sub("出错"),

@@ -1225,7 +1225,8 @@ async function decide(req, kind, suggestion) {
   }
   removePerm(req.id);
   const s = sessions.get(req.payload.session_id);
-  if (s && s.state === "waiting") s.state = "working";
+  // A question handed back is still waiting for its answer, there.
+  if (s && s.state === "waiting" && !(kind === "pass" && req.ask)) s.state = "working";
   await invoke("resolve_permission", { id: req.id, body });
   if (kind === "deny") playOnce(pick(ANIMS.denied), { force: true, minMs: 1800 });
   else if (kind !== "pass") playOnce(pick(ANIMS.allowed), { force: true, minMs: 1200 });
@@ -1361,7 +1362,7 @@ function drawAsk(req) {
     for (const k of ["min", "max", "step"]) if (q[k] !== undefined) input[k] = q[k];
   }
   // The pet's window has to take the keyboard to be typed into.
-  input.addEventListener("pointerdown", () => invoke("chat_focus"));
+  own.addEventListener("pointerdown", () => invoke("chat_focus"));
   input.addEventListener("input", () => {
     a.text[i] = input.value;
     if (!isTyped(q)) {
