@@ -1082,6 +1082,159 @@ function renderLabel() {
   label.hidden = !text;
 }
 
+// ---------------------------------------------------------------- Claude plan usage
+
+// How much of the Claude plan's 5-hour and weekly windows is used (quota.rs): two pixel
+// bars by the status line, the details on hover. The desktop app's numbers come without
+// reset times; the terminal's (through the status line relay) come with them.
+const quotaEl = $("quota");
+const quotaCard = $("quota-card");
+/** Numbers this old may be off and look it; this much older still, the bars go away. */
+const QUOTA_STALE_MS = 40 * MIN;
+const QUOTA_HIDE_MS = 24 * 60 * MIN;
+/** Percentages it reacts to, once each per window. */
+const QUOTA_LEVELS = [80, 95];
+const QUOTA_NAMES = { five: "5 小时", week: "本周" };
+let quota = { desktop: null, cli: null };
+let quotaTimer = null;
+
+const pad2 = (n) => String(n).padStart(2, "0");
+const hm = (ms) => `${pad2(new Date(ms).getHours())}:${pad2(new Date(ms).getMinutes())}`;
+/** "21:30" within a day, "周四 18:00" further off. */
+const whenShort = (ms) => (ms - now() < 24 * 60 * MIN ? hm(ms) : `周${"日一二三四五六"[new Date(ms).getDay()]} ${hm(ms)}`);
+
+/** One window from both sources as of now: { pct, at, resets, reset, src }. The fresher
+ *  number wins; a reset time only the terminal knows, and only until it comes. */
+function quotaWindow(key) {
+  const t = now();
+  const d = quota.desktop?.[key] != null ? { pct: quota.desktop[key], at: quota.desktop.t, src: "desktop" } : null;
+  const w = quota.cli?.[key];
+  const c = w ? { pct: w.pct, at: quota.cli.t, resets: w.resets ? w.resets * 1000 : null, src: "cli" } : null;
+  const v = [d, c].filter(Boolean).sort((a, b) => b.at - a.at)[0];
+  if (!v) return null;
+  // A reset the terminal told of has come since these numbers: the window started over.
+  if (c?.resets && c.resets <= t && v.at < c.resets) return { pct: 0, at: c.resets, resets: null, reset: true, src: v.src };
+  return { pct: v.pct, at: v.at, resets: c?.resets > t ? c.resets : null, reset: false, src: v.src };
+}
+
+const quotaStale = (w) => now() - w.at > QUOTA_STALE_MS;
+
+function renderQuota() {
+  clearTimeout(quotaTimer);
+  const t = now();
+  const wins = { five: quotaWindow("five"), week: quotaWindow("week") };
+  const known = Object.values(wins).filter(Boolean);
+  const newest = Math.max(0, ...known.map((w) => w.at));
+  const on = Boolean(config?.quota) && t - newest < QUOTA_HIDE_MS;
+  quotaEl.hidden = !on;
+  if (!on) {
+    quotaCard.hidden = true;
+  } else {
+    for (const [key, w] of Object.entries(wins)) {
+      const bar = quotaEl.querySelector(`.${key}`);
+      // Ten pixels of 2 px with 1 px between; anything used shows at least one.
+      bar.style.setProperty("--fill", `${w ? Math.ceil(w.pct / 10) * 3 : 0}px`);
+      bar.classList.toggle("stale", !w || quotaStale(w));
+      bar.classList.toggle("hot", Boolean(w) && w.pct >= QUOTA_LEVELS[0]);
+      bar.classList.toggle("full", Boolean(w) && w.pct >= QUOTA_LEVELS[1]);
+    }
+    quotaEl.classList.toggle("stale", known.every(quotaStale));
+    quotaEl.classList.toggle("near", known.some((w) => !quotaStale(w) && w.pct >= QUOTA_LEVELS[0]));
+    if (!quotaCard.hidden) renderQuotaCard(wins);
+    warnQuota(wins);
+    // Looked at again when something changes by itself: numbers going stale, a window
+    // starting over, the bars going away. No polling in between.
+    const next = known.flatMap((w) => [w.at + QUOTA_STALE_MS, w.resets || Infinity]).concat(newest + QUOTA_HIDE_MS);
+    const soonest = Math.min(...next.filter((x) => x > t));
+    if (soonest < Infinity) quotaTimer = setTimeout(renderQuota, Math.min(soonest - t + 500, 2 ** 31 - 1));
+  }
+  queueHitRects();
+}
+
+function untilText(ms) {
+  const m = Math.max(1, Math.round((ms - now()) / MIN));
+  if (m < 60) return `${m} 分钟后重置`;
+  if (m < 24 * 60) return `${Math.floor(m / 60)} 小时 ${m % 60} 分后重置 · ${hm(ms)}`;
+  return `${whenShort(ms)} 重置 · 还有 ${Math.floor(m / (24 * 60))} 天`;
+}
+
+function agoText(ms) {
+  const m = Math.round((now() - ms) / MIN);
+  if (m < 1) return "刚刚";
+  if (m < 60) return `${m} 分钟前`;
+  if (m < 24 * 60) return `${Math.floor(m / 60)} 小时前`;
+  return `${Math.floor(m / (24 * 60))} 天前`;
+}
+
+function renderQuotaCard(wins) {
+  const el = (tag, cls, text) => Object.assign(document.createElement(tag), { className: cls, textContent: text ?? "" });
+  const card = el("div", "qcard");
+  // Where the numbers on show came from: a window known to have started over shows none.
+  const latest = Object.values(wins).filter((w) => w && !w.reset).sort((a, b) => b.at - a.at)[0];
+  for (const [key, w] of Object.entries(wins)) {
+    const row = el("div", "qrow");
+    const bar = el("span", `qbar${!w || quotaStale(w) ? " stale" : w.pct >= QUOTA_LEVELS[0] ? " hot" : ""}`);
+    const fill = el("b");
+    // Twenty pixels of 4 px with 1 px between.
+    fill.style.width = `${w ? Math.ceil(w.pct / 5) * 5 : 0}px`;
+    bar.append(fill);
+    row.append(el("span", "qname", QUOTA_NAMES[key]), bar, el("span", "qpct", w ? `${Math.round(w.pct)}%` : "–"));
+    card.append(row);
+    const sub = !w ? "还没有数据" : w.reset ? "已重置" : w.resets ? untilText(w.resets) : "";
+    if (sub) card.append(el("div", "qsub", sub));
+  }
+  if (latest) {
+    const from = latest.src === "cli" ? "终端" : "桌面版";
+    const stale = quotaStale(latest);
+    card.append(el("div", `qfoot${stale ? " stale" : ""}`, `${from} · ${agoText(latest.at)}${stale ? " · 可能不准了" : ""}`));
+  }
+  quotaCard.replaceChildren(card);
+}
+
+/** A gentle word when a window gets close to its limit, once per level per window; of
+ *  two at once, the more urgent one. */
+function warnQuota(wins) {
+  let warned = {};
+  try {
+    warned = JSON.parse(localStorage.getItem("quotaWarned")) || {};
+  } catch {}
+  let changed = false;
+  let worst = null;
+  for (const [key, w] of Object.entries(wins)) {
+    if (!w || w.reset || quotaStale(w)) continue;
+    const level = QUOTA_LEVELS.filter((l) => w.pct >= l).length;
+    const was = warned[key] || 0;
+    // Well down again: a new window, to be warned about afresh.
+    if (w.pct < 50 && was) {
+      warned[key] = 0;
+      changed = true;
+    } else if (level > was) {
+      warned[key] = level;
+      changed = true;
+      if (!worst || level > worst.level) worst = { key, w, level };
+    }
+  }
+  if (worst) {
+    const { key, w, level } = worst;
+    const pct = Math.round(w.pct);
+    const when = w.resets ? `${whenShort(w.resets)} 重置` : "";
+    const text = level > 1 ? `${QUOTA_NAMES[key]}额度快见底了（${pct}%${when ? `，${when}` : ""}）` : `${QUOTA_NAMES[key]}额度用掉 ${pct}% 啦，悠着点用～${when ? `（${when}）` : ""}`;
+    if (!asleep) playOnce(pick(level > 1 ? ANIMS.quotaOut : ANIMS.quotaNear), { force: true, minMs: 2500 });
+    toast(text, { ms: 8000 });
+  }
+  if (changed) {
+    try {
+      localStorage.setItem("quotaWarned", JSON.stringify(warned));
+    } catch {}
+  }
+}
+
+quotaEl.addEventListener("mouseenter", () => {
+  quotaCard.hidden = false;
+  renderQuotaCard({ five: quotaWindow("five"), week: quotaWindow("week") });
+});
+quotaEl.addEventListener("mouseleave", () => (quotaCard.hidden = true));
+
 // ---------------------------------------------------------------- bubbles
 
 let toastText = null;
@@ -1549,7 +1702,7 @@ function queueHitRects() {
     const chatParts = chatEl.classList.contains("away")
       ? []
       : [...chatEl.querySelectorAll(".msg:not(.gone):not(.standby) > .card, .msg:not(.gone):not(.nox):not(.standby) > .x")];
-    const rects = [petHit, bubble, label, dot]
+    const rects = [petHit, bubble, label, dot, quotaEl]
       .filter((e) => !e.hidden)
       .concat(chatParts)
       .map((e) => e.getBoundingClientRect())
@@ -1573,10 +1726,15 @@ function queueHitRects() {
 // that shows: over the pet where there is room, pushed in from the edge where not.
 let edges = { left: 0, top: 0, right: 0, bottom: 0 };
 
+/** Room under the pet (px) the quota bars and a readable label need side by side. */
+const QUOTA_ROOM = 220;
+
 function onEdges(e) {
   edges = e;
   const root = document.documentElement.style;
   for (const side of ["left", "top", "right", "bottom"]) root.setProperty(`--off-${side}`, `${e[side]}px`);
+  // Hanging off a side, the label narrows; then it gets the room and the bars step aside.
+  document.body.classList.toggle("tight", innerWidth - 16 - 2 * Math.max(e.left, e.right) < QUOTA_ROOM);
   placeBubble();
   fitChat();
   queueHitRects();
@@ -2463,6 +2621,7 @@ function applyConfig(c) {
   if (chat && !c.ai.enabled) closeChat();
   document.documentElement.style.setProperty("--size", `${c.size}px`);
   if (livelinessChanged) rest();
+  renderQuota();
   queueHitRects();
 }
 
@@ -2540,6 +2699,13 @@ async function boot() {
   $("bubble-area").addEventListener("transitionend", queueHitRects);
 
   greet();
+  // After the greeting, so that a window close to its limit is what it reacts to last.
+  quota = await invoke("quota_get");
+  renderQuota();
+  await listen("quota", (e) => {
+    quota = e.payload;
+    renderQuota();
+  });
   ticker = setInterval(tick, 1000);
   // It may have stepped aside before the listener above was there.
   setShown(await getCurrentWindow().isVisible());

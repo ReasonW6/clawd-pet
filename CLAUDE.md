@@ -37,12 +37,12 @@ cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得�
 
 Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
-- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）、`config`（只在聊天改了设置时）和 `collected`（桌面上每演一个都发，带 `slug`、`first`、`count`）；只发给主窗口的还有 `dream`（做梦开始、结束）、`edges`（来自 `edges.rs`），以及 `perm-hotkey`（来自 `hotkeys.rs`）。
+- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）、`config`（只在聊天改了设置时）和 `collected`（桌面上每演一个都发，带 `slug`、`first`、`count`）；只发给主窗口的还有 `dream`（做梦开始、结束）、`edges`（来自 `edges.rs`）、`quota`（来自 `quota.rs`），以及 `perm-hotkey`（来自 `hotkeys.rs`）。
 - 前端调用的命令都在 `main.rs` 的 `generate_handler!` 里注册；`window.__TAURI__` 是全局对象（`withGlobalTauri`），前端没有打包器和 import。
 
 ### Claude Code 联动
 
-- `hooks.rs` 往 `~/.claude/settings.json` 写 `type: "http"` 的 hook（先备份为 `settings.json.clawd-pet.bak`）。它只识别、删改 URL 以 `http://127.0.0.1:23490/clawd-pet/` 开头的条目。
+- `hooks.rs` 往 `~/.claude/settings.json` 写 `type: "http"` 的 hook（第一次改之前备份为 `settings.json.clawd-pet.bak`，之后不再覆盖它，所以它一直是桌宠动它之前的样子）。改 settings.json 的地方（这里的 hook、`quota.rs` 的状态栏中继）从读到写都拿着 `hooks::lock_settings()`，免得两个开关接连点时互相盖掉。它只识别、删改 URL 以 `http://127.0.0.1:23490/clawd-pet/` 开头的条目。
 - `server.rs` 是手写在 std 上的 HTTP 服务：
   - `/clawd-pet/event` 立即应答。转发给前端的 `hook-event` 只带 `EVENT_FIELDS` 里列出的字段、`tool_input.command` 和后端加的 `_entry` / `_title`；prompt、文件内容、回复正文都不转发（回复只有 `transcript.rs` 读出的第一行，见下）。`pet.js` 要读新字段时，先把它加进 `EVENT_FIELDS`。
   - `/clawd-pet/permission` 一直挂着连接，直到前端调用 `resolve_permission`，或者用户在原界面先作答了，这时发 `permission-closed`。`permission-request` 带的是完整的请求内容，气泡要显示 `tool_input`。`AskUserQuestion` 也走这里，前端画成问题卡（`drawAsk`），回 `allow` 加 `updatedInput`：原样带回 `tool_input`，再加 `answers`（问题原文 → 选项 label；多选用 `", "` 连接；自己写的就是那段文字）。不能改动 `tool_input` 里已有的字段，Claude Code 会拒收。问题卡在终端里被答掉时 `permission-closed` 的 `outcome` 是 null，这时不改会话状态，留给随后的 `PostToolUse` 播「你答完了」。`ExitPlanMode` 仍直接交还原界面。
@@ -92,6 +92,15 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
 模型支持工具调用时（和记忆开关无关），`Kit` 带 `change_setting { key, value }`，由 `main.rs` 的 `change_setting` 执行：只认白名单里的几项（`nickname`、`birthday`、`chatty`、`liveliness`、`sedentaryMinutes`、`sleepEnabled`、`size`），按设置页的范围严格校验，再和 `set_config` 一样经 `apply_config` 生效（窗口大小、保存、发 `config`）。设置页自己保存的 `config` 只发给主窗口；聊天改的发给所有窗口，设置页对照它记下的后端配置（`known`），只同步聊天改了的项（`onConfig`），免得之后保存时把改动盖掉，也不盖掉还没保存的输入。工具结果告诉模型改了什么，前端在回复上只显示「⚙️ 改了设置」；一轮最多 3 次；模型用不了工具时，提示词让它请用户去设置里改。
 
+### Claude 额度（`quota.rs`）
+
+5 小时和每周两个窗口用掉的比例，两个来源，都可能没有；后端原样把两边最后的数字（`{ desktop, cli }`）发给主窗口，由 `pet.js` 的 `quotaWindow` 按当前时间合起来：每个窗口取较新的数字，重置时间只有终端给，过了就不再用；终端报过的重置时间已经过了、而手上的数字比它早，就当窗口已重置（0%，「已重置」）。
+
+- 桌面版：`<数据目录>\plan-usage-history.json`（数据目录同 `desktop_sessions.rs`），`{"version":2,"samples":[{"t":毫秒,"org":..,"u":{"fh":5 小时 %,"sd":每周 %,..}}]}`，桌面版开着时每次拿到用量就追加一条（至少隔 4.5 分钟，平常 5～15 分钟），只有百分比。用 `notify` 监听数据目录（不递归），文件变了才读最后一条。同时监听新数据目录会出现的地方（`Claude-Data`，它还没有时是 `%LOCALAPPDATA%`；`%APPDATA%`，都不递归），桌宠启动后才装、才第一次运行的桌面版建出数据目录时，`rewatch` 把它加进来（在另开的线程里，不在 notify 的回调线程里加）。只认新建、改名进来的事件：已有的目录里每写一个文件，父目录的监听也会报一次它「改了」。曾试过从用量的起落推算重置时间，每周的重置并不规律，所以不推算。这是桌面版的内部格式，读不到就当没有。
+- 终端：Claude Code 把 `rate_limits.{five_hour,seven_day}.{used_percentage,resets_at（秒）}` 交给 `statusLine` 命令（Pro / Max 才有，会话第一次回复之后才有，窗口过了重置时间就不带了）。桌面版和 IDE 扩展以 `--output-format stream-json` 无界面模式跑 Claude Code，不跑状态栏。设置里的开关（`install` / `uninstall`，状态读 settings.json，不存在配置里）把 `statusLine` 换成 `bash '<~/.clawd-pet/statusline.sh>'`，原来的 `statusLine` 对象存进 `~/.clawd-pet/statusline-original.json`，`padding`、`refreshInterval` 等原样留在新的里；认 `command` 里有 `.clawd-pet/statusline.sh` 的为自己的。中继脚本把原来的命令写成单引号字符串，`eval` 它，输入用 here-string 给；转发用 bash 的 `/dev/tcp` 在后台子 shell 里发 `POST /clawd-pet/status`：Windows 上连一个没人监听的本地端口要约 2 秒才被拒绝，不能让状态栏等它，而 Git Bash 里每起一个进程都要时间，所以除了后台那个子 shell 不起别的进程。`Content-Length` 在 `LC_ALL=C` 下取 `${#input}`，是字节数。中继只能在 Git Bash 里跑，找不到 Git Bash（`CLAUDE_CODE_GIT_BASH_PATH`、PATH 里 git 的同级 `bin\bash.exe`、常见安装位置）就拒绝安装。
+- `/clawd-pet/status` 只取 `rate_limits`，其余（cwd、transcript 路径等）不看；数字变了才写 `~/.clawd-pet/quota.json`；数字没变时，比文件里的时间新出 10 分钟（`RESAVE_MS`）也写一次，重启后才不会把刚确认过的数字当成旧的。
+- 前端：状态标签左边两条 10 格的像素条（`#quota`），悬停显示 `#quota-card`。40 分钟没更新变灰，24 小时没有就不显示；数字会自己变旧、窗口会自己重置，所以 `renderQuota` 只设一个到下一个变化时刻的 `setTimeout`，不轮询。到 80%、95% 各提醒一次（`ANIMS.quotaNear` / `quotaOut`，记在 `localStorage` 的 `quotaWarned`，回到 50% 以下清零）。
+
 ### 前端（`ui/`）
 
 - `anims.js` 是「剧本」：全部用 `window.XXX = ...` 定义成全局（`ANIMS`、`LIFE`、`ROUTINE`、`MOODS`、`SYS_EVENTS` 等），按 slug 引用 clawd-400 的动画。`scripts/gen-triggers.mjs` 用 `node:vm` 执行这个文件来读取这些全局，所以它必须保持为普通脚本，不能改成 ES module。
@@ -139,7 +148,7 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 | 键鼠空闲、剪贴板序号、网络、电量 | 1 秒一次的轮询线程，只做读一个数的廉价调用 |
 | Claude 桌面版启动、退出 | 启动时用进程快照找已经开着的主进程（不算启动）；之后前台窗口属于一个没在跟踪的桌面版主进程（路径在 `WindowsApps\Claude_` 或 `AnthropicClaude` 下，不是 Claude Code 的 `claude.exe`）就是 `claude-open`。跟踪靠一个线程 `WaitForSingleObject` 等进程结束，结束发 `claude-quit`，前端顺带清掉 `claude-desktop` 的会话。会话的 `SessionStart` / `SessionEnd` 本身不播动画（桌面版会自己随时启停会话进程） |
 
-`~/.claude/settings.json` 的 hook 和全局 git 配置，都只在用户在设置里点开关时才改，不要在代码里或测试时自动写入。
+`~/.claude/settings.json` 的 hook、`statusLine` 和全局 git 配置，都只在用户在设置里点开关时才改，不要在代码里或测试时自动写入。
 
 ### 配置（`config.rs`）
 

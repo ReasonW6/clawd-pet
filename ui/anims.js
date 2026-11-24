@@ -48,6 +48,8 @@ window.ANIMS = {
   toolError: ["emo_facepalm", "emo_awkward"],
   manyErrors: ["dev_this_is_fine"],
   apiError: ["dev_bsod"],
+  quotaNear: ["emo_nervous_sweat"], // a plan usage window 80% used
+  quotaOut: ["dev_battery"], // and 95%
   longTask: ["dev_coffee_to_code", "dev_hourglass", "dev_pomodoro"],
   done: ["dev_ship_it", "emo_victory_dance", "dev_lgtm", "emo_thumbs_up", "cc_task_tower"],
   bigDone: ["dev_deploy_rocket", "emo_joy_burst", "sport_podium"],

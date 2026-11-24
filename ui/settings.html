@@ -141,6 +141,17 @@
           </label>
           <div id="hotkey-list" class="list"></div>
         </div>
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>显示 Claude 额度</b><small>状态标签旁两条像素小条：上面 5 小时，下面本周；鼠标移上去看详情，快用完时它会提醒你</small></span>
+            <input type="checkbox" class="switch" data-key="quota" />
+          </label>
+          <label class="row">
+            <span class="text"><b>从终端版读取额度</b><small id="statusline-note">在 <code>~/.claude/settings.json</code> 里换上一个状态栏中继（会先备份），原来的状态栏照常显示；能拿到重置时间</small></span>
+            <input type="checkbox" class="switch" id="statusline" />
+          </label>
+        </div>
+        <p class="hint">额度只有 Pro / Max 订阅才有。开着 Claude 桌面版就能看到用量（它每 5～15 分钟记一次，不带重置时间）。重置时间要靠终端里的 Claude Code，它每次回复后通过状态栏报一次；桌面版和 VS Code 扩展不跑状态栏。中继脚本用 Git Bash 运行。</p>
         <p class="hint">桌宠没运行时，Claude Code 照常工作，不受影响。</p>
       </section>
 

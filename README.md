@@ -28,7 +28,7 @@ npm run triggers        # 重新生成 docs/triggers.html（动画触发一览�
 Claude Code HTTP hooks ──POST──▶ 127.0.0.1:23490 (Rust) ──event──▶ WebView 状态机 ──▶ GIF
 ```
 
-- 联动会往 `~/.claude/settings.json` 写入一组 `type: "http"` 的 hook（写之前备份为 `settings.json.clawd-pet.bak`），只识别并删改 URL 以 `http://127.0.0.1:23490/clawd-pet/` 开头的条目，不碰其他 hook。
+- 联动会往 `~/.claude/settings.json` 写入一组 `type: "http"` 的 hook（第一次改之前备份为 `settings.json.clawd-pet.bak`，之后不再覆盖，留的是桌宠动它之前的样子），只识别并删改 URL 以 `http://127.0.0.1:23490/clawd-pet/` 开头的条目，不碰其他 hook。
 - 请求头 `X-Clawd-Entry` 带上 `$CLAUDE_CODE_ENTRYPOINT`，用来区分终端（`cli`）、Desktop（`claude-desktop`）和 VS Code 会话。
 - 审批气泡和小螃蟹下方的标签显示会话标题（Desktop 侧边栏里的名字，或 `/rename` 起的名字，读自 transcript 里的 `custom-title`）；没有标题时显示「来源 · 项目名」。
 - `PermissionRequest` 会挂起连接，等你在气泡里点「允许 / 总是允许 / 拒绝」；如果你在终端里先作答，Claude Code 会断开连接，气泡自动消失。Desktop 里作答不会断开连接，桌宠看后面发生的事：允许了 Bash / PowerShell 命令，命令一开始跑就收起（Claude Code 给每次运行在 `%TEMP%\claude\…\<会话 id>\tasks` 里建一个输出文件），不过只在同一会话没有别的调用在跑、也没有别的 Bash / PowerShell / Monitor 请求挂着时这样，否则等命令跑完；别的工具等那次调用跑完时收起；拒绝了，在会话记录里看到那次调用的结果时收起；这一轮结束或被叫停时也会收起。看得出你答的是什么时，它照样点赞或垂头丧气，和在气泡里答一样。`AskUserQuestion` 也能在气泡里回答：一题一页，点选项（多选的打勾），或在「其他」框里自己写，提交后按 `allow` + `updatedInput.answers` 回给 Claude Code；也可以点「去原界面回答」。在原界面先答了，问题卡同样收起。`ExitPlanMode` 始终交给原界面。
@@ -52,6 +52,17 @@ Claude Code HTTP hooks ──POST──▶ 127.0.0.1:23490 (Rust) ──event─
 | 完成时键鼠一阵没动静 | 你碰电脑时提醒一次「已经搞定啦」 |
 
 多个会话同时进行时，显示最紧急的那个（等你确认 > 压缩 > 干活 > 思考）。
+
+### Claude 额度
+
+小螃蟹下方状态标签的左边有两条像素小条，上面是 5 小时窗口、下面是本周窗口用掉的比例（只有 Pro / Max 订阅才有）。平时半透明（小螃蟹靠在屏幕边上、标签变窄时先收起来，让标签显示完整），鼠标移上去看详情：百分比、多久后重置、数字来自哪里、是多久前的。数字超过 40 分钟没更新就变灰，提示可能不准了；超过一天没有新数字就不显示。某个窗口第一次用到 80% 时它冒冷汗提醒一句，到 95% 时换成没电了，同一窗口每一级只提醒一次。设置的「Claude 联动」里「显示 Claude 额度」可以关掉。
+
+数字有两个来源，都在本机，桌宠不联网去查：
+
+- **Claude 桌面版**：开着时它每 5～15 分钟把用量百分比记进自己数据目录里的 `plan-usage-history.json`，桌宠监听这个文件（不轮询）；桌宠开着时才装上或第一次打开桌面版也能收到。只有百分比，没有重置时间。这是桌面版的内部格式，读不到就当没有。
+- **终端里的 Claude Code**：它每次回复后把 `rate_limits`（百分比和重置时间）通过 stdin 交给 `statusLine` 命令。打开「从终端版读取额度」后，桌宠把 `~/.claude/settings.json` 的 `statusLine` 换成 `~/.clawd-pet/statusline.sh` 这个中继（先备份 settings.json，原来的状态栏存在 `~/.clawd-pet/statusline-original.json`）：它在后台把输入转给桌宠，再用同样的输入跑原来的状态栏命令，终端里看起来和原来一样。桌宠没运行时，后台那次连接被拒绝，不会拖慢状态栏。关掉时恢复原来的状态栏、删掉中继。中继是 bash 脚本，要装 Git for Windows（Claude Code 没有 Git Bash 时用 PowerShell 跑状态栏）。终端报的最后一组数字存在 `~/.clawd-pet/quota.json`，重启后重置时间还在。
+
+桌面版和 VS Code 扩展是以无界面模式运行 Claude Code 的，不跑状态栏，所以只用桌面版时看不到重置时间。两边都有数字时，每个窗口取较新的那个；终端报过的重置时间过了之后，那个窗口显示「已重置」。
 
 ## 自己的生活
 
@@ -197,6 +208,7 @@ python ../clawd-400-src/lint.py scenes/claude.py
 | [`src-tauri/src/sysmon.rs`](src-tauri/src/sysmon.rs) | 系统联动：文件夹和回收站监听、前台窗口事件、系统状态轮询 |
 | [`src-tauri/src/git.rs`](src-tauri/src/git.rs) | Git 操作感知：安装 / 卸载 trace2 配置，读取 git 上报的命令 |
 | [`src-tauri/src/hooks.rs`](src-tauri/src/hooks.rs) | 安装 / 卸载 Claude Code hook |
+| [`src-tauri/src/quota.rs`](src-tauri/src/quota.rs) | Claude 额度：读桌面版记下的用量，接收状态栏中继转来的 `rate_limits`，安装 / 卸载中继 |
 | [`src-tauri/src/autostart.rs`](src-tauri/src/autostart.rs) | 开机自启（`HKCU\…\Run` 下的 `ClawdPet` 项） |
 | [`scripts/gen-triggers.mjs`](scripts/gen-triggers.mjs) | 从 `ui/anims.js` 生成触发一览页面 |
 | [`scenes/`](scenes) | 桌宠自己的动画（用 Clawd 400 的引擎渲染），见[修改动画](#修改动画) |
