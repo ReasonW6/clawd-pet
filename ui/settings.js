@@ -1382,8 +1382,10 @@ async function initGallery() {
   $("search").oninput = render;
   // What shows as new stays new until the gallery is opened the next time.
   document.querySelector('nav button[data-tab="gallery"]').addEventListener("click", () => invoke("collection_visit"), { once: true });
+  // Every play on the pet, with its count; a new one is collected.
   listen("collected", (e) => {
-    seen[e.payload] ??= { first: Date.now(), count: 1 };
+    const { slug, first, count } = e.payload;
+    seen[slug] = { first, count };
     render();
   });
   render();

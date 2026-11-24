@@ -555,7 +555,7 @@ fn on_menu(app: &AppHandle, id: &str) {
         "quit" => {
             app.state::<AppState>().save();
             memory::flush();
-            collection::flush();
+            collection::flush(true);
             app.exit(0);
         }
         "toggle_visible" => {
@@ -725,7 +725,7 @@ fn spawn_background_loop(app: AppHandle) {
                     st.save();
                 }
                 memory::flush();
-                collection::flush();
+                collection::flush(false);
             }
             let dragging = st.dragging.load(Ordering::SeqCst);
             if dragging && !sysmon::left_button_down() {
@@ -789,6 +789,7 @@ fn main() {
             memory_edit,
             collection::collection_known,
             collection::collection_seen,
+            collection::collection_cheered,
             collection::collection_get,
             collection::collection_visit
         ])

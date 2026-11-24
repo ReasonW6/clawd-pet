@@ -127,8 +127,11 @@ function play(slug, restart = false) {
   currentSlug = slug;
   slugSince = now();
   if (!shown) return;
-  // Seen for the gallery's collection, unless the gallery asked for it.
+  // Seen for the gallery's collection, unless the gallery asked for it or it just goes on
+  // after the pet was hidden.
   const preview = oneShot?.preview && oneShot.slug === slug;
+  const again = slug === resumeSlug;
+  resumeSlug = null;
   // A unique URL restarts the GIF from frame 0; swap only once it's loaded to avoid flicker.
   const url = `assets/clawd/${slug}.gif?${++playSeq}`;
   const seq = playSeq;
@@ -136,13 +139,19 @@ function play(slug, restart = false) {
   pre.onload = () => {
     if (seq !== playSeq) return;
     sprite.src = url;
-    if (!preview) collect(slug);
+    if (preview || again) return;
+    countedSlug = slug;
+    collect(slug);
   };
   pre.src = url;
 }
 
 /** A milestone of the gallery's collection, until a quiet moment with the user around. */
 let collectCheer = 0;
+/** The animation last counted for the collection, and the one to leave uncounted as the
+ *  pet shows again. */
+let countedSlug = null;
+let resumeSlug = null;
 
 async function collect(slug) {
   const cheer = await invoke("collection_seen", { slug }).catch(() => null);
@@ -157,6 +166,7 @@ function setShown(on) {
   clearInterval(ticker);
   if (on) {
     ticker = setInterval(tick, 1000);
+    resumeSlug = countedSlug;
     currentSlug = null;
     render();
   } else {
@@ -886,6 +896,7 @@ function idleLife(t, d) {
     const all = collectCheer >= allSlugs.length;
     playOnce(pick(all ? ANIMS.collectedAll : ANIMS.collected), { minMs: 3500 });
     toast(all ? "动画图鉴全部收集齐啦！每个样子你都见过了🎉" : `动画图鉴收集突破 ${collectCheer} 个啦～`, { ms: 8000 });
+    invoke("collection_cheered", { milestone: collectCheer }).catch(() => {});
     collectCheer = 0;
     return;
   }
@@ -2188,7 +2199,8 @@ async function boot() {
   for (const m of list) manifest[m.slug] = m;
   allSlugs = list.map((m) => m.slug);
   funSlugs = allSlugs.filter((s) => !NOT_FOR_FUN.includes(s));
-  await invoke("collection_known", { slugs: allSlugs });
+  // A milestone reached last time and not yet celebrated.
+  collectCheer = (await invoke("collection_known", { slugs: allSlugs }).catch(() => null)) || 0;
   applyConfig(await invoke("get_config"));
 
   await listen("hook-event", (e) => onHook(e.payload));
