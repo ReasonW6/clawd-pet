@@ -94,7 +94,8 @@ async function remember(kind, detail = null) {
 /** Shows something the pet prepared to say, `when` "morning", "anytime" or "any"; a click on
  *  it starts a chat that opens with it. Resolves to whether there was one. */
 async function bringUp(when) {
-  if (!memOn() || !config.memory.proactive || !config.chatty) return false;
+  // With the bubble taken, the topic isn't fetched: fetching it uses it up.
+  if (!memOn() || !config.memory.proactive || !config.chatty || toastText) return false;
   const text = await invoke("memory_topic", { when });
   // Something else (the weekly card) took the bubble meanwhile: it isn't put aside.
   if (!text || toastText) return false;
@@ -809,7 +810,7 @@ function wakeUp(date) {
   if (!config.chatty) return;
   const hello = date.getHours() < 11 ? `早上好${nick()}！新的一天开始啦～` : "睡醒啦，继续开工～";
   // Something it prepared in its dream, if it did.
-  bringUp(date.getHours() < 11 ? "morning" : "anytime").then((said) => said || toast(hello));
+  bringUp(date.getHours() < 11 ? "morning" : "anytime").then((said) => said || toastText || toast(hello));
 }
 
 function holidaysToday(date) {
