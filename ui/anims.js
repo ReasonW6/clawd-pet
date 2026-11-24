@@ -56,6 +56,7 @@ window.ANIMS = {
   sleepyDone: ["emo_yawn"],
   hello: ["emo_nihao"], // the pet itself starting up
   milestone: ["sea_party_popper", "emo_joy_burst"], // how long you've known each other (memory)
+  weeklyCard: ["dev_slide_chart"], // holding up the week's recap card
   collected: ["cos_pirate_treasure", "emo_proud_chest"], // every 50 animations seen (the gallery's collection)
   collectedAll: ["sea_fireworks_watch", "sport_podium"], // all of them seen
 

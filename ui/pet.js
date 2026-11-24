@@ -94,11 +94,113 @@ async function remember(kind, detail = null) {
 /** Shows something the pet prepared to say, `when` "morning", "anytime" or "any"; a click on
  *  it starts a chat that opens with it. Resolves to whether there was one. */
 async function bringUp(when) {
-  if (!memOn() || !config.memory.proactive || !config.chatty) return false;
+  // With the bubble taken, the topic isn't fetched: fetching it uses it up.
+  if (!memOn() || !config.memory.proactive || !config.chatty || toastText) return false;
   const text = await invoke("memory_topic", { when });
-  if (!text) return false;
+  // Something else (the weekly card) took the bubble meanwhile: it isn't put aside.
+  if (!text || toastText) return false;
   toast(text, { ms: 12000, onClick: () => openChat(text) });
   return true;
+}
+
+// ---------------------------------------------------------------- recap
+
+// A private recap of the work done with Claude (recap.rs), whatever the AI and memory
+// switches say: tasks, time at work by hour, projects. The settings page shows it, and
+// once a week the pet holds up a card about it.
+
+const hhmm = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+
+function recap(kind, detail = null) {
+  invoke("recap_event", { kind, detail, day: memDay(), at: hhmm(new Date()) });
+}
+
+/** Time at work is sampled this often, and told to the backend once a minute. It counts
+ *  while a session thinks, works or compacts, not while it waits for the user. */
+const RECAP_SAMPLE_MS = 10 * 1000;
+let recapAt = now();
+let recapBusy = 0;
+let recapSamples = 0;
+
+function recapSample() {
+  const t = now();
+  const step = t - recapAt;
+  recapAt = t;
+  // A step much longer than asked for is a computer that was asleep.
+  // A session busy with no news for long is one that went away without a word (tick()
+  // sets it idle, but not while the pet is hidden): not counted.
+  const busy = (s) => s.state !== "idle" && s.state !== "waiting" && t - s.t <= STALE_BUSY_MS;
+  if (step < 3 * RECAP_SAMPLE_MS && [...sessions.values()].some(busy)) recapBusy += step;
+  if (++recapSamples % 6) return;
+  recap("time", { busy: Math.round(recapBusy / 1000) });
+  recapBusy = 0;
+}
+
+/** Sessions counted on the day: a session and those started from it count once. */
+let recapSessions = { day: null, ids: new Set() };
+
+function recapSession(s) {
+  const day = memDay();
+  if (recapSessions.day !== day) recapSessions = { day, ids: new Set() };
+  const id = rootOf(s).id;
+  if (recapSessions.ids.has(id)) return;
+  recapSessions.ids.add(id);
+  // The backend keeps the day's too (as hashes), so a restart doesn't count one again.
+  recap("session", { id });
+}
+
+// The weekly card: from Sunday 19:00 on, the first quiet moment the user is around, the
+// week's (Monday to Sunday, days from 05:00) in a card; past that Sunday, last week's.
+const CARD_FROM_HOUR = 19;
+const CARD_SHOW_MS = 20 * 1000;
+let nextCardTry = now() + 2 * MIN;
+/** The week the card was dealt with for, so as not to ask again. */
+let cardDone = null;
+
+/** "YYYY-MM-DD" of the day `n` days after `day`. */
+function addDays(day, n) {
+  const [y, m, d] = day.split("-").map(Number);
+  const x = new Date(y, m - 1, d + n);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+}
+
+/** The Monday of the week the card is due for now. */
+function cardWeek(d) {
+  const day = memDay();
+  const [y, m, dd] = day.split("-").map(Number);
+  const weekday = (new Date(y, m - 1, dd).getDay() + 6) % 7; // Monday 0
+  const monday = addDays(day, -weekday);
+  // Sunday evening, or its small hours, which still count as Sunday.
+  const sundayNight = weekday === 6 && (d.getHours() >= CARD_FROM_HOUR || d.getHours() < 5);
+  return sundayNight ? monday : addDays(monday, -7);
+}
+
+async function weeklyCard(d) {
+  const week = cardWeek(d);
+  const { days, cardWeek: shown } = await invoke("recap_get");
+  if (shown === week) cardDone = week;
+  if (cardDone === week || toastText || anyBusy() || asleep || chat || leftAlone) return;
+  const week7 = [...Array(7)].map((_, i) => days[addDays(week, i)] || null);
+  const sum = (a) => a.reduce((x, y) => x + y, 0);
+  const tasks = week7.map((x) => (x ? sum(x.done) : 0));
+  const total = sum(tasks);
+  cardDone = week;
+  invoke("recap_card", { week });
+  // Nothing done that week: no card for it, now or later.
+  if (!total) return;
+  const lateKey = (hm) => (parseHM(hm) + 1440 - 300) % 1440;
+  const last = week7.map((x) => x?.last).filter(Boolean).sort((a, b) => lateKey(b) - lateKey(a))[0] || "";
+  const when = addDays(week, 6) === memDay() ? "这周" : "上周";
+  // Past midnight it was a long one; it says so, gently.
+  const sub = last ? `最晚忙到 ${last.replace(/^0/, "")}${lateKey(last) >= 19 * 60 ? "，辛苦啦 🌙" : "～"}` : "";
+  const range = [week, addDays(week, 6)].map((x) => x.slice(5).replace("-", ".").replace(/^0/, "")).join(" – ");
+  // It points at its chart for as long as the card is up.
+  playOnce(pick(ANIMS.weeklyCard), { minMs: CARD_SHOW_MS });
+  toast(`${when}一起搞定了 ${total} 个任务。${sub}`, {
+    ms: CARD_SHOW_MS,
+    card: { when, range, total, sub, tasks, seen: week7.map(Boolean) },
+    onClick: () => invoke("recap_open", { week }),
+  });
 }
 
 // ---------------------------------------------------------------- animations
@@ -404,6 +506,7 @@ function onHook(p) {
     case "PostToolUseFailure":
       if (s.state === "waiting") s.state = "working";
       if (!p.is_interrupt) {
+        recap("error");
         s.fails++;
         if (s.fails === 3) {
           remember("rough");
@@ -481,11 +584,13 @@ function onHook(p) {
       feel("down", 3);
       // Already counted at its third failed tool.
       if (s.fails < 3) remember("rough");
+      recap("error");
       s.fails = 0;
       playOnce(pick(ANIMS.apiError), { force: true, minMs: 3000 });
       toast(`呜…出错了（${p.error_type || p.error || "unknown"}）`);
       break;
   }
+  if (s.state !== "idle" && sessions.has(s.id)) recapSession(s);
   render();
 }
 
@@ -520,6 +625,7 @@ function familyDone(s, took) {
     return;
   }
   remember("task", { project: name, minutes: Math.round(took / MIN) });
+  recap("task", { project: name, minutes: Math.round(took / MIN) });
 
   let [text, ms, anims, minMs] = [`${name} 搞定啦～`, TOAST_MS, ANIMS.done, 2600];
   if (sleepWindowAt(new Date())) {
@@ -704,7 +810,7 @@ function wakeUp(date) {
   if (!config.chatty) return;
   const hello = date.getHours() < 11 ? `早上好${nick()}！新的一天开始啦～` : "睡醒啦，继续开工～";
   // Something it prepared in its dream, if it did.
-  bringUp(date.getHours() < 11 ? "morning" : "anytime").then((said) => said || toast(hello));
+  bringUp(date.getHours() < 11 ? "morning" : "anytime").then((said) => said || toastText || toast(hello));
 }
 
 function holidaysToday(date) {
@@ -892,6 +998,12 @@ function idleLife(t, d) {
   if (celebrations.length && !toastText) {
     playOnce(pick(ANIMS.milestone), { minMs: 3500 });
     return toast(celebrations.shift(), { ms: 8000 });
+  }
+
+  if (!leftAlone && !toastText && t >= nextCardTry && config.weeklyCard && cardWeek(d) !== cardDone) {
+    nextCardTry = t + 10 * MIN;
+    // One thing a beat: a topic brought up in the same one would take the card's place.
+    return weeklyCard(d);
   }
 
   // A milestone of the gallery's collection, cheered with the user there to see it.
@@ -1240,6 +1352,8 @@ quotaEl.addEventListener("mouseleave", () => (quotaCard.hidden = true));
 let toastText = null;
 let toastAction = null;
 let toastTimer = null;
+/** The weekly card, when the toast is one: { when, range, total, sub, tasks, seen }. */
+let toastCard = null;
 let bubbleKey = null;
 /** What the hotkeys were last asked to be held for: "" none, "plain", or "always" too;
  *  null at first, so a reloaded page tells the backend even when it wants none. */
@@ -1250,9 +1364,10 @@ const HOTKEY_ACTIONS = ["allow", "deny", "always"];
  *  doesn't answer one the user hasn't looked at. */
 const HOTKEY_SETTLE_MS = 700;
 
-function toast(text, { sticky = false, ms = TOAST_MS, onClick = null } = {}) {
+function toast(text, { sticky = false, ms = TOAST_MS, onClick = null, card = null } = {}) {
   toastText = text;
   toastAction = onClick;
+  toastCard = card;
   clearTimeout(toastTimer);
   if (!sticky) toastTimer = setTimeout(clearToast, ms);
   renderBubble();
@@ -1389,7 +1504,7 @@ function drawBubble() {
     if (bubbleKey === `toast-${toastText}`) return;
     bubbleKey = `toast-${toastText}`;
     bubble.innerHTML = "";
-    const t = el("div", "toast", toastText);
+    const t = toastCard ? weeklyCardEl(toastCard) : el("div", "toast", toastText);
     t.onclick = () => {
       toastAction?.();
       clearToast();
@@ -1432,6 +1547,31 @@ function drawBubble() {
   bubble.innerHTML = "";
 }
 
+/** The weekly card: how many tasks, the latest finish, and a little bar for each day,
+ *  Monday to Sunday. A day the pet wasn't running shows as a dotted stub, a day with
+ *  nothing done as a flat one. */
+function weeklyCardEl(card) {
+  const box = el("div", "toast weekly");
+  const head = el("div", "head");
+  head.append(el("span", "tag", `${card.when}小结`), el("span", "range", card.range));
+  const big = el("div", "big");
+  big.append(`${card.when}一起搞定了 `, el("b", "", String(card.total)), " 个任务");
+  const bars = el("div", "bars");
+  const top = Math.max(...card.tasks, 1);
+  card.tasks.forEach((n, i) => {
+    const col = el("div", card.seen[i] ? (n ? "bar" : "bar zero") : "bar none");
+    // In whole steps of a pixel grid.
+    col.style.setProperty("--h", n ? Math.max(1, Math.round((n / top) * 6)) : 0);
+    col.title = card.seen[i] ? `${n} 个` : "没开着";
+    col.append(el("i"), el("span", "", "一二三四五六日"[i]));
+    bars.append(col);
+  });
+  const foot = el("div", "foot");
+  foot.append(el("span", "", card.sub), el("span", "more", "看看 ›"));
+  box.append(head, big, bars, foot);
+  return box;
+}
+
 function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -1460,6 +1600,7 @@ async function decide(req, kind, suggestion) {
     body = JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision } });
   }
   removePerm(req.id);
+  if (kind !== "pass") recap("approval");
   const s = sessions.get(req.payload.session_id);
   // A question handed back is still waiting for its answer, there.
   if (s && s.state === "waiting" && !(kind === "pass" && req.ask)) s.state = "working";
@@ -2658,6 +2799,8 @@ async function boot() {
     // comes right after and plays "you answered" only while the session still waits.
     const unknownAsk = req?.ask && e.payload.outcome == null;
     if (e.payload.answered && !unknownAsk && s?.state === "waiting" && !perms.some((x) => x.payload.session_id === s.id)) s.state = "working";
+    // A question isn't a permission: answered in the bubble it isn't counted either.
+    if (req && !req.ask && e.payload.outcome) recap("approval");
     // Reacts as to an answer in the bubble, when it shows which answer it was. A question
     // answered elsewhere: its PostToolUse may have played that already.
     if (req?.ask && e.payload.outcome === "allow") {
@@ -2707,6 +2850,9 @@ async function boot() {
     renderQuota();
   });
   ticker = setInterval(tick, 1000);
+  // Runs while the pet is hidden too: Claude goes on working then.
+  recap("time", { busy: 0 });
+  setInterval(recapSample, RECAP_SAMPLE_MS);
   // It may have stepped aside before the listener above was there.
   setShown(await getCurrentWindow().isVisible());
   if (!(await invoke("hooks_installed"))) {

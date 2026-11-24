@@ -37,7 +37,7 @@ cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得�
 
 Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
-- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）、`config`（只在聊天改了设置时）和 `collected`（桌面上每演一个都发，带 `slug`、`first`、`count`）；只发给主窗口的还有 `dream`（做梦开始、结束）、`edges`（来自 `edges.rs`）、`quota`（来自 `quota.rs`），以及 `perm-hotkey`（来自 `hotkeys.rs`）。
+- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）、`config`（只在聊天改了设置时）、`collected`（桌面上每演一个都发，带 `slug`、`first`、`count`）和 `recap-open`（点了每周小结卡片，带那周的周一）；只发给主窗口的还有 `dream`（做梦开始、结束）、`edges`（来自 `edges.rs`）、`quota`（来自 `quota.rs`），以及 `perm-hotkey`（来自 `hotkeys.rs`）。
 - 前端调用的命令都在 `main.rs` 的 `generate_handler!` 里注册；`window.__TAURI__` 是全局对象（`withGlobalTauri`），前端没有打包器和 import。
 
 ### Claude Code 联动
@@ -77,6 +77,16 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 - 笔记用中立的第三人称写，不带人设口吻；只有 `topics` 按做梦时的人设写，并记下人设 id，换了人设就丢掉。
 - 称呼和生日以设置为准：`remember` 的说明和整理的提示词都不让记这两样，笔记里已有的在下次整理时删掉；聊天的系统提示直接从配置带上它们。聊天里改称呼走 `change_setting`。
 - 事件只记计数、时长和项目文件夹名，不记会话标题（桌面版的标题是从用户的话里生成的）。
+
+### 回顾（`recap.rs`）
+
+和 AI、记忆的开关无关，一直在记。`~/.clawd-pet/recap.json` 按天存（一天从 05:00 算起，前端用 `memDay()` 算好，连同 `at`「HH:MM」一起传来）：
+
+- 每个钟点的忙碌秒数（`busy`）和完成的任务数（`done`），下标是钟点 0–23；桌宠开着的钟点（`seen` 位图）；当天最晚完成的时间（`last`，凌晨比晚上晚）；会话、批过的权限、出错次数；按项目文件夹的任务数和分钟数（每天最多 30 个文件夹）。
+- 不在文件里的天、`seen` 里没有的钟点是「没数据」，页面上和零分开画。不记会话标题、prompt、文件内容；不打分，不连续打卡，不导出。
+- 保留 190 天，新的一天第一条事件到来时删掉更早的。和记忆一样置脏后由 2 秒的保存循环和退出时 `flush`，先写 `.tmp` 再 rename。每分钟的 `time` 只在忙碌秒数或 `seen` 真变了时置脏。
+- 前端 `recap(kind, detail)`：任务和 `remember("task")` 在同一处（`familyDone`）。忙碌时间每 10 秒采样一次（有会话在思考、干活、压缩，等你确认不算；超过 `STALE_BUSY_MS` 没有动静的忙碌会话也不算，隐藏时 `tick` 不跑、不会把它们改回待命；两次采样隔得太久说明电脑睡过，不算），每分钟报一次，这个定时器在隐藏时也跑。会话按 `rootOf` 一家子每天记一次，后端也按根会话 id 的哈希（`counted`，只留当天的）去重，重启后不再记一次。权限在气泡里作答，或 `permission-closed` 带了 `outcome` 时记一次；问题卡不是权限，两边都不记。
+- 每周小结卡片（开关 `weeklyCard`）：`idleLife` 里每 10 分钟看一次。周日 19:00 起（含它凌晨 0–5 点）该举这周的，否则是上周的；`card_week` 记着举过的那周，那周一个任务都没有也记上，不举。卡片那一拍 `idleLife` 不再做别的（`return weeklyCard(d)`），`bringUp` 拿到话后看到气泡已被占也不举。卡片走 `toast` 的 `card` 参数（`weeklyCardEl` 画），点击调 `recap_open`：设置窗口开着就发 `recap-open`，没开就先存着，页面启动时由 `recap_get` 取走。
 
 ### 动画图鉴（`collection.rs`）
 

@@ -236,6 +236,8 @@ pub struct Config {
     pub birthday: String,
     /// Greetings, meal-time nudges and other small talk.
     pub chatty: bool,
+    /// Once a week, a card in the bubble with what got done together (recap.rs).
+    pub weekly_card: bool,
     /// Show Allow/Deny bubbles for Claude Code permission requests.
     pub bubbles: bool,
     /// Show the first line of what Claude says above the pet while it works.
@@ -269,6 +271,7 @@ impl Default for Config {
             nickname: String::new(),
             birthday: String::new(),
             chatty: true,
+            weekly_card: true,
             bubbles: true,
             replies: true,
             quota: true,

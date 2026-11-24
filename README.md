@@ -64,6 +64,15 @@ Claude Code HTTP hooks ──POST──▶ 127.0.0.1:23490 (Rust) ──event─
 
 桌面版和 VS Code 扩展是以无界面模式运行 Claude Code 的，不跑状态栏，所以只用桌面版时看不到重置时间。两边都有数字时，每个窗口取较新的那个；终端报过的重置时间过了之后，那个窗口显示「已重置」。
 
+## 回顾
+
+设置里的「回顾」按天、按周、按月看你和 Claude 一起忙了些什么：搞定了几个任务、一起忙了多久、最晚几点收工、深夜（23 点到凌晨 5 点）收工几次、开了几个会话、批过几次权限、出错几次、哪个钟点最忙；一张按钟点排开的热力图（一行一天，从早上 5 点排到第二天凌晨 4 点，按天看时是每个钟头一根柱子）；还有最常忙的几个项目。左右箭头往前往后翻。
+
+- **怎么算**：任务是 Claude 答完一轮，和「搞定啦」同时算，一个会话和从它开出去的会话一起忙完只算一个。一起忙了多久，是有会话在思考、干活或压缩上下文的时间，等你确认时不算，几个会话同时忙也只算一份。批过的权限是在气泡里作答的，加上在原界面作答、桌宠看得出答了什么的。出错是工具调用失败和 API 出错。一天从凌晨 5 点算起，熬夜算前一天的。
+- **没数据不是零**：桌宠没开着的钟点画成斜纹，开着但没在忙的是浅色格子；整段时间都没开着时，数字显示「—」。
+- **每周小结**：周日晚上 7 点以后第一次闲下来（Claude 没在忙、它没在睡、你在电脑前），它指着图表举起一张小卡片：这周一起搞定了几个任务、最晚忙到几点，每天一根小柱子。周日晚上没碰上，就在之后第一次闲下来时补上上周的。点卡片打开那一周的回顾；那周一个任务都没完成就不举。可以在「回顾」里关掉。
+- **隐私**：只记次数、时长、几点和项目文件夹名，不记会话标题（桌面版的标题是从你说的话里生成的）、提问、回复和文件内容。不打分，没有连续打卡，也不导出、不联网。数据只在 `%USERPROFILE%\.clawd-pet\recap.json`，保留约半年，和 AI 聊天、记忆的开关无关。
+
 ## 自己的生活
 
 Claude 没活给它的时候，它演完一个「场景」歇一会儿，再演下一个。一个场景是一到几个动画接成的小段落（戴厨师帽 → 炒菜 → 搅汤 → 吃面），每个 20–50 秒。
@@ -196,11 +205,12 @@ python ../clawd-400-src/lint.py scenes/claude.py
 | [`ui/anims.js`](ui/anims.js) | 「剧本」：所有状态、生活场景、作息、情绪、季节、节日、系统事件对应哪些动画，改这里即可换动画 |
 | [`ui/pet.js`](ui/pet.js) | 状态机：会话状态、场景调度、情绪、睡眠、互动、气泡 |
 | [`ui/markdown.js`](ui/markdown.js) | 把聊天回复的 Markdown 和公式画成 HTML |
-| [`ui/settings.html`](ui/settings.html) | 设置窗口（性格 / 作息 / Claude 联动 / AI 聊天 / 系统联动 / 动画图鉴） |
+| [`ui/settings.html`](ui/settings.html) | 设置窗口（性格 / 作息 / Claude 联动 / 回顾 / AI 聊天 / 系统联动 / 动画图鉴） |
 | [`src-tauri/src/ai.rs`](src-tauri/src/ai.rs) | AI 聊天：服务商目录、流式请求（OpenAI / Anthropic 两种接口）、截图工具、联网搜索、记忆和改设置的工具 |
 | [`src-tauri/src/secrets.rs`](src-tauri/src/secrets.rs) | API 密钥存取：Windows 凭据管理器、从 `config.json` 搬过去、不让前端拿到密钥 |
 | [`src-tauri/src/memory.rs`](src-tauri/src/memory.rs) | 记忆：笔记和事件计数的存取、聊完后和睡觉时让模型改写笔记、要主动提起的话 |
 | [`src-tauri/src/collection.rs`](src-tauri/src/collection.rs) | 动画图鉴：记下在桌面上演过哪些动画、第一次见的时间和次数，判断收集的里程碑 |
+| [`src-tauri/src/recap.rs`](src-tauri/src/recap.rs) | 回顾：按天记下的任务、忙碌时长、项目，每周小结卡片举过哪一周 |
 | [`src-tauri/src/screen.rs`](src-tauri/src/screen.rs) | 截取桌宠所在的屏幕（不含桌宠自己），压成 JPEG |
 | [`src-tauri/src/server.rs`](src-tauri/src/server.rs) | 接收 hook 的本地 HTTP 服务，挂起权限请求 |
 | [`src-tauri/src/hotkeys.rs`](src-tauri/src/hotkeys.rs) | 审批气泡的全局快捷键：只在气泡显示时注册 |
