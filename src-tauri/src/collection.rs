@@ -98,8 +98,9 @@ fn with<R>(f: impl FnOnce(&mut Store) -> R) -> Option<R> {
 /// be read now (held open by a virus scan or a sync) is not written over this time, and one
 /// that doesn't parse is kept beside it as `collection.json.bad`.
 pub fn load(path: PathBuf) {
-    let (mut record, writable) = match std::fs::read_to_string(&path) {
-        Ok(text) => match serde_json::from_str::<Record>(&text) {
+    // Bytes, so that a file that isn't UTF-8 counts as not parsing, not as unreadable.
+    let (mut record, writable) = match std::fs::read(&path) {
+        Ok(bytes) => match serde_json::from_slice::<Record>(&bytes) {
             Ok(record) => (record, true),
             Err(e) => {
                 eprintln!("collection.json doesn't parse, set aside: {e}");
