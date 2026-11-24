@@ -1140,3 +1140,344 @@ a.back {
   background: #c0392b;
   color: #fff;
 }
+
+/* ---------------------------------------------------------------- recap */
+
+.recap-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.recap-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recap-nav b {
+  min-width: 150px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.recap-nav button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+}
+
+.recap-nav button:disabled {
+  opacity: 0.35;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+}
+
+.recap-nav .chevron.left,
+.recap-nav .chevron.right {
+  margin: 0;
+  color: var(--ink);
+}
+
+.recap-nav .chevron.left {
+  margin-left: 3px;
+  transform: rotate(135deg);
+}
+
+.recap-nav .chevron.right {
+  margin-right: 3px;
+}
+
+#recap-nohooks[hidden] {
+  display: none;
+}
+
+/* Little icons on a pixel grid (settings.js), in the pet's orange. */
+.pix {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  fill: var(--clawd);
+  shape-rendering: crispEdges;
+}
+
+.recap-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 11px 12px 12px;
+}
+
+.stat:nth-child(n + 5) {
+  border-top: 1px solid var(--line);
+}
+
+.stat:not(:nth-child(4n + 1)) {
+  border-left: 1px solid var(--line);
+}
+
+.stat .name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.stat .value {
+  font-size: 20px;
+  font-weight: bold;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.stat .value small {
+  margin: 0 2px;
+  font-size: 12px;
+  font-weight: normal;
+  color: var(--muted);
+}
+
+.stat .value.empty {
+  color: #cfc4b4;
+}
+
+/* Shades of time at work: none, a little … most of the hour. An hour the pet wasn't
+   running is hatched, one still to come is left out. */
+.cell {
+  display: block;
+  border-radius: 2px;
+  background: #f1e9de;
+}
+
+.cell.l1,
+.hours .bar.l1 {
+  background: #f9d3bc;
+}
+
+.cell.l2,
+.hours .bar.l2 {
+  background: #f2ae88;
+}
+
+.cell.l3,
+.hours .bar.l3 {
+  background: #e98d5f;
+}
+
+.cell.l4,
+.hours .bar.l4 {
+  background: #cf6534;
+}
+
+.cell.none {
+  background: repeating-linear-gradient(135deg, #f3ede4 0 2px, #fff 2px 4px);
+  box-shadow: inset 0 0 0 1px #efe7db;
+}
+
+.cell.ahead {
+  background: none;
+}
+
+.recap-when {
+  padding: 14px 14px 10px;
+}
+
+.heat {
+  display: grid;
+  grid-template-columns: 52px repeat(24, 1fr);
+  gap: 3px;
+  align-items: center;
+}
+
+.heat.month {
+  gap: 2px 3px;
+}
+
+.heat .cell {
+  height: 18px;
+}
+
+.heat.month .cell {
+  height: 11px;
+}
+
+/* A task finished in that hour: a dot in the middle of its cell. */
+.heat.week .cell.did::after {
+  content: "";
+  display: block;
+  width: 4px;
+  height: 4px;
+  margin: 7px auto 0;
+  background: #fff;
+  opacity: 0.8;
+}
+
+.heat .hour,
+.hours .hour {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+  /* The hour's number sits over the start of its cell. */
+  white-space: nowrap;
+}
+
+.heat .day {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.heat .day small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.heat.month .day {
+  font-size: 10px;
+}
+
+.heat .day.weekend {
+  color: var(--muted);
+}
+
+.heat .day.today {
+  color: var(--clawd);
+  font-weight: bold;
+}
+
+/* One day: an hour a column, its bar in 5-minute steps of 2px (an hour is 24px)... */
+.hours {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  gap: 3px;
+  align-items: end;
+}
+
+.hours .col {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* ...scaled up, as the pet's pixels are. */
+.hours .bar {
+  display: block;
+  height: calc(var(--h, 0) * 6px);
+  min-height: 3px;
+  border-radius: 2px 2px 0 0;
+  background: #f1e9de;
+}
+
+.hours .none .bar {
+  height: 72px;
+  background: repeating-linear-gradient(135deg, #f3ede4 0 2px, #fff 2px 4px);
+  box-shadow: inset 0 0 0 1px #efe7db;
+}
+
+.hours .ahead .bar {
+  background: none;
+  box-shadow: inset 0 -2px 0 #efe7db;
+}
+
+.hours .n {
+  height: 14px;
+  color: var(--clawd);
+  font-size: 11px;
+  font-weight: bold;
+  text-align: center;
+}
+
+.hours .hour {
+  height: 10px;
+}
+
+.recap-legend {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.recap-legend span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.recap-legend .cell {
+  width: 11px;
+  height: 11px;
+}
+
+.row.project {
+  display: grid;
+  grid-template-columns: minmax(0, 150px) 1fr auto;
+  gap: 14px;
+}
+
+.project b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: normal;
+}
+
+.project .track {
+  height: 12px;
+  padding: 2px;
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+  background: var(--paper);
+}
+
+.project .track i {
+  display: block;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--clawd);
+}
+
+.project .count {
+  min-width: 96px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.project .count small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.recap-empty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  color: var(--muted);
+}
+
+.recap-empty img {
+  width: 56px;
+  height: 56px;
+  image-rendering: pixelated;
+}

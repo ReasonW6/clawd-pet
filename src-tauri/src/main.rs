@@ -9,6 +9,7 @@ mod edges;
 mod git;
 mod hooks;
 mod memory;
+mod recap;
 mod screen;
 mod server;
 mod sysmon;
@@ -376,6 +377,29 @@ fn memory_edit(op: String, note: Option<String>, app: AppHandle) {
     }
 }
 
+/// Something the recap counts (`recap::event`); `at` is the time of day, "HH:MM".
+#[tauri::command]
+fn recap_event(kind: String, detail: serde_json::Value, day: String, at: String) {
+    recap::event(&kind, &detail, &day, &at);
+}
+
+#[tauri::command]
+fn recap_get() -> serde_json::Value {
+    recap::snapshot()
+}
+
+/// The pet held up its weekly card for the week starting on Monday `week`.
+#[tauri::command]
+fn recap_card(week: String) {
+    recap::card_shown(&week);
+}
+
+/// The weekly card was clicked: the settings open on that week's recap.
+#[tauri::command]
+fn recap_open(week: String, app: AppHandle) {
+    recap::open(&app, week);
+}
+
 #[tauri::command]
 fn ai_cancel() {
     ai::stop();
@@ -522,6 +546,7 @@ fn on_menu(app: &AppHandle, id: &str) {
         "quit" => {
             app.state::<AppState>().save();
             memory::flush();
+            recap::flush();
             app.exit(0);
         }
         "toggle_visible" => {
@@ -691,6 +716,7 @@ fn spawn_background_loop(app: AppHandle) {
                     st.save();
                 }
                 memory::flush();
+                recap::flush();
             }
             let dragging = st.dragging.load(Ordering::SeqCst);
             if dragging && !sysmon::left_button_down() {
@@ -748,7 +774,11 @@ fn main() {
             memory_dream,
             memory_topic,
             memory_get,
-            memory_edit
+            memory_edit,
+            recap_event,
+            recap_get,
+            recap_card,
+            recap_open
         ])
         .setup(|app| {
             // The port doubles as a single-instance lock.
@@ -775,6 +805,7 @@ fn main() {
             }
             let config = Arc::new(Mutex::new(cfg.clone()));
             memory::load(data_dir.join("memory"), config.clone());
+            recap::load(data_dir.join("recap.json"));
             let shared = Arc::new(Shared::default());
             shared.bubbles.store(cfg.bubbles, Ordering::SeqCst);
             transcript::show_replies(cfg.replies);

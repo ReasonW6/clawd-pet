@@ -1062,6 +1062,314 @@ function disarmForget() {
   $("memory-forget").textContent = "全部忘掉";
 }
 
+// ---------------------------------------------------------------- recap
+
+// What got done with Claude (recap.rs), a day, a week (Monday to Sunday) or a month at a
+// time. Days start at 05:00, so an hour row runs from 05 to 04. A day missing, or an hour
+// not in its `seen` bits, is no data (the pet wasn't running), shown apart from a zero.
+
+/** The hours of a day in the order they come: 05 … 23, 00 … 04. */
+const RECAP_HOURS = [...Array(24)].map((_, i) => (i + 5) % 24);
+const WEEKDAYS = "一二三四五六日";
+/** Busy minutes in an hour from which a cell takes the next shade. */
+const SHADES = [10, 25, 45];
+
+let recap = { days: {} };
+let recapView = "week";
+/** The first day of the period shown, "YYYY-MM-DD". */
+let recapStart = null;
+
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const parseDay = (day) => {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(y, m - 1, d);
+};
+const addDays = (day, n) => {
+  const d = parseDay(day);
+  d.setDate(d.getDate() + n);
+  return ymd(d);
+};
+const weekday = (day) => (parseDay(day).getDay() + 6) % 7;
+/** Minutes after 05:00: the order times of day come in within one day. */
+const dayMinute = (hm) => {
+  const [h, m] = hm.split(":").map(Number);
+  return (h * 60 + m + 1440 - 300) % 1440;
+};
+
+/** The first day of the period `view` that `day` is in. */
+function periodStart(view, day) {
+  if (view === "week") return addDays(day, -weekday(day));
+  if (view === "month") return `${day.slice(0, 8)}01`;
+  return day;
+}
+
+function periodDays(view, start) {
+  if (view === "day") return [start];
+  const n = view === "week" ? 7 : new Date(parseDay(start).getFullYear(), parseDay(start).getMonth() + 1, 0).getDate();
+  return [...Array(n)].map((_, i) => addDays(start, i));
+}
+
+function shiftPeriod(view, start, by) {
+  if (view === "day") return addDays(start, by);
+  if (view === "week") return addDays(start, 7 * by);
+  const d = parseDay(start);
+  return ymd(new Date(d.getFullYear(), d.getMonth() + by, 1));
+}
+
+/** [number, unit], the number possibly with a unit of its own inside: "3 小时 5 分". */
+function durationText(secs) {
+  const m = Math.round(secs / 60);
+  if (m < 60) return [m, "分钟"];
+  // Past ten hours the minutes no longer matter, and would not fit.
+  if (m >= 600) return [Math.round(m / 6) / 10, "小时"];
+  const h = Math.floor(m / 60);
+  return m % 60 ? [`${h}<small>小时</small>${m % 60}`, "分"] : [h, "小时"];
+}
+
+// Little icons, drawn on a pixel grid like the pet.
+const ICONS = {
+  done: ["......X", ".....XX", "X...XX.", "XX.XX..", ".XXX...", "..X....", "......."],
+  busy: ["XXXXXXX", ".X...X.", "..X.X..", "...X...", "..XXX..", ".XXXXX.", "XXXXXXX"],
+  last: ["..XXX..", ".X...X.", "X..X..X", "X..XX.X", "X.....X", ".X...X.", "..XXX.."],
+  late: ["..XXX..", ".XX....", "XX.....", "XX...X.", "XX.....", ".XX....", "..XXX.."],
+  sessions: ["XXXXXXX", "X.....X", "X.X.X.X", "X.....X", "XXXXXXX", ".XX....", ".X....."],
+  approvals: ["XXXXXXX", "X.....X", "X....XX", "XX..X.X", "X.XX..X", ".X...X.", "..XXX.."],
+  errors: ["....XX.", "...XXXX", "..XX.XX", ".XX.XX.", "XX.XX..", "XXXX...", ".XX...."],
+  peak: ["...XXX.", "..XXX..", ".XXX...", "XXXXXX.", "...XXX.", "..XX...", ".XX...."],
+};
+
+function icon(name) {
+  const rows = ICONS[name];
+  const rects = rows.flatMap((row, y) => [...row].map((c, x) => (c === "X" ? `<rect x="${x}" y="${y}" width="1" height="1"/>` : "")));
+  return `<svg class="pix" viewBox="0 0 ${rows[0].length} ${rows.length}" aria-hidden="true">${rects.join("")}</svg>`;
+}
+
+async function showRecap() {
+  recap = await invoke("recap_get");
+  // Without the hooks there is nothing to count.
+  $("recap-nohooks").hidden = await invoke("hooks_installed");
+  if (recap.open) openRecapWeek(recap.open);
+  drawRecap();
+}
+
+/** From the weekly card: that week. */
+function openRecapWeek(week) {
+  recapView = "week";
+  recapStart = week;
+  document.querySelector('input[name=recap-view][value="week"]').checked = true;
+  showTab("recap");
+}
+
+function drawRecap() {
+  const today = memDay();
+  recapStart ??= periodStart(recapView, today);
+  const days = periodDays(recapView, recapStart);
+  const data = days.map((d) => recap.days[d] || null);
+  const end = days.at(-1);
+  const earliest = Object.keys(recap.days).sort()[0] || today;
+  $("recap-prev").disabled = recapStart <= earliest;
+  $("recap-next").disabled = end >= today;
+  $("recap-range").textContent = rangeText(days, today);
+  drawStats(days, data);
+  $("recap-when-title").textContent = recapView === "day" ? "每个钟头忙了多久" : "什么时候在忙";
+  if (recapView === "day") drawHours(days[0], data[0], today);
+  else drawHeat(days, data, today);
+  drawProjects(data);
+}
+
+function rangeText(days, today) {
+  const [a, b] = [parseDay(days[0]), parseDay(days.at(-1))];
+  const md = (d) => `${d.getMonth() + 1} 月 ${d.getDate()} 日`;
+  if (recapView === "day") {
+    const name = days[0] === today ? "今天" : days[0] === addDays(today, -1) ? "昨天" : `周${WEEKDAYS[weekday(days[0])]}`;
+    return `${md(a)} · ${name}`;
+  }
+  if (recapView === "week") {
+    const name = days[0] === periodStart("week", today) ? "本周" : days[0] === periodStart("week", addDays(today, -7)) ? "上周" : "";
+    const span = a.getMonth() === b.getMonth() ? `${md(a)} – ${b.getDate()} 日` : `${md(a)} – ${md(b)}`;
+    return name ? `${span} · ${name}` : span;
+  }
+  return `${a.getFullYear()} 年 ${a.getMonth() + 1} 月`;
+}
+
+const sum = (list) => list.reduce((a, b) => a + b, 0);
+
+function drawStats(days, data) {
+  const box = $("recap-stats");
+  box.innerHTML = "";
+  const seen = data.filter(Boolean);
+  const tasks = sum(seen.map((d) => sum(d.done)));
+  const busy = sum(seen.map((d) => sum(d.busy)));
+  // The latest finish, and on which day when there is more than one.
+  let last = null;
+  data.forEach((d, i) => {
+    if (d?.last && (!last || dayMinute(d.last) > dayMinute(last.at))) last = { at: d.last, day: days[i] };
+  });
+  // Finished between 23:00 and 05:00.
+  const late = sum(seen.map((d) => d.done[23] + d.done[0] + d.done[1] + d.done[2] + d.done[3] + d.done[4]));
+  const hours = RECAP_HOURS.map((h) => sum(seen.map((d) => d.busy[h])));
+  const peak = Math.max(...hours);
+  const peakHour = RECAP_HOURS[hours.indexOf(peak)];
+  const none = !seen.length;
+  const tiles = [
+    ["done", "搞定的任务", tasks, "个"],
+    ["busy", "一起忙了", ...durationText(busy)],
+    ["last", "最晚收工", last ? last.at.replace(/^0/, "") : "", last && recapView !== "day" ? `周${WEEKDAYS[weekday(last.day)]}` : ""],
+    ["late", "深夜收工", late, "次"],
+    ["sessions", "会话", sum(seen.map((d) => d.sessions)), "个"],
+    ["approvals", "批过的权限", sum(seen.map((d) => d.approvals)), "次"],
+    ["errors", "出错", sum(seen.map((d) => d.errors)), "次"],
+    ["peak", "最忙的钟点", peak ? `${peakHour}–${(peakHour + 1) % 24}` : "", peak ? "点" : ""],
+  ];
+  for (const [name, title, value, unit] of tiles) {
+    const tile = el("div", "stat");
+    tile.innerHTML = `<span class="name">${icon(name)}${title}</span><span class="value"></span>`;
+    const v = tile.querySelector(".value");
+    // No data is a dash; nothing done is a zero.
+    if (none || value === "") {
+      v.textContent = "—";
+      v.classList.add("empty");
+    } else {
+      v.innerHTML = `${value}<small>${unit}</small>`;
+    }
+    box.append(tile);
+  }
+}
+
+function shade(secs) {
+  const m = secs / 60;
+  if (!m) return "l0";
+  return `l${1 + SHADES.filter((x) => m >= x).length}`;
+}
+
+function cellTitle(day, h, d) {
+  const span = `${String(h).padStart(2, "0")}:00–${String((h + 1) % 24).padStart(2, "0")}:00`;
+  const when = `${parseDay(day).getMonth() + 1}/${parseDay(day).getDate()} 周${WEEKDAYS[weekday(day)]} ${span}`;
+  if (!d || !(d.seen & (1 << h))) return `${when}\n没开着`;
+  const m = Math.round(d.busy[h] / 60);
+  return `${when}\n${m ? `忙了 ${m} 分钟` : "没在忙"}${d.done[h] ? ` · 搞定 ${d.done[h]} 个` : ""}`;
+}
+
+/** Whether hour `h` of `day` is still to come. */
+function ahead(day, h, today) {
+  if (day > today) return true;
+  if (day < today) return false;
+  const now = new Date();
+  return RECAP_HOURS.indexOf(h) > RECAP_HOURS.indexOf(now.getHours());
+}
+
+/** A week or a month: a row for each day, a cell for each hour. */
+function drawHeat(days, data, today) {
+  const box = $("recap-heat");
+  box.innerHTML = "";
+  box.className = `heat ${recapView}`;
+  box.append(el("span"));
+  for (const h of RECAP_HOURS) box.append(el("span", "hour", h % 3 ? "" : String(h)));
+  days.forEach((day, i) => {
+    const d = data[i];
+    const name = el("span", "day");
+    const w = weekday(day);
+    name.innerHTML = recapView === "week" ? `周${WEEKDAYS[w]}<small>${parseDay(day).getDate()}</small>` : `${parseDay(day).getDate()}<small>周${WEEKDAYS[w]}</small>`;
+    name.classList.toggle("today", day === today);
+    name.classList.toggle("weekend", w >= 5);
+    box.append(name);
+    for (const h of RECAP_HOURS) {
+      const cell = el("i", "cell");
+      if (ahead(day, h, today)) cell.classList.add("ahead");
+      else if (!d || !(d.seen & (1 << h))) cell.classList.add("none");
+      else cell.classList.add(shade(d.busy[h]));
+      if (d?.done[h]) cell.classList.add("did");
+      if (!cell.classList.contains("ahead")) cell.title = cellTitle(day, h, d);
+      box.append(cell);
+    }
+  });
+}
+
+/** One day: a bar for each hour, how many minutes of it were busy, with the tasks done in it. */
+function drawHours(day, d, today) {
+  const box = $("recap-heat");
+  box.innerHTML = "";
+  box.className = "hours";
+  for (const h of RECAP_HOURS) {
+    const col = el("div", "col");
+    const bar = el("i", "bar");
+    if (ahead(day, h, today)) col.classList.add("ahead");
+    else if (!d || !(d.seen & (1 << h))) col.classList.add("none");
+    else {
+      // In 5-minute steps, so the bars keep to a pixel grid.
+      bar.style.setProperty("--h", Math.ceil(d.busy[h] / 300));
+      bar.classList.add(shade(d.busy[h]));
+      col.title = cellTitle(day, h, d);
+    }
+    col.append(el("span", "n", d?.done[h] ? String(d.done[h]) : ""), bar, el("span", "hour", h % 3 ? "" : String(h)));
+    box.append(col);
+  }
+}
+
+function drawProjects(data) {
+  const box = $("recap-projects");
+  box.innerHTML = "";
+  const totals = new Map();
+  for (const d of data) for (const [name, [n, m]] of Object.entries(d?.projects || {})) {
+    const t = totals.get(name) || [0, 0];
+    totals.set(name, [t[0] + n, t[1] + m]);
+  }
+  const top = [...totals].sort((a, b) => b[1][0] - a[1][0] || b[1][1] - a[1][1]).slice(0, 6);
+  if (!top.length) {
+    const empty = el("div", "recap-empty");
+    const seen = data.some(Boolean);
+    empty.innerHTML = `<img src="assets/clawd/${seen ? "read_doze" : "life_bed_sleep"}.gif" alt="" /><span></span>`;
+    empty.querySelector("span").textContent = seen ? "这段时间还没一起完成任务，歇着也挺好～" : "这段时间我没开着，没有记录";
+    box.append(empty);
+    return;
+  }
+  const most = top[0][1][0];
+  for (const [name, [n, m]] of top) {
+    const row = el("div", "row project");
+    const label = el("span", "text");
+    label.append(el("b", "", name));
+    const bar = el("span", "track");
+    const fill = el("i");
+    fill.style.width = `${Math.max(4, (n / most) * 100)}%`;
+    bar.append(fill);
+    const [v, unit] = durationText(m * 60);
+    const count = el("span", "count");
+    count.innerHTML = `${n} 个<small> · ${v}${unit}</small>`;
+    row.append(label, bar, count);
+    row.title = name;
+    box.append(row);
+  }
+}
+
+function initRecap() {
+  for (const radio of document.querySelectorAll("input[name=recap-view]")) {
+    radio.onchange = () => {
+      // To the period around today if the one shown has it, else around its first day.
+      const today = memDay();
+      const days = periodDays(recapView, recapStart || today);
+      recapView = radio.value;
+      recapStart = periodStart(recapView, days.includes(today) ? today : days[0]);
+      drawRecap();
+    };
+  }
+  $("recap-prev").onclick = () => {
+    recapStart = shiftPeriod(recapView, recapStart, -1);
+    drawRecap();
+  };
+  $("recap-next").onclick = () => {
+    recapStart = shiftPeriod(recapView, recapStart, 1);
+    drawRecap();
+  };
+  document.querySelector('nav button[data-tab="recap"]').addEventListener("click", showRecap);
+  listen("recap-open", (e) => {
+    openRecapWeek(e.payload);
+    showRecap();
+  });
+  // New numbers come in as Claude works: once a minute while the page shows them.
+  setInterval(() => $("tab-recap").classList.contains("active") && showRecap(), 60 * 1000);
+  showRecap();
+}
+
 // ---------------------------------------------------------------- autostart
 
 async function initAutostart() {
@@ -1138,6 +1446,7 @@ async function boot() {
   initAi();
   initMemory();
   initGallery();
+  initRecap();
 }
 
 boot();

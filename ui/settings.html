@@ -19,6 +19,7 @@
         <button data-tab="character" class="active">性格</button>
         <button data-tab="routine">作息</button>
         <button data-tab="claude">Claude 联动</button>
+        <button data-tab="recap">回顾</button>
         <button data-tab="ai">AI 聊天</button>
         <button data-tab="system">系统联动</button>
         <button data-tab="gallery">动画图鉴</button>
@@ -135,6 +136,46 @@
           </label>
         </div>
         <p class="hint">桌宠没运行时，Claude Code 照常工作，不受影响。</p>
+      </section>
+
+      <!-- ------------------------------------------------ 回顾 -->
+      <section id="tab-recap">
+        <h2>回顾 <small>你和 Claude 一起忙了些什么</small></h2>
+        <div class="recap-bar">
+          <span class="segmented" id="recap-view">
+            <label><input type="radio" name="recap-view" value="day" /><span>按天</span></label>
+            <label><input type="radio" name="recap-view" value="week" checked /><span>按周</span></label>
+            <label><input type="radio" name="recap-view" value="month" /><span>按月</span></label>
+          </span>
+          <span class="recap-nav">
+            <button id="recap-prev" title="往前"><i class="chevron left"></i></button>
+            <b id="recap-range"></b>
+            <button id="recap-next" title="往后"><i class="chevron right"></i></button>
+          </span>
+        </div>
+        <p class="hint" id="recap-nohooks" hidden>还没装 Claude Code 联动，它看不到 Claude 在忙什么。去「Claude 联动」里装上就好。</p>
+        <div class="card recap-stats" id="recap-stats"></div>
+
+        <h3 id="recap-when-title">什么时候在忙</h3>
+        <div class="card recap-when">
+          <div id="recap-heat"></div>
+          <div class="recap-legend">
+            <span><i class="cell none"></i>没开着</span>
+            <span><i class="cell l0"></i>没在忙</span>
+            <span>少<i class="cell l1"></i><i class="cell l2"></i><i class="cell l3"></i><i class="cell l4"></i>多</span>
+          </div>
+        </div>
+
+        <h3>忙的项目</h3>
+        <div class="card" id="recap-projects"></div>
+
+        <div class="card">
+          <label class="row">
+            <span class="text"><b>每周小结卡片</b><small>周日晚上闲下来时，它举着小卡片告诉你这周一起搞定了什么</small></span>
+            <input type="checkbox" class="switch" data-key="weeklyCard" />
+          </label>
+        </div>
+        <p class="hint">只记次数、时长、几点和项目文件夹名，不记会话标题、你说的话和文件内容；不打分，也不跟谁比。全部留在本机的 <code>~/.clawd-pet/recap.json</code>，保留约半年。</p>
       </section>
 
       <!-- ------------------------------------------------ AI 聊天 -->
