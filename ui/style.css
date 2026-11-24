@@ -409,6 +409,16 @@ body {
   background: #fff;
   cursor: pointer;
   box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.15);
+  white-space: nowrap;
+}
+
+/* With a key cap, the label sits over it, so a spelled-out combo doesn't squeeze the row. */
+.perm button:has(kbd) {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding-bottom: 3px;
 }
 
 .perm button:active,
@@ -421,14 +431,12 @@ body {
 .perm button kbd {
   display: inline-block;
   min-width: 9px;
-  margin: 0 -3px 0 6px;
   padding: 0 3px;
   border: 1px solid currentColor;
   border-bottom-width: 2px;
   border-radius: 3px;
   font: bold 9px/12px "Cascadia Mono", Consolas, monospace;
   text-align: center;
-  vertical-align: 1px;
   opacity: 0.45;
 }
 
