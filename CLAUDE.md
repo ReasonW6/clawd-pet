@@ -15,7 +15,7 @@ npm run triggers        # 由 ui/anims.js 重新生成 docs/triggers.html
 cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得多
 ```
 
-- 没有测试和 lint。验证方式是 `cargo check`，加上实际运行。
+- 没有 lint，测试只有少数几个单元测试，要在 Windows 上 `cargo test`（`collection`、`secrets` 等）。`secrets` 的测试读写开发机真实的凭据管理器（`clawd-pet/test-<pid>-*`，测试结束时删掉，失败也删）。验证方式主要是 `cargo check`，加上实际运行。
 - `ui/assets/clawd/` 被 gitignore，是生成物；新克隆的仓库要先有素材来源并跑 `import-assets`，否则前端和 `npm run triggers` 都会缺 `manifest.json`。
 - 素材来源有两种，manifest 格式不同，`import-assets` 都能读：
   - `../clawd-400-src`：clawd-400 仓库的克隆。动画是 `scenes/*.py` 里的场景代码，在那里改完跑 `python generate.py` 重写 `gifs/` 和 `manifest.json`（几秒钟，结果是确定的），再回来 `import-assets`。修改动画走这条路，步骤见 README「修改动画」。
@@ -37,7 +37,7 @@ cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得�
 
 Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
-- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）、`config`（只在聊天改了设置时）和 `collected`（图鉴新收集到一个，带 slug）；只发给主窗口的还有 `dream`（做梦开始、结束）、`edges`（来自 `edges.rs`），以及 `perm-hotkey`、`hotkeys`（来自 `hotkeys.rs`）。
+- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）、`config`（只在聊天改了设置时）和 `collected`（桌面上每演一个都发，带 `slug`、`first`、`count`）；只发给主窗口的还有 `dream`（做梦开始、结束）、`edges`（来自 `edges.rs`），以及 `perm-hotkey`、`hotkeys`（来自 `hotkeys.rs`）。
 - 前端调用的命令都在 `main.rs` 的 `generate_handler!` 里注册；`window.__TAURI__` 是全局对象（`withGlobalTauri`），前端没有打包器和 import。
 
 ### Claude Code 联动
@@ -82,9 +82,10 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
 设置页的图鉴是收集册：只有在桌面上真正演过的动画算收集到。
 
-- `pet.js` 的 `play` 在 GIF 加载好、换上 `sprite` 时调 `collection_seen`。隐藏时 `play` 不加载，所以不算；图鉴发来的 `play` 走 `playOnce(..., { preview: true })`，也不算。启动时先用 `collection_known` 把 manifest 里的全部 slug 交给后端：不在里面的不记，数里程碑时也不算已经改名、删掉的。
-- 记录（`since`、`visited`、`cheered`、每个 slug 的 `first` 和 `count`）在内存里改，置脏后由 `main.rs` 的 2 秒保存循环和退出时 `flush` 写进 `~/.clawd-pet/collection.json`（`memory::write`：先写 `.tmp` 再 rename）。
-- 里程碑是每 `STEP`（50）个和全部收集齐。开始收集（`since`）后 24 小时内不庆祝，免得老用户第一天连着庆祝；之后第一次新收集到时，只庆祝已达到的最高那个（`cheered` 记着）。前端把它放进 `collectCheer`，在 `idleLife` 里等用户在场（`!leftAlone`）、没有别的气泡时播 `ANIMS.collected` / `collectedAll`。
+- `pet.js` 的 `play` 在 GIF 加载好、换上 `sprite` 时调 `collection_seen`。隐藏时 `play` 不加载，所以不算；重新显示时接着演的那个（`resumeSlug`，等于隐藏前最后算过的 `countedSlug`）不再算一次；图鉴发来的 `play` 走 `playOnce(..., { preview: true })`，也不算。每次算都发 `collected`（带 `first`、`count`）给设置页，图鉴开着时次数跟着变。启动时先用 `collection_known` 把 manifest 里的全部 slug 交给后端：不在里面的不记，数里程碑时也不算已经改名、删掉的。
+- 记录（`since`、`visited`、`cheered`、`pending`、每个 slug 的 `first` 和 `count`）在内存里改，由 `main.rs` 的 2 秒保存循环和退出时 `flush` 写进 `~/.clawd-pet/collection.json`（`memory::write`：先写 `.tmp` 再 rename）。新收集到、里程碑、`visited` 变了马上写；只有次数变了（`counted`）最多每分钟写一次，退出时（`flush(true)`）补上。
+- 启动时文件不存在才从零开始；读不了（被杀毒、同步盘占着）就这次运行不写盘（`writable`），解析不了就先改名成 `collection.json.bad` 再开新的，改名失败也不写盘。
+- 里程碑是每 `STEP`（50）个和全部收集齐。开始收集（`since`）后 24 小时内不庆祝，免得老用户第一天连着庆祝；之后第一次新收集到时，只庆祝已达到的最高那个。达到时只记进 `pending`，前端把它放进 `collectCheer`，在 `idleLife` 里等用户在场（`!leftAlone`）、没有别的气泡时播 `ANIMS.collected` / `collectedAll`，演完调 `collection_cheered` 才记进 `cheered`。没演就退出的，下次启动时 `collection_known` 把它交回前端。
 - 设置页：缩略图用 `ImageDecoder` 取 GIF 中间一帧画在 canvas 上，没见过的用 `source-in` 填成影子色；滚到附近才解码（`IntersectionObserver`），解码结果按 slug 缓存。卡片只在鼠标放上去时换成 GIF。没见过的名字不显示、搜不到，点了不发 `play`。「新」是上次打开图鉴以后收集的：第一次点图鉴标签时调 `collection_visit` 记下时间，这一页里用的还是之前的；从没打开过就算最近一天的。
 
 ### 聊天改设置（`change_setting`）
@@ -147,4 +148,4 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 - `set_config` 是设置页的唯一写入口；它会按需重设窗口大小、重建文件监听（`rewatch`），并重新判断全屏让开。
 - API 密钥（`secrets.rs`）存在 Windows 凭据管理器里，每个一条普通凭据，名字是 `clawd-pet/<服务商 id>`、`clawd-pet/exa`；用的是 `windows-sys` 的 `CredWriteW` / `CredReadW` / `CredDeleteW` / `CredEnumerateW`，密钥按 UTF-16 存（和 cmdkey 一样）。
   - 启动时 `secrets::migrate` 把 `config.json` 里还有的 `apiKey` / `exaKey` 写进去、读回来核对，对上了才从配置里删掉再保存（`Config::save` 先写 `.tmp` 再 rename）；存不进去的留在配置里照常用（`secrets::key` 先看配置里的，再看凭据管理器），原因记在 `TROUBLE` 里给设置页看，下次启动再试。这两个字段为空时不写出来。
-  - 前端拿不到密钥：`get_config` 和 `config` 事件都过一遍 `secrets::hide`；设置页存回来的配置不带密钥，`apply_config` 用 `secrets::keep` 把配置里原有的放回去，`ai_models` 也一样。设置页只通过 `ai_keys`（每个密钥的最后 4 个字符，短于 12 个字符的不给；以及是不是还在配置里）、`ai_key_set`（空的就是删掉）、`ai_key_move`（旧的「自定义」模板设置变成用户自己的服务商时搬密钥）打交道。
+  - 前端读不到密钥：`get_config` 和 `config` 事件都过一遍 `secrets::hide`；设置页存回来的配置不带密钥，`apply_config` 用 `secrets::keep` 把配置里原有的放回去。`ai_models` 只用已保存的配置，不收页面传来的（设置页先 `saveNow`）。这挡不住能调命令的页面先 `set_config` 改掉地址、再让后端带着密钥去请求：密钥没和地址绑在一起。设置页只通过 `ai_keys`（每个密钥的最后 4 个字符，短于 12 个字符的不给；以及是不是还在配置里）、`ai_key_set`（空的就是删掉）、`ai_key_move`（旧的「自定义」模板设置变成用户自己的服务商时搬密钥）打交道。

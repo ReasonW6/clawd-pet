@@ -7,6 +7,7 @@
 
 use crate::config::{AiConfig, Config};
 use serde_json::{json, Map, Value};
+use std::path::Path;
 use std::sync::Mutex;
 
 /// What `which` is for Exa's key; anything else is a provider id.
@@ -72,16 +73,57 @@ pub fn migrate(ai: &mut AiConfig) -> bool {
     changed
 }
 
-/// Puts `key` in the vault for `which`, or with an empty one, takes it out; either way
-/// config.json no longer holds one for it. Gives back whether `ai` changed.
-pub fn set(ai: &mut AiConfig, which: &str, key: &str) -> Result<bool, String> {
+/// Puts `key` in the vault for `which`, or with an empty one, takes it out. Gives back
+/// whether `ai` changed (config.json no longer holds a key for it), and whether that went
+/// through. A key that doesn't go in leaves config.json as it was; removing one takes it
+/// out of config.json even when the vault fails, as config.json holds one just then.
+pub fn set(ai: &mut AiConfig, which: &str, key: &str) -> (bool, Result<(), String>) {
     let key = key.trim();
-    if key.is_empty() {
-        cred::delete(&target(which)).map_err(|e| format!("没能从 Windows 凭据管理器里删掉：{e}"))?;
-    } else {
-        store(which, key).map_err(|e| format!("没能存进 Windows 凭据管理器：{e}"))?;
+    if !key.is_empty() {
+        if let Err(e) = store(which, key) {
+            return (false, Err(format!("没能存进 Windows 凭据管理器：{e}")));
+        }
     }
-    Ok(plain_mut(ai, which).is_some_and(|p| !std::mem::take(p).is_empty()))
+    let changed = plain_mut(ai, which).is_some_and(|p| !std::mem::take(p).is_empty());
+    let done = if key.is_empty() {
+        cred::delete(&target(which)).map_err(|e| format!("没能从 Windows 凭据管理器里删掉：{e}"))
+    } else {
+        Ok(())
+    };
+    (changed, done)
+}
+
+/// Whether config.json still holds any key.
+pub fn any_plain(ai: &AiConfig) -> bool {
+    !ai.exa_key.trim().is_empty() || ai.profiles.values().any(|p| !p.api_key.trim().is_empty())
+}
+
+/// Takes the keys out of the config.json at `path`, if there is one holding any: the one
+/// at the old location, which stays behind after the config is copied over.
+pub fn strip_file(path: &Path) {
+    let Ok(text) = std::fs::read_to_string(path) else { return };
+    let Ok(mut cfg) = serde_json::from_str::<Value>(&text) else { return };
+    if !strip(&mut cfg) {
+        return;
+    }
+    if let Ok(text) = serde_json::to_string_pretty(&cfg) {
+        if let Err(e) = crate::memory::write(path, &text) {
+            eprintln!("couldn't take the keys out of {}: {e}", path.display());
+        }
+    }
+}
+
+/// Takes `ai.exaKey` and every `ai.profiles.*.apiKey` out of a config. Gives back whether
+/// there was any.
+fn strip(cfg: &mut Value) -> bool {
+    let Some(ai) = cfg.get_mut("ai").and_then(Value::as_object_mut) else { return false };
+    let mut any = ai.remove("exaKey").is_some();
+    if let Some(profiles) = ai.get_mut("profiles").and_then(Value::as_object_mut) {
+        for p in profiles.values_mut().filter_map(Value::as_object_mut) {
+            any |= p.remove("apiKey").is_some();
+        }
+    }
+    any
 }
 
 /// Moves the key of provider `from` to provider `to` (the settings page turning a
@@ -286,15 +328,21 @@ mod tests {
         format!("test-{}-{name}", std::process::id())
     }
 
-    fn cleanup(names: &[&str]) {
-        for n in names {
-            let _ = cred::delete(&target(n));
+    /// Deletes the test's credentials when the test ends, failed or not.
+    struct Cleanup<'a>(&'a [&'a str]);
+
+    impl Drop for Cleanup<'_> {
+        fn drop(&mut self) {
+            for n in self.0 {
+                let _ = cred::delete(&target(n));
+            }
         }
     }
 
     #[test]
     fn round_trip() {
         let w = which("round");
+        let _cleanup = Cleanup(&[&w]);
         assert_eq!(cred::read(&target(&w)), Ok(None));
         cred::write(&target(&w), "sk-ünï-密钥-0123").unwrap();
         assert_eq!(cred::read(&target(&w)).unwrap().as_deref(), Some("sk-ünï-密钥-0123"));
@@ -309,6 +357,7 @@ mod tests {
     #[test]
     fn migrates_and_strips() {
         let w = which("migrate");
+        let _cleanup = Cleanup(&[&w]);
         let mut ai = AiConfig::default();
         ai.profiles.insert(w.clone(), AiProfile { api_key: " sk-abcdefghijklmnop ".into(), model: "m".into(), ..Default::default() });
         ai.profiles.insert(which("empty"), AiProfile::default());
@@ -321,16 +370,17 @@ mod tests {
         assert!(!migrate(&mut ai));
         let s = status(&ai);
         assert_eq!(s["keys"][&w], json!({ "tail": "mnop", "plain": false }));
-        cleanup(&[&w]);
     }
 
     #[test]
     fn sets_renames_and_removes() {
         let (a, b) = (which("from"), which("to"));
+        let _cleanup = Cleanup(&[&a, &b]);
         let mut ai = AiConfig::default();
         ai.profiles.insert(a.clone(), AiProfile { api_key: "sk-old".into(), ..Default::default() });
         // Setting a key takes the plain one out.
-        assert!(set(&mut ai, &a, "sk-new-key-1234").unwrap());
+        let (changed, done) = set(&mut ai, &a, "sk-new-key-1234");
+        assert!(changed && done.is_ok());
         assert_eq!(ai.profiles[&a].api_key, "");
         assert!(!rename(&mut ai, &a, &b).unwrap());
         assert_eq!(key("", &a), "");
@@ -339,10 +389,10 @@ mod tests {
         ai.profiles.get_mut(&a).unwrap().api_key = "sk-plain".into();
         assert!(rename(&mut ai, &a, &b).unwrap());
         assert_eq!(ai.profiles[&b].api_key, "sk-plain");
-        assert!(set(&mut ai, &b, "").unwrap());
+        let (changed, done) = set(&mut ai, &b, "");
+        assert!(changed && done.is_ok());
         assert_eq!(key("", &b), "");
         assert_eq!(ai.profiles[&b].api_key, "");
-        cleanup(&[&a, &b]);
     }
 
     #[test]
@@ -358,5 +408,19 @@ mod tests {
         assert_eq!(back.profiles["deepseek"].api_key, "sk-secret");
         assert_eq!(back.exa_key, "exa-secret");
         assert_eq!(tail("short"), "");
+    }
+}
+
+#[cfg(test)]
+mod file_tests {
+    use super::*;
+
+    #[test]
+    fn strips_keys_from_an_old_config() {
+        let mut cfg = json!({ "ai": { "exaKey": "e", "profiles": { "a": { "apiKey": "k", "model": "m" }, "b": {} } }, "size": 1 });
+        assert!(strip(&mut cfg));
+        assert_eq!(cfg, json!({ "ai": { "profiles": { "a": { "model": "m" }, "b": {} } }, "size": 1 }));
+        assert!(!strip(&mut cfg));
+        assert!(!strip(&mut json!({ "size": 1 })));
     }
 }
