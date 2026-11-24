@@ -143,8 +143,8 @@ const claude = section(
 
     sub("需要你确认"),
     row({ when: "Claude 请求权限（开着审批气泡）", how: "<code>PermissionRequest</code>。头顶弹出「拒绝 / 总是允许 / 允许」，直到你作答，或你在原界面答了：终端里答完马上收起；桌面版不告诉钩子，允许了 Bash / PowerShell 命令，它一开始跑就收起（看 Claude Code 给每次运行建的输出文件；同一会话还有别的调用在跑、或别的 Bash / PowerShell / Monitor 请求挂着时，改等命令跑完），别的工具要等那次调用跑完；拒绝了要等会话记录里出现它的结果，这一轮结束或被叫停时也收起。等满约 10 分钟气泡自己放弃，这时仍算等你确认。优先级仅次于被拎起来。", play: ["loop"], code: "ANIMS.permission", slugs: ANIMS.permission }),
-    row({ when: "你允许了权限请求", how: "在气泡里点「允许」或「总是允许」，或按它们的快捷键（默认 Ctrl+Shift+Y / Ctrl+Shift+A，只在气泡显示时有效）；或在桌面版里允许了、看得出来的时候（那次调用跑起来或跑完了，或会话记录里有它的结果）。终端里答完它马上断开连接，看不出答了什么，不播。", play: ["force", 1200], code: "ANIMS.allowed", slugs: ANIMS.allowed }),
-    row({ when: "你拒绝了权限请求", how: "在气泡里点「拒绝」，或按它的快捷键（默认 Ctrl+Shift+N）；或在桌面版里拒绝并留言（会话记录里那次调用的结果是拒绝）。不留言直接拒绝会叫停这一轮，播的是叫停的动画；终端里同样不播。", play: ["force", 1800], code: "ANIMS.denied", slugs: ANIMS.denied }),
+    row({ when: "你允许了权限请求", how: "在气泡里点「允许」或「总是允许」，或按它们的快捷键（默认允许是 Ctrl+Alt+Y，「总是允许」默认没有，只在气泡显示时有效）；或在桌面版里允许了、看得出来的时候（那次调用跑起来或跑完了，或会话记录里有它的结果）。终端里答完它马上断开连接，看不出答了什么，不播。", play: ["force", 1200], code: "ANIMS.allowed", slugs: ANIMS.allowed }),
+    row({ when: "你拒绝了权限请求", how: "在气泡里点「拒绝」，或按它的快捷键（默认 Ctrl+Alt+N）；或在桌面版里拒绝并留言（会话记录里那次调用的结果是拒绝）。不留言直接拒绝会叫停这一轮，播的是叫停的动画；终端里同样不播。", play: ["force", 1800], code: "ANIMS.denied", slugs: ANIMS.denied }),
     row({ when: "要你去原界面作答", how: "气泡关着时的权限请求，或 <code>Notification</code> 的 permission_prompt / elicitation_dialog，直接是这个。提问、计划、填表先用下面各自的动画等着，约 45 秒还没回应、播完手头这一轮后才换成这个。", play: ["loop"], code: "ANIMS.waiting", slugs: ANIMS.waiting }),
     row({ when: "Claude 向你提问", how: "AskUserQuestion 的 <code>PreToolUse</code>。一脸问号地等你作答，约 45 秒没回应才变得不耐烦。", play: ["loop"], code: "ANIMS.asking", slugs: ANIMS.asking }),
     row({ when: "计划写好了", how: "ExitPlanMode 的 <code>PreToolUse</code>，计划交给你审。约 45 秒没回应才变得不耐烦。", play: ["loop"], code: "ANIMS.planReady", slugs: ANIMS.planReady }),

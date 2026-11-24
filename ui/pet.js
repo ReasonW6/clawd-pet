@@ -172,6 +172,8 @@ function setShown(on) {
   } else {
     playSeq++; // drops an animation that is still loading
     sprite.removeAttribute("src");
+    // Out of sight is unseen: showing again starts the hotkeys' wait over.
+    for (const p of perms) p.shownAt = undefined;
     syncHotkeys();
   }
 }
@@ -1093,6 +1095,12 @@ let hotkeysLive = [false, false, false];
  *  null at first, so a reloaded page tells the backend even when it wants none. */
 let hotkeysFor = null;
 const HOTKEY_ACTIONS = ["allow", "deny", "always"];
+/** A request answers its hotkeys only once it has been on show this long: a second press
+ *  meant for the one before, or one already on its way as it was answered elsewhere,
+ *  doesn't answer one the user hasn't looked at. */
+const HOTKEY_SETTLE_MS = 700;
+/** Short marks for the modifiers on a button's key cap; the tooltip has the whole combo. */
+const MOD_MARKS = { ctrl: "⌃", alt: "⌥", shift: "⇧", win: "⊞" };
 
 function toast(text, { sticky = false, ms = TOAST_MS, onClick = null } = {}) {
   toastText = text;
@@ -1154,11 +1162,14 @@ function syncHotkeys() {
   invoke("permission_hotkeys", { on: Boolean(want), always: want === "always" });
 }
 
-/** A hotkey pressed: the request the bubble shows is answered as by its button. */
+/** A hotkey pressed: the request the bubble shows is answered as by its button, once it
+ *  has been on show a moment (`HOTKEY_SETTLE_MS`). */
 function onPermHotkey(action) {
   const req = perms[0];
   const sug = req?.payload.permission_suggestions?.[0];
-  if (!req || !shown || req.hotkeyed || (action === "always" && !sug)) return;
+  if (!req || !shown || bubble.hidden || req.hotkeyed || (action === "always" && !sug)) return;
+  // Not yet on show (undefined) counts as too soon too.
+  if (!(performance.now() - req.shownAt >= HOTKEY_SETTLE_MS)) return;
   req.hotkeyed = true;
   // The button shows pressed for a moment first, so it's clear which answer went.
   bubble.querySelector(`.perm button[data-act="${action}"]`)?.classList.add("pressed");
@@ -1171,7 +1182,9 @@ function keyCap(b, action) {
   b.dataset.act = action;
   if (!hotkeysLive[i]) return;
   const combo = config.hotkeys[action];
-  b.append(el("kbd", "", combo.split("+").pop()));
+  const parts = combo.split("+").map((x) => x.trim());
+  const key = parts.pop().toUpperCase();
+  b.append(el("kbd", "", parts.map((m) => MOD_MARKS[m.toLowerCase()] || m).join("") + key));
   b.title = [b.title, `快捷键 ${combo}`].filter(Boolean).join("\n");
 }
 
@@ -1188,6 +1201,7 @@ function drawBubble() {
   bubble.classList.toggle("leaving", Boolean((speech?.leaving || folding) && !perms.length && !toastText));
   if (perms.length) {
     const req = perms[0];
+    if (shown && req.shownAt === undefined) req.shownAt = performance.now();
     const key = `perm-${req.id}-${perms.length}-${hotkeysLive}-${Object.values(config.hotkeys)}`;
     if (bubbleKey === key) return;
     bubbleKey = key;

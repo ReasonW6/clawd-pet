@@ -518,6 +518,19 @@ const hotkeyRows = {};
 /** The key capture going on: { action, mods }. */
 let capturing = null;
 
+/** A combo written the one way, so that "shift+Ctrl+y" and "Ctrl+Shift+Y" compare the same. */
+function sameCombo(a, b) {
+  const norm = (c) => {
+    const parts = c.split("+").map((x) => x.trim().toLowerCase());
+    const key = parts.pop();
+    return [...["ctrl", "alt", "shift", "win"].filter((m) => parts.includes(m)), key].join("+");
+  };
+  return Boolean(a && b) && norm(a) === norm(b);
+}
+
+/** The action before `action` with the same combo: the pet holds it for that one only. */
+const twinOf = (action, combo) => HOTKEYS.slice(0, HOTKEYS.findIndex(([a]) => a === action)).find(([other]) => sameCombo(config.hotkeys[other], combo));
+
 const heldMods = (e) => [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win"].filter(Boolean);
 
 /** A key a hotkey can end with: a letter, a digit or F1–F24, by where it is on the
@@ -565,7 +578,12 @@ function showHotkeys() {
 /** Says so under the combo when another program holds it. */
 async function checkHotkey(action) {
   const combo = config.hotkeys[action];
-  const problem = config.hotkeys.enabled && combo ? await invoke("hotkey_check", { combo }).then(() => "", String) : "";
+  const twin = config.hotkeys.enabled && twinOf(action, combo);
+  const problem = twin
+    ? `和「${twin[1]}」的快捷键重复了，按下去算「${twin[1]}」，换一个吧`
+    : config.hotkeys.enabled && combo
+      ? await invoke("hotkey_check", { combo }).then(() => "", String)
+      : "";
   // A newer combo may have been set meanwhile.
   if (combo === config.hotkeys[action]) showHotkeyError(action, problem);
 }
@@ -636,7 +654,7 @@ function captureKey(e) {
   if (!key) return showHotkeyError(action, "最后一个键要是字母、数字或 F1–F24");
   if (!mods.some((m) => m !== "Shift")) return showHotkeyError(action, "要带上 Ctrl、Alt 或 Win，免得打字时被它抢走");
   const combo = [...mods, key].join("+");
-  const twin = HOTKEYS.find(([other]) => other !== action && config.hotkeys[other] === combo);
+  const twin = HOTKEYS.find(([other]) => other !== action && sameCombo(config.hotkeys[other], combo));
   if (twin) return showHotkeyError(action, `和「${twin[1]}」的快捷键重复了`);
   setHotkey(action, combo);
 }

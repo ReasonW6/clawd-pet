@@ -92,9 +92,16 @@ impl State {
     }
 }
 
+/// Each action's combo, none while switched off. One written differently but the same as
+/// an earlier action's ("Shift+Ctrl+Y" after "Ctrl+Shift+Y") is none: it would press the
+/// earlier action's button.
 fn combos(cfg: &HotkeyConfig) -> [Option<Combo>; 3] {
     let texts = [&cfg.allow, &cfg.deny, &cfg.always];
-    std::array::from_fn(|i| parse(texts[i]).filter(|_| cfg.enabled))
+    let mut out = [None; 3];
+    for i in 0..3 {
+        out[i] = parse(texts[i]).filter(|c| cfg.enabled && !out[..i].contains(&Some(*c)));
+    }
+    out
 }
 
 /// Starts the hotkey thread.
@@ -264,6 +271,14 @@ mod tests {
     fn switched_off_holds_nothing() {
         let cfg = HotkeyConfig { enabled: false, ..HotkeyConfig::default() };
         assert_eq!(combos(&cfg), [None; 3]);
-        assert!(combos(&HotkeyConfig::default()).iter().all(Option::is_some));
+        // "Always allow" has no combo until the user sets one.
+        let [allow, deny, always] = combos(&HotkeyConfig::default());
+        assert!(allow.is_some() && deny.is_some() && always.is_none());
+    }
+
+    #[test]
+    fn a_combo_twice_counts_once() {
+        let cfg = HotkeyConfig { enabled: true, allow: "Ctrl+Shift+Y".into(), deny: "shift + ctrl + y".into(), always: "Ctrl+Alt+A".into() };
+        assert_eq!(combos(&cfg), [parse("Ctrl+Shift+Y"), None, parse("Ctrl+Alt+A")]);
     }
 }
