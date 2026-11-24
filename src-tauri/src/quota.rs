@@ -16,6 +16,7 @@ use crate::server::PORT;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -27,6 +28,9 @@ const CLI_FILE: &str = "quota.json";
 /// The relay script, and the status line it took the place of, in the pet's folder.
 const RELAY: &str = "statusline.sh";
 const ORIGINAL: &str = "statusline-original.json";
+/// The same numbers again are written only once they are this much newer than the ones
+/// written (ms): a restart would otherwise take numbers just confirmed for stale ones.
+const RESAVE_MS: i64 = 10 * 60 * 1000;
 
 /// One window from the terminal: percentage used, and when it starts over (epoch s).
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
@@ -55,13 +59,18 @@ pub struct Desktop {
 pub struct Quota {
     pub desktop: Option<Desktop>,
     pub cli: Option<Cli>,
+    /// When the terminal's numbers in quota.json are from.
+    #[serde(skip)]
+    saved_t: i64,
 }
 
 struct State {
     app: AppHandle,
     dir: PathBuf,
     quota: Mutex<Quota>,
-    _watcher: Option<RecommendedWatcher>,
+    watcher: Mutex<Option<RecommendedWatcher>>,
+    /// The folders watched: the desktop app's data folders, and where a new one would show.
+    watched: Mutex<HashSet<PathBuf>>,
 }
 
 static STATE: OnceLock<State> = OnceLock::new();
@@ -69,23 +78,76 @@ static STATE: OnceLock<State> = OnceLock::new();
 /// Loads what is known and starts watching the desktop app's file. `dir` is the pet's
 /// own folder (`~/.clawd-pet`).
 pub fn init(app: AppHandle, dir: PathBuf) {
-    let cli = std::fs::read(dir.join(CLI_FILE)).ok().and_then(|b| serde_json::from_slice(&b).ok());
-    let quota = Quota { desktop: read_desktop(), cli };
-    let roots: Vec<PathBuf> = desktop_roots().into_iter().filter(|r| r.is_dir()).collect();
+    let cli: Option<Cli> = std::fs::read(dir.join(CLI_FILE)).ok().and_then(|b| serde_json::from_slice(&b).ok());
+    let saved_t = cli.as_ref().map_or(0, |c| c.t);
+    let quota = Quota { desktop: read_desktop(), cli, saved_t };
     let watcher = notify::recommended_watcher(|res: notify::Result<notify::Event>| {
         let Ok(e) = res else { return };
         if e.paths.iter().any(|p| p.file_name().is_some_and(|n| n == DESKTOP_FILE)) {
             on_desktop();
+        } else if e.paths.iter().any(|p| is_new_folder(p)) {
+            // A data folder showed up (the app installed, or run the first time since the
+            // pet started): watched from now on. Not from the watcher's own thread.
+            std::thread::spawn(|| {
+                rewatch();
+                on_desktop();
+            });
         }
     })
-    .ok()
-    .map(|mut w| {
-        for root in &roots {
-            let _ = w.watch(root, RecursiveMode::NonRecursive);
+    .ok();
+    let state = State { app, dir, quota: Mutex::new(quota), watcher: Mutex::new(watcher), watched: Mutex::default() };
+    if STATE.set(state).is_ok() {
+        rewatch();
+    }
+}
+
+/// `%LOCALAPPDATA%\Claude-Data` (the Store build's data folders are in there) and
+/// `%APPDATA%`, where the other build's `Claude` folder is.
+fn parents() -> (Option<PathBuf>, Option<PathBuf>) {
+    let local = std::env::var_os("LOCALAPPDATA").map(|l| PathBuf::from(l).join("Claude-Data"));
+    (local, std::env::var_os("APPDATA").map(PathBuf::from))
+}
+
+/// What to watch now (not recursively): each data folder there is, and where a new one
+/// would appear. Before `Claude-Data` itself is there, LocalAppData, for it to appear in.
+fn watch_list() -> HashSet<PathBuf> {
+    let mut list: HashSet<PathBuf> = desktop_roots().into_iter().filter(|r| r.is_dir()).collect();
+    let (data, roaming) = parents();
+    if let Some(data) = data {
+        match data.parent() {
+            Some(local) if !data.is_dir() => list.insert(local.to_path_buf()),
+            _ => list.insert(data),
+        };
+    }
+    list.extend(roaming);
+    list
+}
+
+/// Whether `p` is a folder the desktop app's data may go in: `Claude-Data`, one in
+/// there, or `%APPDATA%\Claude`.
+fn is_new_folder(p: &Path) -> bool {
+    let (data, roaming) = parents();
+    let data = data.as_deref();
+    (Some(p) == data || p.parent() == data || roaming.is_some_and(|r| p == r.join("Claude"))) && p.is_dir()
+}
+
+/// Watches what `watch_list` says, and no longer what it doesn't.
+fn rewatch() {
+    let Some(st) = STATE.get() else { return };
+    let mut watcher = st.watcher.lock().unwrap();
+    let Some(w) = watcher.as_mut() else { return };
+    let mut watched = st.watched.lock().unwrap();
+    let want = watch_list();
+    for gone in watched.difference(&want) {
+        let _ = w.unwatch(gone);
+    }
+    let mut now = HashSet::new();
+    for p in want {
+        if watched.contains(&p) || w.watch(&p, RecursiveMode::NonRecursive).is_ok() {
+            now.insert(p);
         }
-        w
-    });
-    let _ = STATE.set(State { app, dir, quota: Mutex::new(quota), _watcher: watcher });
+    }
+    *watched = now;
 }
 
 pub fn get() -> Quota {
@@ -108,13 +170,13 @@ pub fn reported(input: &Value) {
     let Some(st) = STATE.get() else { return };
     let Some(cli) = from_status(input, now_ms()) else { return };
     let mut q = st.quota.lock().unwrap();
-    // The same numbers again (the status line runs after every message) change nothing.
-    if q.cli.as_ref().is_some_and(|old| old.five == cli.five && old.week == cli.week) {
-        if let Some(old) = q.cli.as_mut() {
-            old.t = cli.t;
+    // The same numbers again (the status line runs after every message) are written only
+    // now and then, for when they were last confirmed to outlive a restart.
+    let same = q.cli.as_ref().is_some_and(|old| old.five == cli.five && old.week == cli.week);
+    if !same || cli.t - q.saved_t >= RESAVE_MS {
+        if save(&st.dir.join(CLI_FILE), &cli) {
+            q.saved_t = cli.t;
         }
-    } else {
-        save(&st.dir.join(CLI_FILE), &cli);
     }
     q.cli = Some(cli);
     let _ = st.app.emit_to("main", "quota", &*q);
@@ -124,13 +186,11 @@ fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
-fn save(path: &Path, cli: &Cli) {
+/// Writes `cli` to `path` whole or not at all; gives back whether it went through.
+fn save(path: &Path, cli: &Cli) -> bool {
     let tmp = path.with_extension("json.tmp");
-    if let Ok(s) = serde_json::to_string(cli) {
-        if std::fs::write(&tmp, s).is_ok() {
-            let _ = std::fs::rename(&tmp, path);
-        }
-    }
+    let Ok(s) = serde_json::to_string(cli) else { return false };
+    std::fs::write(&tmp, s).is_ok() && std::fs::rename(&tmp, path).is_ok()
 }
 
 /// `rate_limits` from Claude Code's status line input. None when it has none (before the
@@ -261,6 +321,7 @@ pub fn install() -> Result<(), String> {
     if git_bash().is_none() {
         return Err("没找到 Git Bash：终端版 Claude Code 没有 Git Bash 时用 PowerShell 跑状态栏，中继脚本跑不了".into());
     }
+    let _lock = hooks::lock_settings();
     let mut v = hooks::read_settings()?;
     let root = v.as_object_mut().ok_or("settings.json 不是 JSON 对象")?;
     let saved = relay.with_file_name(ORIGINAL);
@@ -291,6 +352,7 @@ pub fn install() -> Result<(), String> {
 pub fn uninstall() -> Result<(), String> {
     let relay = relay_path().ok_or("还没准备好")?;
     let saved = relay.with_file_name(ORIGINAL);
+    let _lock = hooks::lock_settings();
     let mut v = hooks::read_settings()?;
     if let Some(root) = v.as_object_mut() {
         // Someone else's status line since: theirs stays.

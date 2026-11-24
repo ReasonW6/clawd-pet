@@ -211,9 +211,12 @@ impl Default for HotkeyConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            allow: "Ctrl+Shift+Y".into(),
-            deny: "Ctrl+Shift+N".into(),
-            always: "Ctrl+Shift+A".into(),
+            // Ctrl+Alt: few programs use it, unlike Ctrl+Shift (Chrome's incognito window,
+            // JetBrains' Find Action...), whose keys would be taken while the bubble shows.
+            allow: "Ctrl+Alt+Y".into(),
+            deny: "Ctrl+Alt+N".into(),
+            // Always allowing writes a lasting rule: the user sets a combo for it, if any.
+            always: String::new(),
         }
     }
 }
