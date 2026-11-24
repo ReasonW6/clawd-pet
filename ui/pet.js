@@ -96,7 +96,8 @@ async function remember(kind, detail = null) {
 async function bringUp(when) {
   if (!memOn() || !config.memory.proactive || !config.chatty) return false;
   const text = await invoke("memory_topic", { when });
-  if (!text) return false;
+  // Something else (the weekly card) took the bubble meanwhile: it isn't put aside.
+  if (!text || toastText) return false;
   toast(text, { ms: 12000, onClick: () => openChat(text) });
   return true;
 }
@@ -125,7 +126,10 @@ function recapSample() {
   const step = t - recapAt;
   recapAt = t;
   // A step much longer than asked for is a computer that was asleep.
-  if (step < 3 * RECAP_SAMPLE_MS && [...sessions.values()].some((s) => s.state !== "idle" && s.state !== "waiting")) recapBusy += step;
+  // A session busy with no news for long is one that went away without a word (tick()
+  // sets it idle, but not while the pet is hidden): not counted.
+  const busy = (s) => s.state !== "idle" && s.state !== "waiting" && t - s.t <= STALE_BUSY_MS;
+  if (step < 3 * RECAP_SAMPLE_MS && [...sessions.values()].some(busy)) recapBusy += step;
   if (++recapSamples % 6) return;
   recap("time", { busy: Math.round(recapBusy / 1000) });
   recapBusy = 0;
@@ -140,7 +144,8 @@ function recapSession(s) {
   const id = rootOf(s).id;
   if (recapSessions.ids.has(id)) return;
   recapSessions.ids.add(id);
-  recap("session");
+  // The backend keeps the day's too (as hashes), so a restart doesn't count one again.
+  recap("session", { id });
 }
 
 // The weekly card: from Sunday 19:00 on, the first quiet moment the user is around, the
@@ -996,7 +1001,8 @@ function idleLife(t, d) {
 
   if (!leftAlone && !toastText && t >= nextCardTry && config.weeklyCard && cardWeek(d) !== cardDone) {
     nextCardTry = t + 10 * MIN;
-    weeklyCard(d);
+    // One thing a beat: a topic brought up in the same one would take the card's place.
+    return weeklyCard(d);
   }
 
   // A milestone of the gallery's collection, cheered with the user there to see it.
@@ -2803,7 +2809,8 @@ async function boot() {
     // comes right after and plays "you answered" only while the session still waits.
     const unknownAsk = req?.ask && e.payload.outcome == null;
     if (e.payload.answered && !unknownAsk && s?.state === "waiting" && !perms.some((x) => x.payload.session_id === s.id)) s.state = "working";
-    if (req && e.payload.outcome) recap("approval");
+    // A question isn't a permission: answered in the bubble it isn't counted either.
+    if (req && !req.ask && e.payload.outcome) recap("approval");
     // Reacts as to an answer in the bubble, when it shows which answer it was. A question
     // answered elsewhere: its PostToolUse may have played that already.
     if (req?.ask && e.payload.outcome === "allow") {
