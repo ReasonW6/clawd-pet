@@ -1912,7 +1912,9 @@ const peekOut = () => Boolean(perms.length || toastText || (speech?.done && !fol
 /** "tucked" | "hover" | "out", or null when not peeking. */
 function peekState() {
   if (!peekSide) return null;
-  return peekOut() ? "out" : peekHover && !asleep ? "hover" : "tucked";
+  // The cursor must also be near by gaze.rs: a quick flick away can turn the window
+  // click-through before the page sees the mouse leave, leaving `:hover` stale.
+  return peekOut() ? "out" : peekHover && gaze.near && !asleep ? "hover" : "tucked";
 }
 
 const tucked = () => Boolean(peekSide) && !peekOut();
