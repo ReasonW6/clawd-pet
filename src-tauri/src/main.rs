@@ -6,6 +6,7 @@ mod claude_app;
 mod config;
 mod desktop_sessions;
 mod edges;
+mod gaze;
 mod git;
 mod hooks;
 mod memory;
@@ -99,6 +100,7 @@ fn apply_config(app: &AppHandle, state: &AppState, mut config: Config, settings:
         // The window position is owned by the pet window, not the settings form.
         config.x = current.x;
         config.y = current.y;
+        config.peek = current.peek;
         std::mem::replace(&mut *current, config.clone())
     };
     state.shared.bubbles.store(config.bubbles, Ordering::SeqCst);
@@ -218,8 +220,32 @@ fn get_edges(window: WebviewWindow) -> edges::Edges {
 }
 
 #[tauri::command]
-fn drag_started(state: State<AppState>) {
+fn drag_started(app: AppHandle, state: State<AppState>) {
     state.dragging.store(true, Ordering::SeqCst);
+    // Dragged out of peeking at a side of the screen.
+    edges::drag_started();
+    if state.config.lock().unwrap().peek.take().is_some() {
+        state.dirty.store(true, Ordering::SeqCst);
+        refresh_tray(&app);
+    }
+}
+
+/// Tucks the pet behind `side` of the screen, the screen's edge at `cut` (logical px
+/// from the window's left), or brings it back out with no side. Remembered across
+/// restarts. False if it can't tuck in there.
+#[tauri::command]
+fn set_peek(side: Option<edges::Side>, cut: f64, window: WebviewWindow, app: AppHandle, state: State<AppState>) -> bool {
+    let ok = edges::peek(&window, side, cut);
+    let now = edges::peeking();
+    let changed = {
+        let mut cfg = state.config.lock().unwrap();
+        std::mem::replace(&mut cfg.peek, now) != now
+    };
+    if changed {
+        state.dirty.store(true, Ordering::SeqCst);
+        refresh_tray(&app);
+    }
+    ok
 }
 
 #[tauri::command]
@@ -457,11 +483,22 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         &[
             &MenuItem::with_id(app, "toggle_visible", if visible { "隐藏桌宠" } else { "显示桌宠" }, true, None::<&str>)?,
             &MenuItem::with_id(app, "random", "随机来一段", true, None::<&str>)?,
+            &peek_item(app)?,
             &MenuItem::with_id(app, "settings", "设置…", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?,
         ],
     )
+}
+
+/// Tucking the pet behind the nearer side of the screen it can hide behind, or bringing
+/// it back out; greyed out where there is no such side (other monitors on both sides).
+fn peek_item(app: &AppHandle) -> tauri::Result<MenuItem<Wry>> {
+    if edges::peeking().is_some() {
+        return MenuItem::with_id(app, "peek", "从边上出来", true, None::<&str>);
+    }
+    let open = main_window(app).and_then(|w| edges::side_for(&w)).is_some();
+    MenuItem::with_id(app, "peek", "躲到屏幕边上", open, None::<&str>)
 }
 
 fn refresh_tray(app: &AppHandle) {
@@ -530,6 +567,13 @@ fn on_menu(app: &AppHandle, id: &str) {
         }
         "random" => {
             let _ = app.emit("play-random", ());
+        }
+        // The page knows where to cut the pet, so it does the tucking in (`set_peek`).
+        "peek" => {
+            if let Some(w) = main_window(app) {
+                let side = if edges::peeking().is_some() { None } else { edges::side_for(&w) };
+                let _ = w.emit_to("main", "peek", side);
+            }
         }
         "settings" => show_settings(app),
         _ => {}
@@ -681,6 +725,8 @@ fn spawn_background_loop(app: AppHandle) {
 
         let st = app.state::<AppState>();
         let mut through: Option<bool> = None;
+        // Where the pet would look for the cursor, as last told to the page.
+        let mut gazed: Option<gaze::Gaze> = None;
         let mut nap = POLL_NEAR;
         let mut saved = Instant::now();
         loop {
@@ -701,8 +747,16 @@ fn spawn_background_loop(app: AppHandle) {
             }
             let Some((x, y, width, height)) = pointer() else {
                 nap = POLL_FAR;
+                gazed = None;
                 continue;
             };
+            if let Some(body) = edges::body() {
+                let g = gaze::look(x, y, body, gazed.is_some_and(|g| g.near));
+                if gazed != Some(g) {
+                    gazed = Some(g);
+                    let _ = w.emit_to("main", "gaze", g);
+                }
+            }
             let inside = st.hit_rects.lock().unwrap().iter().any(|r| x >= r[0] && y >= r[1] && x <= r[0] + r[2] && y <= r[1] + r[3]);
             if through != Some(!inside) {
                 let _ = w.set_ignore_cursor_events(!inside);
@@ -723,6 +777,7 @@ fn main() {
             get_edges,
             focus_claude,
             drag_started,
+            set_peek,
             resolve_permission,
             show_menu,
             hooks_installed,
@@ -809,6 +864,7 @@ fn main() {
 
             let w = main_window(&handle).expect("main window");
             place_initially(&w, &cfg);
+            edges::restore(cfg.peek);
             edges::install(&handle, &w);
             w.show()?;
 

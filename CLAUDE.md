@@ -36,7 +36,7 @@ cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得�
 
 Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
-- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）和 `config`（只在聊天改了设置时）；只发给主窗口的还有 `dream`（做梦开始、结束）和 `edges`（来自 `edges.rs`）。
+- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）和 `config`（只在聊天改了设置时）；只发给主窗口的还有 `dream`（做梦开始、结束）、`edges` / `peek` / `peek-push`（来自 `edges.rs` 和菜单）和 `gaze`（来自 `gaze.rs`）。
 - 前端调用的命令都在 `main.rs` 的 `generate_handler!` 里注册；`window.__TAURI__` 是全局对象（`withGlobalTauri`），前端没有打包器和 import。
 
 ### Claude Code 联动
@@ -105,6 +105,13 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
   - `set_hit_rects` 同时带上 `body`（`#pet-hit` 的位置）。窗口被子类化，在 `WM_MOVING` 里改系统要移到的位置：小螃蟹的身体不出光标所在显示器的工作区，窗口顶端也不出（上面是气泡的地方），除非窗口比工作区还高，这时身体优先。所以拖到边上就停住，而不是松手后再弹回来。
   - 不经过拖动的移动由 `fit` 挪回来：身体位置变了（`set_body`，改大小、开关聊天后页面会报新的身体位置，所以 `resize_anchored` 自己不调 `fit`：那时 `BODY` 还是旧布局的）、DPI 变了（子类里在 `DefSubclassProc` 之后处理 `WM_DPICHANGED`，tao 那时才把窗口挪到位；不要放进 `ScaleFactorChanged` 或 `Resized`）、显示器或任务栏变了。
   - 窗口比小螃蟹宽，靠左右边时有一部分在屏幕外，拖到任务栏上时底部也在外面。`edges` 事件告诉前端每边各有多少（逻辑像素，只在变了时发；页面启动时用 `get_edges` 取一次），前端写进 CSS 变量 `--off-*`：气泡区、聊天栏缩进能看见的部分，状态标签变窄、抬高。`placeBubble` 把气泡尽量放在小螃蟹正上方，尾巴位置（`--tail-x`）跟着算；聊天栏由 `fitChat` 定位，`placeX` 按小螃蟹在栏里的位置（`petX`，不一定是栏的正中）放尾巴。
+- 躲到屏幕边上（edge peek，也在 `edges.rs`）：
+  - `PEEK` 记着躲在哪一侧，以及屏幕边缘切在窗口的哪里（`cut`，离窗口左边的逻辑像素）。切在哪由页面定：缩着、悬停按 `PEEK_CUT`（精灵 40 列里露出几列，帧是按这个画的），完全出来时切在 `#pet-hit` 的边上。页面每次 `queueHitRects` 后调 `syncPeek`，`cut` 变了才调 `set_peek`；后端用 `slide` 在另一个线程里分 12 步滑过去（`SLIDE` 计数，新的滑动、拖动、`fit` 都会让旧的停下）。
+  - 只有那一侧外面没有别的显示器、工作区边就是显示器边（没有任务栏）时才能躲（`open`）。菜单项由后端算出近的那一侧发 `peek` 给页面，页面再调 `set_peek`。`fit` 在显示器、任务栏、DPI 变了时按 `cut` 重新放好；那一侧不能躲了就清掉 `PEEK`，发 `peek: null`。
+  - 拖动时 `WM_MOVING` 里看系统要放的位置：身子出了某侧工作区三成以上、那一侧能躲，就发 `peek-push`，页面松手时躲过去。`drag_started` 会清掉 `PEEK`（拖开就不躲了），并改配置。
+  - `config.peek` 记住躲在哪一侧，和 `x` / `y` 一样归窗口所有（`apply_config` 保留当前值）。启动时 `edges::restore` 先记下这一侧、不带 `cut`，这时 `fit` 不动窗口，等页面调 `set_peek`。
+  - 页面：有权限请求、提示、完成的那句话、聊天、拖动时完全出来（`peekOut`），其他时候缩着，播 `ANIMS.peek`，干活中的那行进度气泡不画，`#status` 靠到露出来的一侧（`body[data-peek]`）。`renderBubble` 发现该出来或该缩回时调 `render`。
+- 眼睛跟着鼠标（`gaze.rs`）：鼠标穿透的那个轮询线程顺便按 `edges::body()` 算光标在眼睛的哪个方向（0 正对、1–8 从上开始顺时针，和 `ANIMS.gaze` 的顺序一致）、离得够不够近，变了才发 `gaze`。页面只在本该播 `idleBase` 的时候换成看鼠标的帧，所以别的动画、忙、睡觉、聊天、躲边都优先；窗口隐藏时 `cursor_in` 返回 None，不发。
 - 全屏让开（`step_aside`）：
   - 判定：前台窗口铺满小螃蟹所在的显示器、没有标题栏、不是 explorer，也不在例外名单里。
   - 显示和隐藏一律走 `sysmon::set_shown`（原生 `ShowWindow`），不要用 `w.hide()` / `w.show()`。那两个会改掉用户自己选择的显示状态，`show()` 还会抢走焦点；而且混用会让 tao 记录的可见状态跟实际不一致。
