@@ -42,7 +42,7 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
 ### Claude Code 联动
 
-- `hooks.rs` 往 `~/.claude/settings.json` 写 `type: "http"` 的 hook（先备份为 `settings.json.clawd-pet.bak`）。它只识别、删改 URL 以 `http://127.0.0.1:23490/clawd-pet/` 开头的条目。
+- `hooks.rs` 往 `~/.claude/settings.json` 写 `type: "http"` 的 hook（第一次改之前备份为 `settings.json.clawd-pet.bak`，之后不再覆盖它，所以它一直是桌宠动它之前的样子）。改 settings.json 的地方（这里的 hook、`quota.rs` 的状态栏中继）从读到写都拿着 `hooks::lock_settings()`，免得两个开关接连点时互相盖掉。它只识别、删改 URL 以 `http://127.0.0.1:23490/clawd-pet/` 开头的条目。
 - `server.rs` 是手写在 std 上的 HTTP 服务：
   - `/clawd-pet/event` 立即应答。转发给前端的 `hook-event` 只带 `EVENT_FIELDS` 里列出的字段、`tool_input.command` 和后端加的 `_entry` / `_title`；prompt、文件内容、回复正文都不转发（回复只有 `transcript.rs` 读出的第一行，见下）。`pet.js` 要读新字段时，先把它加进 `EVENT_FIELDS`。
   - `/clawd-pet/permission` 一直挂着连接，直到前端调用 `resolve_permission`，或者用户在原界面先作答了，这时发 `permission-closed`。`permission-request` 带的是完整的请求内容，气泡要显示 `tool_input`。`AskUserQuestion` 也走这里，前端画成问题卡（`drawAsk`），回 `allow` 加 `updatedInput`：原样带回 `tool_input`，再加 `answers`（问题原文 → 选项 label；多选用 `", "` 连接；自己写的就是那段文字）。不能改动 `tool_input` 里已有的字段，Claude Code 会拒收。问题卡在终端里被答掉时 `permission-closed` 的 `outcome` 是 null，这时不改会话状态，留给随后的 `PostToolUse` 播「你答完了」。`ExitPlanMode` 仍直接交还原界面。
@@ -96,9 +96,9 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
 5 小时和每周两个窗口用掉的比例，两个来源，都可能没有；后端原样把两边最后的数字（`{ desktop, cli }`）发给主窗口，由 `pet.js` 的 `quotaWindow` 按当前时间合起来：每个窗口取较新的数字，重置时间只有终端给，过了就不再用；终端报过的重置时间已经过了、而手上的数字比它早，就当窗口已重置（0%，「已重置」）。
 
-- 桌面版：`<数据目录>\plan-usage-history.json`（数据目录同 `desktop_sessions.rs`），`{"version":2,"samples":[{"t":毫秒,"org":..,"u":{"fh":5 小时 %,"sd":每周 %,..}}]}`，桌面版开着时每次拿到用量就追加一条（至少隔 4.5 分钟，平常 5～15 分钟），只有百分比。用 `notify` 监听数据目录（不递归），文件变了才读最后一条。曾试过从用量的起落推算重置时间，每周的重置并不规律，所以不推算。这是桌面版的内部格式，读不到就当没有。
+- 桌面版：`<数据目录>\plan-usage-history.json`（数据目录同 `desktop_sessions.rs`），`{"version":2,"samples":[{"t":毫秒,"org":..,"u":{"fh":5 小时 %,"sd":每周 %,..}}]}`，桌面版开着时每次拿到用量就追加一条（至少隔 4.5 分钟，平常 5～15 分钟），只有百分比。用 `notify` 监听数据目录（不递归），文件变了才读最后一条。同时监听新数据目录会出现的地方（`Claude-Data`，它还没有时是 `%LOCALAPPDATA%`；`%APPDATA%`，都不递归），桌宠启动后才装、才第一次运行的桌面版建出数据目录时，`rewatch` 把它加进来（在另开的线程里，不在 notify 的回调线程里加）。曾试过从用量的起落推算重置时间，每周的重置并不规律，所以不推算。这是桌面版的内部格式，读不到就当没有。
 - 终端：Claude Code 把 `rate_limits.{five_hour,seven_day}.{used_percentage,resets_at（秒）}` 交给 `statusLine` 命令（Pro / Max 才有，会话第一次回复之后才有，窗口过了重置时间就不带了）。桌面版和 IDE 扩展以 `--output-format stream-json` 无界面模式跑 Claude Code，不跑状态栏。设置里的开关（`install` / `uninstall`，状态读 settings.json，不存在配置里）把 `statusLine` 换成 `bash '<~/.clawd-pet/statusline.sh>'`，原来的 `statusLine` 对象存进 `~/.clawd-pet/statusline-original.json`，`padding`、`refreshInterval` 等原样留在新的里；认 `command` 里有 `.clawd-pet/statusline.sh` 的为自己的。中继脚本把原来的命令写成单引号字符串，`eval` 它，输入用 here-string 给；转发用 bash 的 `/dev/tcp` 在后台子 shell 里发 `POST /clawd-pet/status`：Windows 上连一个没人监听的本地端口要约 2 秒才被拒绝，不能让状态栏等它，而 Git Bash 里每起一个进程都要时间，所以除了后台那个子 shell 不起别的进程。`Content-Length` 在 `LC_ALL=C` 下取 `${#input}`，是字节数。中继只能在 Git Bash 里跑，找不到 Git Bash（`CLAUDE_CODE_GIT_BASH_PATH`、PATH 里 git 的同级 `bin\bash.exe`、常见安装位置）就拒绝安装。
-- `/clawd-pet/status` 只取 `rate_limits`，其余（cwd、transcript 路径等）不看；数字变了才写 `~/.clawd-pet/quota.json`。
+- `/clawd-pet/status` 只取 `rate_limits`，其余（cwd、transcript 路径等）不看；数字变了才写 `~/.clawd-pet/quota.json`；数字没变时，比文件里的时间新出 10 分钟（`RESAVE_MS`）也写一次，重启后才不会把刚确认过的数字当成旧的。
 - 前端：状态标签左边两条 10 格的像素条（`#quota`），悬停显示 `#quota-card`。40 分钟没更新变灰，24 小时没有就不显示；数字会自己变旧、窗口会自己重置，所以 `renderQuota` 只设一个到下一个变化时刻的 `setTimeout`，不轮询。到 80%、95% 各提醒一次（`ANIMS.quotaNear` / `quotaOut`，记在 `localStorage` 的 `quotaWarned`，回到 50% 以下清零）。
 
 ### 前端（`ui/`）
