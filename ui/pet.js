@@ -1861,6 +1861,8 @@ async function askSubmit(req) {
 
 let hitQueued = false;
 let hitSent = "";
+/** The last `set_hit_rects`, for `set_peek` to wait on. */
+let hitDone = Promise.resolve();
 function queueHitRects() {
   if (hitQueued) return;
   hitQueued = true;
@@ -1881,12 +1883,14 @@ function queueHitRects() {
     const r = petHit.getBoundingClientRect();
     const body = [r.x, r.y, r.width, r.height].map(Math.round);
     const key = `${rects.join()}|${body}`;
-    if (key === hitSent) return tellPeek?.();
-    hitSent = key;
+    if (key !== hitSent) {
+      hitSent = key;
+      hitDone = invoke("set_hit_rects", { rects, body }).catch(() => {});
+    }
     // Where to cut the pet goes after where its body is: the backend can't tell if it
     // may tuck in there without knowing that (on the first report after a restart).
-    const sent = invoke("set_hit_rects", { rects, body });
-    if (tellPeek) sent.finally(tellPeek);
+    // Always after the last report, so that the cuts go out in the order they were made.
+    if (tellPeek) hitDone.then(tellPeek);
   });
 }
 
@@ -2011,7 +2015,9 @@ function syncPeek() {
   const key = `${side}|${cut}`;
   if (key === peekSent) return null;
   peekSent = key;
-  return () =>
+  return () => {
+    // Out of peeking (a click, the menu, a drag) or cut elsewhere since: this is old news.
+    if (peekSide !== side || peekSent !== key) return;
     invoke("set_peek", { side, cut }).then((ok) => {
       // Not there: the backend has put it back on the screen and forgotten the side.
       if (!ok && peekSide === side) {
@@ -2021,6 +2027,7 @@ function syncPeek() {
         render();
       }
     });
+  };
 }
 
 function enterPeek(side) {
