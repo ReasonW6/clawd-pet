@@ -1253,7 +1253,8 @@ const HOTKEY_ACTIONS = ["allow", "deny", "always"];
  *  doesn't answer one the user hasn't looked at. */
 const HOTKEY_SETTLE_MS = 700;
 /** Short marks for the modifiers on a button's key cap; the tooltip has the whole combo. */
-const MOD_MARKS = { ctrl: "⌃", alt: "⌥", shift: "⇧", win: "⊞" };
+// Spelled out as Windows keyboards print them: the Mac's marks (⌃ ⌥) mean nothing there.
+const MOD_NAMES = { ctrl: "Ctrl", alt: "Alt", shift: "Shift", win: "Win" };
 
 function toast(text, { sticky = false, ms = TOAST_MS, onClick = null } = {}) {
   toastText = text;
@@ -1338,7 +1339,7 @@ function keyCap(b, action) {
   const combo = config.hotkeys[action];
   const parts = combo.split("+").map((x) => x.trim());
   const key = parts.pop().toUpperCase();
-  b.append(el("kbd", "", parts.map((m) => MOD_MARKS[m.toLowerCase()] || m).join("") + key));
+  b.append(el("kbd", "", [...parts.map((m) => MOD_NAMES[m.toLowerCase()] || m), key].join("+")));
   b.title = [b.title, `快捷键 ${combo}`].filter(Boolean).join("\n");
 }
 

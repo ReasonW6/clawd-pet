@@ -99,11 +99,13 @@ pub fn any_plain(ai: &AiConfig) -> bool {
 }
 
 /// Takes the keys out of the config.json at `path`, if there is one holding any: the one
-/// at the old location, which stays behind after the config is copied over.
+/// at the old location, which stays behind after the config is copied over. Only keys
+/// the vault holds the same go; one typed in over there since (by an older version still
+/// using that file) has no other copy and stays.
 pub fn strip_file(path: &Path) {
     let Ok(text) = std::fs::read_to_string(path) else { return };
     let Ok(mut cfg) = serde_json::from_str::<Value>(&text) else { return };
-    if !strip(&mut cfg) {
+    if !strip(&mut cfg, |which, plain| plain.trim().is_empty() || key("", which) == plain.trim()) {
         return;
     }
     if let Ok(text) = serde_json::to_string_pretty(&cfg) {
@@ -113,14 +115,21 @@ pub fn strip_file(path: &Path) {
     }
 }
 
-/// Takes `ai.exaKey` and every `ai.profiles.*.apiKey` out of a config. Gives back whether
-/// there was any.
-fn strip(cfg: &mut Value) -> bool {
+/// Takes `ai.exaKey` and every `ai.profiles.*.apiKey` that `held` says is kept elsewhere
+/// (called with "exa" or the provider's id, and the key) out of a config. Gives back
+/// whether any went.
+fn strip(cfg: &mut Value, held: impl Fn(&str, &str) -> bool) -> bool {
     let Some(ai) = cfg.get_mut("ai").and_then(Value::as_object_mut) else { return false };
-    let mut any = ai.remove("exaKey").is_some();
+    let take = |obj: &mut serde_json::Map<String, Value>, field: &str, which: &str| {
+        let gone = obj.get(field).is_some_and(|v| held(which, v.as_str().unwrap_or_default()));
+        gone && obj.remove(field).is_some()
+    };
+    let mut any = take(ai, "exaKey", "exa");
     if let Some(profiles) = ai.get_mut("profiles").and_then(Value::as_object_mut) {
-        for p in profiles.values_mut().filter_map(Value::as_object_mut) {
-            any |= p.remove("apiKey").is_some();
+        for (id, p) in profiles.iter_mut() {
+            if let Some(p) = p.as_object_mut() {
+                any |= take(p, "apiKey", id);
+            }
         }
     }
     any
@@ -417,10 +426,19 @@ mod file_tests {
 
     #[test]
     fn strips_keys_from_an_old_config() {
+        let all = |_: &str, _: &str| true;
         let mut cfg = json!({ "ai": { "exaKey": "e", "profiles": { "a": { "apiKey": "k", "model": "m" }, "b": {} } }, "size": 1 });
-        assert!(strip(&mut cfg));
+        assert!(strip(&mut cfg, all));
         assert_eq!(cfg, json!({ "ai": { "profiles": { "a": { "model": "m" }, "b": {} } }, "size": 1 }));
-        assert!(!strip(&mut cfg));
-        assert!(!strip(&mut json!({ "size": 1 })));
+        assert!(!strip(&mut cfg, all));
+        assert!(!strip(&mut json!({ "size": 1 }), all));
+    }
+
+    #[test]
+    fn keeps_a_key_the_vault_does_not_hold() {
+        let held = |which: &str, key: &str| (which, key) == ("a", "k");
+        let mut cfg = json!({ "ai": { "exaKey": "e", "profiles": { "a": { "apiKey": "k" }, "b": { "apiKey": "new" } } } });
+        assert!(strip(&mut cfg, held));
+        assert_eq!(cfg, json!({ "ai": { "exaKey": "e", "profiles": { "a": {}, "b": { "apiKey": "new" } } } }));
     }
 }

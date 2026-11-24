@@ -156,5 +156,5 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 - 改默认值不会影响已经存在的配置文件。
 - `set_config` 是设置页的唯一写入口；它会按需重设窗口大小、重建文件监听（`rewatch`），并重新判断全屏让开。
 - API 密钥（`secrets.rs`）存在 Windows 凭据管理器里，每个一条普通凭据，名字是 `clawd-pet/<服务商 id>`、`clawd-pet/exa`；用的是 `windows-sys` 的 `CredWriteW` / `CredReadW` / `CredDeleteW` / `CredEnumerateW`，密钥按 UTF-16 存（和 cmdkey 一样）。
-  - 启动时 `secrets::migrate` 把 `config.json` 里还有的 `apiKey` / `exaKey` 写进去、读回来核对，对上了才从配置里删掉再保存（`Config::save` 先写 `.tmp` 再 rename）；存不进去的留在配置里照常用（`secrets::key` 先看配置里的，再看凭据管理器），原因记在 `TROUBLE` 里给设置页看，下次启动再试。这两个字段为空时不写出来。
+  - 启动时 `secrets::migrate` 把 `config.json` 里还有的 `apiKey` / `exaKey` 写进去、读回来核对，对上了才从配置里删掉再保存（`Config::save` 先写 `.tmp` 再 rename）；存不进去的留在配置里照常用（`secrets::key` 先看配置里的，再看凭据管理器），原因记在 `TROUBLE` 里给设置页看，下次启动再试。这两个字段为空时不写出来。新配置里一个明文都不剩之后，旧位置 `%APPDATA%\dev.clawd.pet\config.json` 里的密钥也删掉（`strip_file`），但只删和凭据管理器里一样的：那边后来填的新密钥别处没有副本，留着。
   - 前端读不到密钥：`get_config` 和 `config` 事件都过一遍 `secrets::hide`；设置页存回来的配置不带密钥，`apply_config` 用 `secrets::keep` 把配置里原有的放回去。`ai_models` 只用已保存的配置，不收页面传来的（设置页先 `saveNow`）。这挡不住能调命令的页面先 `set_config` 改掉地址、再让后端带着密钥去请求：密钥没和地址绑在一起。设置页只通过 `ai_keys`（每个密钥的最后 4 个字符，短于 12 个字符的不给；以及是不是还在配置里）、`ai_key_set`（空的就是删掉）、`ai_key_move`（旧的「自定义」模板设置变成用户自己的服务商时搬密钥）打交道。
