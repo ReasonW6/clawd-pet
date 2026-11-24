@@ -833,6 +833,12 @@ body {
   display: none;
 }
 
+/* Hanging off a side of the screen, the narrowed label keeps the room (pet.js sets .tight). */
+body.tight #quota,
+body.tight #quota-card {
+  display: none;
+}
+
 /* Ten 2 px pixels with 1 px gaps; --fill (pet.js) is how many of them, in px. */
 #quota i {
   position: relative;
