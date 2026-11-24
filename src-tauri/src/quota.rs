@@ -13,7 +13,8 @@
 
 use crate::hooks;
 use crate::server::PORT;
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use notify::event::ModifyKind;
+use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashSet;
@@ -85,9 +86,12 @@ pub fn init(app: AppHandle, dir: PathBuf) {
         let Ok(e) = res else { return };
         if e.paths.iter().any(|p| p.file_name().is_some_and(|n| n == DESKTOP_FILE)) {
             on_desktop();
-        } else if e.paths.iter().any(|p| is_new_folder(p)) {
+        } else if appeared(&e.kind) && e.paths.iter().any(|p| is_new_folder(p)) {
             // A data folder showed up (the app installed, or run the first time since the
-            // pet started): watched from now on. Not from the watcher's own thread.
+            // pet started): watched from now on. Not from the watcher's own thread, and
+            // not by asking `watched` here: `rewatch` holds it while it waits on that thread.
+            // Only made or renamed into place: a folder that is there already reports a
+            // change for every file its app writes into it.
             std::thread::spawn(|| {
                 rewatch();
                 on_desktop();
@@ -121,6 +125,11 @@ fn watch_list() -> HashSet<PathBuf> {
     }
     list.extend(roaming);
     list
+}
+
+/// Something made or renamed into place.
+fn appeared(kind: &EventKind) -> bool {
+    matches!(kind, EventKind::Create(_) | EventKind::Modify(ModifyKind::Name(_)))
 }
 
 /// Whether `p` is a folder the desktop app's data may go in: `Claude-Data`, one in
