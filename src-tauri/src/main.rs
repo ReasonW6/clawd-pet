@@ -9,6 +9,7 @@ mod desktop_sessions;
 mod edges;
 mod git;
 mod hooks;
+mod hotkeys;
 mod memory;
 mod screen;
 mod secrets;
@@ -107,6 +108,7 @@ fn apply_config(app: &AppHandle, state: &AppState, mut config: Config, settings:
     };
     state.shared.bubbles.store(config.bubbles, Ordering::SeqCst);
     transcript::show_replies(config.replies);
+    hotkeys::configure(&config.hotkeys);
     if old.size != config.size || old.ai.enabled != config.ai.enabled {
         if let Some(w) = main_window(app) {
             resize_anchored(&w, window_size(&old), window_size(&config));
@@ -230,6 +232,25 @@ fn drag_started(state: State<AppState>) {
 #[tauri::command]
 fn resolve_permission(id: u64, body: String, state: State<AppState>) -> bool {
     state.shared.resolve(id, body)
+}
+
+/// The bubble shows a permission request (`on`), with an "always allow" button or not:
+/// the hotkeys that answer it are held only meanwhile.
+#[tauri::command]
+fn permission_hotkeys(on: bool, always: bool) {
+    hotkeys::bubble(on, always);
+}
+
+/// The settings page is taking a new hotkey: none are held meanwhile, so it gets the keys.
+#[tauri::command]
+fn hotkeys_pause(paused: bool) {
+    hotkeys::pause(paused);
+}
+
+/// Whether a hotkey can be had (`hotkeys::check`).
+#[tauri::command]
+fn hotkey_check(combo: String) -> Result<(), String> {
+    hotkeys::check(&combo)
 }
 
 #[tauri::command]
@@ -761,6 +782,9 @@ fn main() {
             focus_claude,
             drag_started,
             resolve_permission,
+            permission_hotkeys,
+            hotkeys_pause,
+            hotkey_check,
             show_menu,
             hooks_installed,
             hooks_set,
@@ -857,6 +881,7 @@ fn main() {
             autostart::refresh();
             sysmon::spawn_poller(events.clone(), config.clone());
             transcript::init(handle.clone());
+            hotkeys::start(handle.clone(), &cfg.hotkeys);
             server::serve(listener, handle.clone(), shared);
             // Noted down in a chat that a quit cut short: into the note now.
             if memory::has_memos() {
@@ -886,6 +911,10 @@ fn main() {
         })
         .on_menu_event(|app, e| on_menu(app, e.id().as_ref()))
         .on_window_event(|window, event| {
+            // Closed while taking a new hotkey.
+            if window.label() == "settings" && matches!(event, tauri::WindowEvent::Destroyed) {
+                hotkeys::pause(false);
+            }
             if window.label() != "main" {
                 return;
             }

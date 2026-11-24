@@ -196,6 +196,31 @@ impl Default for MemoryConfig {
     }
 }
 
+/// Global hotkeys that answer the permission bubble (hotkeys.rs), held only while it
+/// shows a request. Combos are written like "Ctrl+Shift+Y"; empty for none.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct HotkeyConfig {
+    pub enabled: bool,
+    pub allow: String,
+    pub deny: String,
+    pub always: String,
+}
+
+impl Default for HotkeyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            // Ctrl+Alt: few programs use it, unlike Ctrl+Shift (Chrome's incognito window,
+            // JetBrains' Find Action...), whose keys would be taken while the bubble shows.
+            allow: "Ctrl+Alt+Y".into(),
+            deny: "Ctrl+Alt+N".into(),
+            // Always allowing writes a lasting rule: the user sets a combo for it, if any.
+            always: String::new(),
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
@@ -215,6 +240,7 @@ pub struct Config {
     pub bubbles: bool,
     /// Show the first line of what Claude says above the pet while it works.
     pub replies: bool,
+    pub hotkeys: HotkeyConfig,
     pub sleep_enabled: bool,
     pub sleep_windows: Vec<SleepWindow>,
     /// Minutes without keyboard/mouse input before the pet starts amusing itself.
@@ -243,6 +269,7 @@ impl Default for Config {
             chatty: true,
             bubbles: true,
             replies: true,
+            hotkeys: HotkeyConfig::default(),
             sleep_enabled: true,
             sleep_windows: vec![
                 SleepWindow { start: "13:00".into(), end: "14:00".into() },
