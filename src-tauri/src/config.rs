@@ -96,6 +96,9 @@ impl Default for SysConfig {
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AiProfile {
+    /// Only while the Credential Manager couldn't take it (secrets.rs); never written
+    /// out empty, so neither config.json nor the front end has the field.
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub api_key: String,
     /// Empty = the provider's own address.
     pub base_url: String,
@@ -146,7 +149,9 @@ pub struct AiConfig {
     /// turns `search` off as this goes on and the other way round (unless the provider has
     /// no search of its own); with both on, the chat uses Exa.
     pub exa: bool,
-    /// Empty for Exa's free way, without a key.
+    /// Only while the Credential Manager couldn't take it, as for `AiProfile::api_key`;
+    /// no key there either means Exa's free way.
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub exa_key: String,
     /// Who the pet believes it is, as the user rewrote it; empty for `ai::IDENTITY`.
     pub identity: String,
@@ -191,6 +196,28 @@ impl Default for MemoryConfig {
     }
 }
 
+/// Global hotkeys that answer the permission bubble (hotkeys.rs), held only while it
+/// shows a request. Combos are written like "Ctrl+Shift+Y"; empty for none.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct HotkeyConfig {
+    pub enabled: bool,
+    pub allow: String,
+    pub deny: String,
+    pub always: String,
+}
+
+impl Default for HotkeyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            allow: "Ctrl+Shift+Y".into(),
+            deny: "Ctrl+Shift+N".into(),
+            always: "Ctrl+Shift+A".into(),
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
@@ -212,6 +239,7 @@ pub struct Config {
     pub replies: bool,
     /// Show how much of the Claude plan's 5-hour and weekly windows is used (quota.rs).
     pub quota: bool,
+    pub hotkeys: HotkeyConfig,
     pub sleep_enabled: bool,
     pub sleep_windows: Vec<SleepWindow>,
     /// Minutes without keyboard/mouse input before the pet starts amusing itself.
@@ -241,6 +269,7 @@ impl Default for Config {
             bubbles: true,
             replies: true,
             quota: true,
+            hotkeys: HotkeyConfig::default(),
             sleep_enabled: true,
             sleep_windows: vec![
                 SleepWindow { start: "13:00".into(), end: "14:00".into() },
@@ -270,7 +299,10 @@ impl Config {
             let _ = std::fs::create_dir_all(dir);
         }
         if let Ok(s) = serde_json::to_string_pretty(self) {
-            let _ = std::fs::write(path, s);
+            let tmp = path.with_extension("tmp");
+            if std::fs::write(&tmp, s).is_ok() {
+                let _ = std::fs::rename(&tmp, path);
+            }
         }
     }
 }

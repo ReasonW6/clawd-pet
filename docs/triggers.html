@@ -63,7 +63,7 @@
   <h1>Clawd Pet 动画触发一览</h1>
   <p>每个动画什么时候播、怎么触发、播多久。动画列表直接取自 <code>ui/anims.js</code>，改完后运行 <code>npm run triggers</code> 重新生成本页。</p>
   <div class="stats">
-    <div class="stat"><b>174</b>个触发时机</div>
+    <div class="stat"><b>176</b>个触发时机</div>
     <div class="stat"><b>431</b>个动画有固定戏份</div>
     <div class="stat"><b>9</b>个只随机出现</div>
     <div class="stat"><b>440</b>个动画总数</div>
@@ -451,7 +451,7 @@
 <div class="row">
   <div class="info">
     <h4>你允许了权限请求</h4>
-    <p>在气泡里点「允许」或「总是允许」；或在桌面版里允许了、看得出来的时候（那次调用跑起来或跑完了，或会话记录里有它的结果）。终端里答完它马上断开连接，看不出答了什么，不播。</p>
+    <p>在气泡里点「允许」或「总是允许」，或按它们的快捷键（默认 Ctrl+Shift+Y / Ctrl+Shift+A，只在气泡显示时有效）；或在桌面版里允许了、看得出来的时候（那次调用跑起来或跑完了，或会话记录里有它的结果）。终端里答完它马上断开连接，看不出答了什么，不播。</p>
     <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">1.6 秒</span></p>
     <code>ANIMS.allowed</code>
   </div>
@@ -460,7 +460,7 @@
 <div class="row">
   <div class="info">
     <h4>你拒绝了权限请求</h4>
-    <p>在气泡里点「拒绝」；或在桌面版里拒绝并留言（会话记录里那次调用的结果是拒绝）。不留言直接拒绝会叫停这一轮，播的是叫停的动画；终端里同样不播。</p>
+    <p>在气泡里点「拒绝」，或按它的快捷键（默认 Ctrl+Shift+N）；或在桌面版里拒绝并留言（会话记录里那次调用的结果是拒绝）。不留言直接拒绝会叫停这一轮，播的是叫停的动画；终端里同样不播。</p>
     <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">3.2–3.8 秒</span></p>
     <code>ANIMS.denied</code>
   </div>
@@ -478,7 +478,7 @@
 <div class="row">
   <div class="info">
     <h4>Claude 向你提问</h4>
-    <p>AskUserQuestion 的 <code>PreToolUse</code>。一脸问号地等你作答，约 45 秒没回应才变得不耐烦。</p>
+    <p>AskUserQuestion 的 <code>PreToolUse</code>。一脸问号地等你作答，约 45 秒没回应才变得不耐烦。开着审批气泡时，紧接着的 <code>PermissionRequest</code> 在头顶弹出问题卡：一题一页，点选项（多选的打勾）或在「其他」框里自己写，也可以点「去原界面回答」；卡片挂着时一直是这个动画，不会变得不耐烦。在原界面先答了，卡片和权限气泡一样收起。</p>
     <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
     <code>ANIMS.asking</code>
   </div>
@@ -505,7 +505,7 @@
 <div class="row">
   <div class="info">
     <h4>你答完了</h4>
-    <p>AskUserQuestion 的 <code>PostToolUse</code>，或 <code>ElicitationResult</code> 里你选了提交。</p>
+    <p>在问题卡里点「提交」；AskUserQuestion 的 <code>PostToolUse</code>，或问题卡在你从原界面答完后收起、看得出你答了的时候；或 <code>ElicitationResult</code> 里你选了提交。</p>
     <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">1.6 秒</span></p>
     <code>ANIMS.answered</code>
   </div>
@@ -1087,6 +1087,24 @@
   </div>
   <div class="thumbs"><figure title="sea_party_popper · 1.8s"><img loading="lazy" src="../ui/assets/clawd/sea_party_popper.gif" alt=""><figcaption>拉礼花筒</figcaption></figure><figure title="emo_joy_burst · 2.0s"><img loading="lazy" src="../ui/assets/clawd/emo_joy_burst.gif" alt=""><figcaption>开心炸裂</figcaption></figure></div>
 </div>
+<div class="row">
+  <div class="info">
+    <h4>动画图鉴收集满 50 / 100 / 150 … 个</h4>
+    <p>它在桌面上演过的动画才算收集到（隐藏时、在图鉴里点着看的都不算）。收集到的那一刻记下，等你在电脑前、Claude 没在忙、它手头的场景演完时庆祝一次。开始收集后的第一天不庆祝，之后第一次收集到新的时补一次，只庆祝达到的最高那个。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">5–5.1 秒</span><span class="say">💬 动画图鉴收集突破 100 个啦～</span></p>
+    <code>ANIMS.collected</code>
+  </div>
+  <div class="thumbs"><figure title="cos_pirate_treasure · 2.5s"><img loading="lazy" src="../ui/assets/clawd/cos_pirate_treasure.gif" alt=""><figcaption>海盗挖宝</figcaption></figure><figure title="emo_proud_chest · 1.7s"><img loading="lazy" src="../ui/assets/clawd/emo_proud_chest.gif" alt=""><figcaption>骄傲挺胸</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>动画图鉴全部收集齐</h4>
+    <p>同上。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">4.8–5.8 秒</span><span class="say">💬 动画图鉴全部收集齐啦！每个样子你都见过了🎉</span></p>
+    <code>ANIMS.collectedAll</code>
+  </div>
+  <div class="thumbs"><figure title="sea_fireworks_watch · 2.9s"><img loading="lazy" src="../ui/assets/clawd/sea_fireworks_watch.gif" alt=""><figcaption>看烟花</figcaption></figure><figure title="sport_podium · 2.4s"><img loading="lazy" src="../ui/assets/clawd/sport_podium.gif" alt=""><figcaption>领奖台</figcaption></figure></div>
+</div>
 <div class="note">打开了「记忆」和「主动提起」时，它会说做梦时准备的话：起床时有适合早上说的就用它代替早安（午睡醒来用当天的），平时你在电脑前、它手头的场景演完时也会冒一句（每天最多 2 次，间隔至少 2 小时，每 10 分钟看一次）。点这个气泡会打开聊天，这句话就是开场白。换了人设，旧人设准备的话不再说。关掉「爱说话」则都不说。</div>
 <div class="row">
   <div class="info">
@@ -1377,7 +1395,7 @@
   </div>
   <div class="thumbs"><figure title="chat_snap · 2.7s"><img loading="lazy" src="../ui/assets/clawd/chat_snap.gif" alt=""><figcaption>看一眼屏幕</figcaption></figure></div>
 </div>
-<div class="note">不走固定动画的操作：<b>双击</b>（没开 AI 聊天时）和右键菜单的<b>「随机来一段」</b>从随机惊喜的范围里抽一个播 2.5 秒以上；设置里的<b>动画图鉴</b>点哪个播哪个；<b>右键</b>弹菜单；<b>托盘图标</b>单击显示/隐藏、双击打开设置。</div></section>
+<div class="note">不走固定动画的操作：<b>双击</b>（没开 AI 聊天时）和右键菜单的<b>「随机来一段」</b>从随机惊喜的范围里抽一个播 2.5 秒以上；设置里的<b>动画图鉴</b>点哪个已收集的就播哪个（没收集到的不播，图鉴里点着看的也不算收集）；<b>右键</b>弹菜单；<b>托盘图标</b>单击显示/隐藏、双击打开设置。</div></section>
 <section id="system"><h2>五、系统联动</h2><p class="intro">对你在 Claude Code 之外的操作做反应。全部是「一次性 · 让路」：Claude 正忙时不显示，它睡着时不理会。同一种事件默认 20 秒内只反应一次。每项都能在设置的「系统联动」里单独关掉。status、fetch、log 这类编辑器在后台反复执行的 git 命令，以及别的 git 命令派生出来的子命令，都不触发。</p><div class="row">
   <div class="info">
     <h4>文件进了文件夹</h4>

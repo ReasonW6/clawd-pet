@@ -505,6 +505,149 @@ function showHooks(installed) {
   };
 }
 
+// ---------------------------------------------------------------- permission hotkeys
+
+/** [action, button it stands for, note]; in config.hotkeys by action. */
+const HOTKEYS = [
+  ["allow", "允许"],
+  ["deny", "拒绝"],
+  ["always", "总是允许", "气泡上有这个按钮时才有用"],
+];
+const MODIFIERS = ["Control", "Alt", "Shift", "Meta"];
+/** Each action's row: { keys, small, err }. */
+const hotkeyRows = {};
+/** The key capture going on: { action, mods }. */
+let capturing = null;
+
+const heldMods = (e) => [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win"].filter(Boolean);
+
+/** A key a hotkey can end with: a letter, a digit or F1–F24, by where it is on the
+ *  keyboard, so that any layout gives the same combo. */
+function comboKey(e) {
+  const m = /^(?:Key([A-Z])|Digit([0-9])|(F(?:[1-9]|1[0-9]|2[0-4])))$/.exec(e.code);
+  return m && (m[1] || m[2] || m[3]);
+}
+
+function initHotkeys() {
+  for (const [action, name, note = ""] of HOTKEYS) {
+    const text = el("span", "text");
+    const small = el("small", "", note);
+    text.append(el("b", "", name), small);
+    const keys = el("button", "keys");
+    keys.onclick = () => (capturing?.action === action ? endCapture() : startCapture(action));
+    const row = el("div", "row");
+    row.append(text, keys);
+    const err = el("div", "error");
+    err.hidden = true;
+    $("hotkey-list").append(row, err);
+    hotkeyRows[action] = { keys, small, note, err };
+    drawKeys(action);
+  }
+  for (const key of ["bubbles", "hotkeys.enabled"]) document.querySelector(`[data-key="${key}"]`).addEventListener("input", showHotkeys);
+  // While capturing, every key is for the capture (Tab and Enter too), not for the page.
+  document.addEventListener("keydown", captureKey, true);
+  document.addEventListener("keyup", (e) => {
+    if (!capturing) return;
+    capturing.mods = heldMods(e);
+    drawKeys(capturing.action);
+  }, true);
+  window.addEventListener("blur", endCapture);
+  showHotkeys();
+}
+
+/** The combos only matter with the bubbles on, and are set only with the hotkeys on. */
+function showHotkeys() {
+  $("hotkeys-card").hidden = !config.bubbles;
+  $("hotkey-list").hidden = !config.hotkeys.enabled;
+  if (!config.hotkeys.enabled) endCapture();
+  for (const [action] of HOTKEYS) checkHotkey(action);
+}
+
+/** Says so under the combo when another program holds it. */
+async function checkHotkey(action) {
+  const combo = config.hotkeys[action];
+  const problem = config.hotkeys.enabled && combo ? await invoke("hotkey_check", { combo }).then(() => "", String) : "";
+  // A newer combo may have been set meanwhile.
+  if (combo === config.hotkeys[action]) showHotkeyError(action, problem);
+}
+
+function showHotkeyError(action, text) {
+  const { keys, err } = hotkeyRows[action];
+  err.textContent = text;
+  err.hidden = !text;
+  keys.classList.toggle("taken", Boolean(text));
+}
+
+/** The combo as key caps; while capturing, the modifiers held so far. */
+function drawKeys(action) {
+  const { keys } = hotkeyRows[action];
+  const live = capturing?.action === action;
+  keys.classList.toggle("capturing", live);
+  keys.innerHTML = "";
+  const parts = live ? capturing.mods : config.hotkeys[action].split("+").filter(Boolean);
+  parts.forEach((part, i) => {
+    if (i) keys.append(el("span", "plus", "+"));
+    keys.append(el("kbd", "", part));
+  });
+  if (live) {
+    if (parts.length) keys.append(el("span", "plus", "+"));
+    else keys.append(el("span", "waiting", "按下组合键"));
+    keys.append(el("i", "caret"));
+  } else if (!parts.length) {
+    keys.append(el("span", "none", "未设置"));
+  }
+}
+
+function startCapture(action) {
+  endCapture();
+  capturing = { action, mods: [] };
+  // The pet lets go of its hotkeys meanwhile, or pressing one would reach it, not the page.
+  invoke("hotkeys_pause", { paused: true });
+  hotkeyRows[action].small.textContent = "Esc 取消 · Backspace 清除";
+  showHotkeyError(action, "");
+  drawKeys(action);
+}
+
+function endCapture() {
+  if (!capturing) return;
+  const { action } = capturing;
+  capturing = null;
+  invoke("hotkeys_pause", { paused: false });
+  hotkeyRows[action].small.textContent = hotkeyRows[action].note;
+  drawKeys(action);
+  // What a key pressed meanwhile was turned down for gives way to how the combo stands.
+  showHotkeyError(action, "");
+  checkHotkey(action);
+}
+
+function captureKey(e) {
+  if (!capturing) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.repeat) return;
+  const { action } = capturing;
+  const mods = heldMods(e);
+  if (MODIFIERS.includes(e.key)) {
+    capturing.mods = mods;
+    return drawKeys(action);
+  }
+  if (e.key === "Escape" && !mods.length) return endCapture();
+  if ((e.key === "Backspace" || e.key === "Delete") && !mods.length) return setHotkey(action, "");
+  const key = comboKey(e);
+  if (!key) return showHotkeyError(action, "最后一个键要是字母、数字或 F1–F24");
+  if (!mods.some((m) => m !== "Shift")) return showHotkeyError(action, "要带上 Ctrl、Alt 或 Win，免得打字时被它抢走");
+  const combo = [...mods, key].join("+");
+  const twin = HOTKEYS.find(([other]) => other !== action && config.hotkeys[other] === combo);
+  if (twin) return showHotkeyError(action, `和「${twin[1]}」的快捷键重复了`);
+  setHotkey(action, combo);
+}
+
+function setHotkey(action, combo) {
+  config.hotkeys[action] = combo;
+  save();
+  endCapture();
+}
+
 // ---------------------------------------------------------------- AI chat
 
 let providers = [];
@@ -529,15 +672,20 @@ function provider() {
   return providers.find((p) => p.id === config.ai.provider && !TEMPLATES.includes(p.id)) || providers[0];
 }
 
-const profile = () => (config.ai.profiles[provider().id] ??= { apiKey: "", baseUrl: "", model: "", reasoning: "" });
+const profile = () => (config.ai.profiles[provider().id] ??= { baseUrl: "", model: "", reasoning: "" });
 
 /** Settings from before providers of one's own: what was set for a template becomes one. */
-function migrateCustom() {
+async function migrateCustom() {
   for (const [kind, name] of [["custom", "自定义"], ["custom-anthropic", "自定义（Anthropic）"]]) {
     const old = config.ai.profiles[kind];
     // Anything set (a key alone too) would be out of reach once the templates aren't listed.
-    if (config.ai.provider !== kind && !Object.values(old ?? {}).some(Boolean)) continue;
+    if (config.ai.provider !== kind && !Object.values(old ?? {}).some(Boolean) && !keys[kind]) continue;
     const mine = { id: `my-${kind}-${Date.now().toString(36)}`, name, kind };
+    if (keys[kind]) {
+      // Left as it was if the key can't move: the next time the page opens tries again.
+      if (!(await invoke("ai_key_move", { from: kind, to: mine.id }).then(() => true, () => false))) continue;
+      showKeys(await invoke("ai_keys"));
+    }
     config.ai.customProviders.push(mine);
     if (old) config.ai.profiles[mine.id] = old;
     delete config.ai.profiles[kind];
@@ -548,7 +696,8 @@ function migrateCustom() {
 
 async function initAi() {
   providers = await invoke("ai_providers");
-  migrateCustom();
+  showKeys(await invoke("ai_keys"));
+  await migrateCustom();
   $("ai-provider").onchange = () => {
     const id = $("ai-provider").value;
     if (id === ADD) addProvider();
@@ -573,7 +722,6 @@ async function initAi() {
       save();
     };
   };
-  field("ai-key", "apiKey");
   field("ai-base", "baseUrl");
   $("ai-name").oninput = () => {
     provider().mine.name = $("ai-name").value.trim();
@@ -620,6 +768,10 @@ async function initAi() {
       $(button).title = show ? "隐藏" : "显示";
     };
   }
+  vaults.push(
+    (providerVault = vault($("ai-key-vault"), () => provider().id, () => (provider().needsKey ? "必填，粘贴后回车保存" : "不需要就留空"))),
+    vault($("ai-exa-vault"), () => "exa", () => "可以不填"),
+  );
   $("ai-key-link").onclick = () => invoke("ai_key_page", { provider: provider().id });
   $("ai-exa-link").onclick = () => invoke("ai_key_page", { provider: "exa" });
   $("ai-fetch").onclick = fetchModels;
@@ -695,6 +847,7 @@ function deleteProvider() {
     return;
   }
   const id = provider().id;
+  invoke("ai_key_set", { which: id, key: "" }).then(showKeys, () => {});
   config.ai.customProviders = config.ai.customProviders.filter((c) => c.id !== id);
   delete config.ai.profiles[id];
   switchProvider("deepseek"); // the default (config.rs)
@@ -715,8 +868,7 @@ function showAi() {
     for (const radio of document.querySelectorAll("input[name=ai-kind]")) radio.checked = radio.value === (p.mine.kind === "custom-anthropic" ? "custom-anthropic" : "custom");
   }
   disarmProviderDelete();
-  $("ai-key").value = mine.apiKey;
-  $("ai-key").placeholder = p.needsKey ? "必填" : "不需要就留空";
+  providerVault.reset();
   $("ai-key-link").hidden = !p.keyUrl;
   $("ai-base").value = mine.baseUrl;
   $("ai-base").placeholder = p.baseUrl || "必填，如 https://example.com/v1";
@@ -734,6 +886,118 @@ function showSummary() {
   const p = provider();
   $("provider-summary").textContent = `${p.name} · ${profile().model || p.model || "还没选模型"}`;
   $("ai-search-note").textContent = p.search ? "问到新闻、天气这类事会自己去查，有的服务商按次收费" : `${p.name} 没有自带的联网搜索，可以用 Exa`;
+}
+
+// ---- API keys: in the Windows Credential Manager, never in the config; the page only
+// learns which there are (`ai_keys`), by their last few characters.
+
+/** By provider id ("exa" for Exa's): { tail, plain }, plain while the vault couldn't take it. */
+let keys = {};
+/** Why the vault turned a key down. */
+let keyTrouble = null;
+const vaults = [];
+let providerVault;
+
+function showKeys(status) {
+  keys = status.keys;
+  keyTrouble = status.trouble;
+  for (const v of vaults) v.show();
+}
+
+/** A key box: a saved key by its last characters, to replace or remove; or a box to type one
+ *  into, which saves it a moment after typing stops, on Enter and on leaving the box. */
+function vault(box, which, placeholder) {
+  const input = box.querySelector("input");
+  const remove = box.querySelector(".vault-remove");
+  const warn = box.closest(".row").nextElementSibling;
+  let editing = false;
+  let sent = "";
+  let failed = "";
+  let timer = 0;
+  let disarmTimer = 0;
+
+  const disarm = () => {
+    clearTimeout(disarmTimer);
+    remove.classList.remove("armed");
+    remove.textContent = "移除";
+  };
+  const show = () => {
+    const key = keys[which()];
+    box.classList.toggle("saved", !!key && !editing);
+    box.classList.toggle("plain", !!key?.plain);
+    box.querySelector(".vault-where").textContent = key?.plain ? "明文保存" : "凭据管理器";
+    box.querySelector(".vault-tail").textContent = key?.tail || "••••";
+    box.querySelector(".vault-saved").title = key?.plain
+      ? "Windows 凭据管理器没能存下，还以明文放在 config.json 里"
+      : `存在 Windows 凭据管理器里，名字是 clawd-pet/${which()}`;
+    input.placeholder = key ? "粘贴新的密钥，回车保存，Esc 取消" : placeholder();
+    const plain = key?.plain ? `Windows 凭据管理器没能存下这个密钥${keyTrouble ? `：${keyTrouble}` : ""}。它还以明文放在 config.json 里，重新填一次或者重启桌宠时会再试。` : "";
+    warn.textContent = failed || plain;
+    warn.hidden = !warn.textContent;
+    disarm();
+  };
+  const commit = async () => {
+    clearTimeout(timer);
+    const [w, value] = [which(), input.value.trim()];
+    if (!value) return true;
+    if (value === sent) return !failed;
+    sent = value;
+    try {
+      const status = await invoke("ai_key_set", { which: w, key: value });
+      failed = "";
+      showKeys(status);
+      return true;
+    } catch (e) {
+      if (which() !== w) return false;
+      sent = ""; // the same key may be tried again
+      failed = String(e);
+      show();
+      return false;
+    }
+  };
+  /** Back to the saved key (if any), with nothing typed. */
+  const reset = () => {
+    clearTimeout(timer);
+    editing = false;
+    sent = failed = "";
+    input.value = "";
+    show();
+  };
+
+  input.oninput = () => {
+    editing = true; // stays the box to type in until left, saved or not
+    clearTimeout(timer);
+    timer = setTimeout(commit, 800);
+  };
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") input.blur();
+    else if (e.key === "Escape") reset();
+  };
+  input.onblur = async () => {
+    const w = which();
+    if (await commit() && which() === w) reset();
+  };
+  box.querySelector(".vault-replace").onclick = () => {
+    editing = true;
+    show();
+    input.focus();
+  };
+  remove.onclick = async () => {
+    if (!remove.classList.contains("armed")) {
+      remove.classList.add("armed");
+      remove.textContent = "确定";
+      disarmTimer = setTimeout(disarm, 2500);
+      return;
+    }
+    try {
+      showKeys(await invoke("ai_key_set", { which: which(), key: "" }));
+    } catch (e) {
+      failed = String(e);
+      show();
+    }
+  };
+  show();
+  return { show, reset };
 }
 
 /** The address row stays folded away while the provider's own address is used. */
@@ -1101,40 +1365,192 @@ async function initAutostart() {
 
 // ---------------------------------------------------------------- gallery
 
+// A collection of what the pet has played on the desktop (collection.rs): those show in
+// color and move under the mouse; the rest stay silhouettes named "???" until it plays them.
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Animations per milestone, as collection.rs cheers them. */
+const COLLECT_STEP = 50;
+/** slug -> a promise of a frame from the middle of the animation, or null. */
+const keyFrames = new Map();
+
+function keyFrame(slug) {
+  if (!keyFrames.has(slug)) {
+    const load = async () => {
+      const data = await fetch(`assets/clawd/${slug}.gif`).then((r) => r.arrayBuffer());
+      if (!window.ImageDecoder) return createImageBitmap(new Blob([data], { type: "image/gif" }));
+      const decoder = new ImageDecoder({ data, type: "image/gif" });
+      try {
+        await decoder.tracks.ready;
+        await decoder.completed;
+        const { image } = await decoder.decode({ frameIndex: Math.floor(decoder.tracks.selectedTrack.frameCount / 2) });
+        try {
+          return await createImageBitmap(image);
+        } finally {
+          image.close();
+        }
+      } finally {
+        decoder.close();
+      }
+    };
+    keyFrames.set(slug, load().catch(() => null));
+  }
+  return keyFrames.get(slug);
+}
+
+/** Draws `slug`'s key frame on a canvas, or just its outline in the shadow color. */
+async function drawFrame(canvas, slug, shadow) {
+  const frame = await keyFrame(slug);
+  if (!frame) return;
+  const g = canvas.getContext("2d");
+  g.globalCompositeOperation = "copy";
+  g.drawImage(frame, 0, 0, canvas.width, canvas.height);
+  if (!shadow) return;
+  g.globalCompositeOperation = "source-in";
+  g.fillStyle = getComputedStyle(canvas).getPropertyValue("--shadow").trim() || "#d6ccbd";
+  g.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+const longDate = (ms) => new Date(ms).toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" });
+
 async function initGallery() {
   const list = await fetch("assets/clawd/manifest.json").then((r) => r.json());
+  const record = await invoke("collection_get");
+  const seen = record?.seen || {};
+  // New: collected since the gallery was last opened (on a first visit, in the last day).
+  const newSince = record?.visited || Date.now() - DAY_MS;
+  const isNew = (m) => seen[m.slug]?.first > newSince;
   let theme = "";
-  $("gallery-count").textContent = `共 ${list.length} 个`;
+  let filter = "all";
+  let picked = null;
 
-  const render = () => {
-    const q = $("search").value.trim().toLowerCase();
-    $("grid").innerHTML = "";
-    for (const m of list) {
-      if (theme && m.theme !== theme) continue;
-      if (q && !`${m.zh} ${m.en} ${m.slug}`.toLowerCase().includes(q)) continue;
-      const b = el("button", "", m.zh);
-      b.title = `${m.en} · ${m.slug}`;
-      b.onclick = () => {
-        $("preview").src = `assets/clawd/${m.slug}.gif`;
-        $("preview-name").textContent = `${m.zh} · ${m.slug}`;
-        emitTo("main", "play", m.slug);
-      };
-      $("grid").append(b);
+  if (record?.since) $("gallery-count").textContent = `${longDate(record.since)}开始收集`;
+  $("total").textContent = list.length;
+  $("progress-fill").parentElement.style.setProperty("--tick", `${(COLLECT_STEP / list.length) * 100}%`);
+
+  // Tiles get their picture once scrolled near.
+  const lazy = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        lazy.unobserve(e.target);
+        drawFrame(e.target.querySelector("canvas"), e.target.dataset.slug, e.target.classList.contains("unseen"));
+      }
+    },
+    { root: document.querySelector("main"), rootMargin: "300px 0px" },
+  );
+
+  /** Shows `m` up top; a click on its tile (`tile`) also has the pet play it, if collected. */
+  const choose = (m, tile) => {
+    const have = seen[m.slug];
+    $("preview").hidden = !have;
+    $("preview-shadow").hidden = Boolean(have);
+    if (!tile) {
+      // Before any click: the latest one collected.
+      $("preview").src = `assets/clawd/${m.slug}.gif`;
+      $("preview-name").textContent = `最近收集：${m.zh}`;
+      $("preview-meta").textContent = `${longDate(have.first)}第一次见 · 点卡片让它在桌面上演一遍`;
+      return;
+    }
+    picked = m.slug;
+    $("grid").querySelectorAll(".picked").forEach((t) => t.classList.remove("picked"));
+    tile.classList.add("picked");
+    if (have) {
+      $("preview").src = `assets/clawd/${m.slug}.gif`;
+      $("preview-name").textContent = m.zh;
+      $("preview-meta").textContent = `${longDate(have.first)}第一次见 · 在桌面上演过 ${have.count} 次`;
+      emitTo("main", "play", m.slug);
+    } else {
+      drawFrame($("preview-shadow"), m.slug, true);
+      $("preview-name").textContent = "???";
+      $("preview-meta").textContent = `${m.themeZh} · 还没见它演过，多陪它待一会儿吧`;
     }
   };
 
-  const themes = [["", "全部"], ...new Map(list.map((m) => [m.theme, m.themeZh]))];
-  for (const [id, name] of themes) {
-    const chip = el("button", id === theme ? "active" : "", name);
-    chip.onclick = () => {
-      theme = id;
-      $("themes").querySelectorAll("button").forEach((c) => c.classList.toggle("active", c === chip));
+  const tile = (m) => {
+    const have = seen[m.slug];
+    const t = el("button", `tile ${have ? "seen" : "unseen"}${m.slug === picked ? " picked" : ""}`);
+    t.dataset.slug = m.slug;
+    const canvas = el("canvas");
+    canvas.width = canvas.height = 40;
+    t.append(canvas, el("span", "", have ? m.zh : "???"));
+    if (isNew(m)) t.append(el("i", "badge", "NEW"));
+    t.title = have ? `${m.zh}\n${longDate(have.first)}第一次见` : "还没见它演过";
+    if (have) {
+      // Moves while the mouse is on it.
+      t.onmouseenter = () => {
+        const gif = el("img");
+        gif.src = `assets/clawd/${m.slug}.gif`;
+        t.append(gif);
+      };
+      t.onmouseleave = () => t.querySelector("img")?.remove();
+    }
+    t.onclick = () => choose(m, t);
+    lazy.observe(t);
+    return t;
+  };
+
+  const render = () => {
+    const owned = list.filter((m) => seen[m.slug]);
+    const fresh = owned.filter(isNew).length;
+    $("have").textContent = owned.length;
+    $("gallery-pct").textContent = owned.length === list.length ? "全部收集齐啦 🎉" : `${Math.floor((owned.length / list.length) * 100)}%`;
+    $("progress-fill").style.width = `${(owned.length / list.length) * 100}%`;
+    $("new-filter").hidden = !fresh;
+    $("new-count").textContent = fresh;
+    if (!fresh && filter === "new") {
+      filter = "all";
+      document.querySelector('[name="collect"][value="all"]').checked = true;
+    }
+
+    // Theme chips, each with how much of it is collected.
+    $("themes").innerHTML = "";
+    for (const [id, name] of [["", "全部"], ...new Map(list.map((m) => [m.theme, m.themeZh]))]) {
+      const of = list.filter((m) => !id || m.theme === id);
+      const got = of.filter((m) => seen[m.slug]).length;
+      const chip = el("button", `${id === theme ? "active" : ""}${id && got === of.length ? " done" : ""}`, name);
+      if (id) chip.append(el("small", "", `${got}/${of.length}`));
+      chip.onclick = () => {
+        theme = id;
+        render();
+      };
+      $("themes").append(chip);
+    }
+
+    // Names of the ones not seen yet stay a secret, from the search too.
+    const q = $("search").value.trim().toLowerCase();
+    lazy.disconnect();
+    $("grid").innerHTML = "";
+    for (const m of list) {
+      const have = seen[m.slug];
+      if (theme && m.theme !== theme) continue;
+      if ((filter === "have" && !have) || (filter === "missing" && have) || (filter === "new" && !isNew(m))) continue;
+      if (q && !(have && `${m.zh} ${m.en} ${m.slug}`.toLowerCase().includes(q))) continue;
+      $("grid").append(tile(m));
+    }
+    const empty = !$("grid").childElementCount;
+    $("grid-empty").hidden = !empty;
+    if (empty) {
+      $("grid-empty").textContent = q ? "没找到。没见过的动画，名字还是秘密哦" : filter === "missing" ? "这些都收集齐啦 🎉" : "还没有收集到，多陪它待一会儿吧～";
+    }
+  };
+
+  for (const radio of document.querySelectorAll('[name="collect"]')) {
+    radio.onchange = () => {
+      filter = radio.value;
       render();
     };
-    $("themes").append(chip);
   }
   $("search").oninput = render;
+  // What shows as new stays new until the gallery is opened the next time.
+  document.querySelector('nav button[data-tab="gallery"]').addEventListener("click", () => invoke("collection_visit"), { once: true });
+  listen("collected", (e) => {
+    seen[e.payload] ??= { first: Date.now(), count: 1 };
+    render();
+  });
   render();
+  const latest = list.filter((m) => seen[m.slug]).sort((a, b) => seen[b.slug].first - seen[a.slug].first)[0];
+  if (latest) choose(latest);
 }
 
 // ---------------------------------------------------------------- boot
@@ -1154,6 +1570,7 @@ async function boot() {
   initGitWatch();
   showHooks(await invoke("hooks_installed"));
   initStatusline();
+  initHotkeys();
   initAutostart();
   initAi();
   initMemory();
