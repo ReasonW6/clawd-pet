@@ -209,7 +209,7 @@
             <i class="chevron right"></i>
           </a>
           <a class="row more" id="persona-open">
-            <span class="text"><b>身份与人设</b><small id="persona-summary"></small></span>
+            <span class="text"><b>身份、人设与提示词</b><small id="persona-summary"></small></span>
             <i class="chevron right"></i>
           </a>
         </div>
@@ -331,9 +331,9 @@
         </div>
       </section>
 
-      <!-- ------------------------------------------------ 身份与人设（AI 聊天的子页面） -->
+      <!-- ------------------------------------------------ 身份、人设与提示词（AI 聊天的子页面） -->
       <section id="tab-persona">
-        <h2><a class="back" data-back="ai">‹ AI 聊天</a> 身份与人设</h2>
+        <h2><a class="back" data-back="ai">‹ AI 聊天</a> 身份、人设与提示词</h2>
         <div class="card">
           <div class="row stack">
             <span class="text"><b>身份</b><small>叫什么、是什么、住在哪儿</small></span>
@@ -357,6 +357,9 @@
             </div>
           </div>
         </div>
+        <h3>完整提示词</h3>
+        <p class="hint">除了上面的身份和人设，聊天时发给模型的其余文字都在这里，按什么时候用分好了组，每次只带上当时用得着的几段。花括号里的词会换成当时的内容。清空就不发这一段，「恢复默认」回到原来的写法。</p>
+        <div id="ai-prompts"></div>
       </section>
 
       <!-- ------------------------------------------------ 记忆（AI 聊天的子页面） -->

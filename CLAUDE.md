@@ -98,6 +98,10 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 - 里程碑是每 `STEP`（50）个和全部收集齐。开始收集（`since`）后 24 小时内不庆祝，免得老用户第一天连着庆祝；之后第一次新收集到时，只庆祝已达到的最高那个。达到时只记进 `pending`，前端把它放进 `collectCheer`，在 `idleLife` 里等用户在场（`!leftAlone`）、没有别的气泡时播 `ANIMS.collected` / `collectedAll`，开演时调 `collection_cheered` 才记进 `cheered`。没演就退出的，下次启动时 `collection_known` 把它交回前端。
 - 设置页：缩略图用 `ImageDecoder` 取 GIF 中间一帧画在 canvas 上，没见过的用 `source-in` 填成影子色；滚到附近才解码（`IntersectionObserver`），解码结果按 slug 缓存。卡片只在鼠标放上去时换成 GIF。没见过的名字不显示、搜不到，点了不发 `play`。「新」是上次打开图鉴以后收集的：第一次点图鉴标签时调 `collection_visit` 记下时间，这一页里用的还是之前的；从没打开过就算最近一天的。
 
+### 聊天的提示词
+
+身份（`ai.identity`）和人设（`persona_prompts`、`custom_personas`）之外，系统提示的其余部分和工具说明都拆成 `ai::PROMPTS` 里的一段段（`key`、分组、名字、什么时候用、默认文字），设置页「身份、人设与提示词」用 `ai_prompts` 取来逐段显示。用户改过的按 key 存在 `ai.prompts`：没有这个 key 就是默认，空字符串就不发这一段（`ai::part`）。`system_prompt` 仍按状态挑用哪几段，花括号占位符由 `ai::fill` 换掉；工具说明从 `Target::edits` 取；记忆那段的框架是 `memory::CHAT_FRAME`，在 `for_chat` 里填，用户清空它（只剩空白也算）就等于这次聊天不带记忆（也就没有 `remember` 工具）。工具说明那一组例外：工具照样发给模型，所以清空就是默认（`ai::tool_part`），不会发一个没有说明的工具。花括号由 `fill` 从左往右一次换完，填进去的内容里的花括号不再换。改提示词文字时改 `ai.rs` 里的 `P_*` 常量（或原来的 `*_DESC`、`SETTING_RULE`、`MEMO_RULE`），新增一段要同时加进 `PROMPTS`。改写存的是整段全文，改了某段的默认文字，改过它的用户收不到：设置页在 `ai.promptBases` 里记着每段改写当时默认文字的哈希（`promptHash`），对不上就在那段标「默认已更新」，用户自己选「恢复默认」或「保留我的」；`PROMPTS` 里删掉的 key，设置页打开时从配置里清掉。
+
 ### 聊天改设置（`change_setting`）
 
 模型支持工具调用时（和记忆开关无关），`Kit` 带 `change_setting { key, value }`，由 `main.rs` 的 `change_setting` 执行：只认白名单里的几项（`nickname`、`birthday`、`chatty`、`liveliness`、`sedentaryMinutes`、`sleepEnabled`、`size`），按设置页的范围严格校验，再和 `set_config` 一样经 `apply_config` 生效（窗口大小、保存、发 `config`）。设置页自己保存的 `config` 只发给主窗口；聊天改的发给所有窗口，设置页对照它记下的后端配置（`known`），只同步聊天改了的项（`onConfig`），免得之后保存时把改动盖掉，也不盖掉还没保存的输入。工具结果告诉模型改了什么，前端在回复上只显示「⚙️ 改了设置」；一轮最多 3 次；模型用不了工具时，提示词让它请用户去设置里改。

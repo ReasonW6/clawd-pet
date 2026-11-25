@@ -1475,6 +1475,7 @@ a.link[hidden] {
 
 #ai-identity,
 #ai-persona-prompt,
+.prompt-part textarea,
 #memory-note {
   box-sizing: border-box;
   width: 100%;
@@ -1497,8 +1498,50 @@ a.link[hidden] {
 
 #ai-identity:focus,
 #ai-persona-prompt:focus,
+.prompt-part textarea:focus,
 #memory-note:focus {
   border-color: var(--clawd);
+}
+
+/* One part of the chat's prompt: folded to its name and when it goes in. */
+.prompt-part summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.prompt-part summary::-webkit-details-marker {
+  display: none;
+}
+
+.prompt-part summary b::before {
+  content: "▸ ";
+  color: var(--muted);
+}
+
+.prompt-part details[open] summary b::before {
+  content: "▾ ";
+}
+
+.prompt-part summary small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.prompt-part .edited {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--clawd-soft);
+  color: var(--clawd);
+  font-size: 11px;
+  font-weight: normal;
+}
+
+.prompt-part details > textarea {
+  margin: 8px 0 6px;
 }
 
 .persona-foot {
