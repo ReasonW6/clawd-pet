@@ -652,7 +652,7 @@ def main():
         ("life_brush_teeth", "洗漱", "早晨 07:00"),
         ("life_noodle_slurp", "午饭", "中午 12:00"),
         ("tea_sip", "下午茶", "下午 15:30"),
-        ("sport_jogging", "慢跑", "傍晚 18:00"),
+        ("sport_jogging", "慢跑", "傍晚 17:00"),
         ("guitar_chill", "弹吉他", "晚间 20:30"),
         ("life_bed_sleep", "睡觉", "深夜 23:00"),
     ]

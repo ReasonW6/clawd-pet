@@ -17,6 +17,7 @@ cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得�
 ```
 
 - 没有 lint，测试只有少数几个单元测试，要在 Windows 上 `cargo test`（`collection`、`secrets` 等）。`secrets` 的测试读写开发机真实的凭据管理器（`clawd-pet/test-<pid>-*`，测试结束时删掉，失败也删）。验证方式主要是 `cargo check`，加上实际运行。
+- `docs/readme/*.gif` 提交在仓库里，四张约 2.4 MB，每重新生成一次历史里就永久多一份，改配图时尽量攒在一起改。
 - `ui/assets/clawd/` 被 gitignore，是生成物；新克隆的仓库要先有素材来源并跑 `import-assets`，否则前端和 `npm run triggers` 都会缺 `manifest.json`。
 - 素材来源有两种，manifest 格式不同，`import-assets` 都能读：
   - `../clawd-400-src`：clawd-400 仓库的克隆。动画是 `scenes/*.py` 里的场景代码，在那里改完跑 `python generate.py` 重写 `gifs/` 和 `manifest.json`（几秒钟，结果是确定的），再回来 `import-assets`。修改动画走这条路，步骤见 README「修改动画」。

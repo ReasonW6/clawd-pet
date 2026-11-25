@@ -20,7 +20,7 @@
   <a href="#它自己的日子">它自己的日子</a> ·
   <a href="#ai-聊天">AI 聊天</a> ·
   <a href="#常见问题">常见问题</a> ·
-  <a href="docs/triggers.html">动画触发一览</a>
+  <a href="docs/triggers.html">动画触发一览</a>（导入素材后在本地用浏览器打开）
 </p>
 
 ---
@@ -39,13 +39,14 @@
 ## 快速开始
 
 ```bash
+git clone https://github.com/khiqwq/clawd-400.git ../clawd-400-src   # 动画素材不在本仓库里
 npm install
 npm run import-assets   # 从 ../clawd-400-src（或 ../clawd-400）导入动画，缩回 40×40 原始像素
 npm run dev             # 开发模式
-npm run build           # 正式版：target/release/clawd-pet.exe 和 NSIS 安装包
+npm run build           # 正式版：src-tauri/target/release/clawd-pet.exe 和 NSIS 安装包
 ```
 
-动画素材不在本仓库里，先按[修改动画](#修改动画)克隆 Clawd 400。启动后右键小螃蟹（或双击托盘图标）打开设置：
+改动画的流程见[修改动画](#修改动画)。启动后右键小螃蟹（或双击托盘图标）打开设置：
 
 1. **Claude 联动 → 安装联动**，接上 Claude Code。
 2. **性格 → 开机自启**，登录后自动出现（只在正式版可用）。
@@ -70,7 +71,7 @@ Claude Code ──HTTP hook──▶ 127.0.0.1:23490（Rust）──事件──
 | 等待权限 | 举着 PLS 牌子 + 审批气泡；允许后点赞，拒绝后垂头丧气 |
 | 长任务（5 分钟以上） | 时不时来杯咖啡，完成时放火箭并报告耗时 |
 | 完成 / 工具失败 / 连错 3 次 / API 出错 | 庆祝 / 捂脸 / 「着火了但没事」/ 蓝屏 |
-| 按 Esc 或停止按钮中断 | 回到待命 |
+| 按 Esc 或停止按钮中断 | 举停牌、手忙脚乱一下，再回到待命 |
 
 - **气泡审批**：有权限请求时，气泡里显示要做什么，点「允许 / 总是允许 / 拒绝」即可；`AskUserQuestion` 一题一页，可以点选项或自己写。在原界面先答了，气泡自己收起，看得出你答了什么时照样点赞或垂头丧气。
 - **快捷键**：默认 `Ctrl+Alt+Y` 允许、`Ctrl+Alt+N` 拒绝，只在气泡显示时注册，平时不占别的程序的快捷键。气泡显示满 0.7 秒才响应，连按两下不会把下一个没看过的请求也答掉。可以在设置里换组合键或关掉。
@@ -91,7 +92,7 @@ Claude Code ──HTTP hook──▶ 127.0.0.1:23490（Rust）──事件──
 
 ### Claude 额度
 
-状态标签左边的两条像素小条，上面是 5 小时窗口、下面是本周窗口用掉的比例（Pro / Max 订阅才有）。鼠标移上去看百分比、多久后重置、数字是多久前的。只在 Claude 开着时显示；用到 80% 时它冒冷汗提醒，95% 时没电了。
+状态标签左边的两条像素小条，上面是 5 小时窗口、下面是本周窗口用掉的比例（Pro / Max 订阅才有）。鼠标移上去看百分比、多久后重置、数字是多久前的。用到 80% 时它冒冷汗提醒，95% 时没电了。
 
 <details>
 <summary><b>数字从哪来</b></summary>
@@ -291,15 +292,18 @@ README 里的配图由 `python docs/readme/make_art.py` 从导入的动画生成
 
 ## 许可证
 
-代码按 [MIT](LICENSE) 授权。动画素材和由它们合成的 README 配图属于 Clawd 400，按 CC BY 4.0 授权（见下）。Clawd 形象和 Claude 商标不在任何一份许可证的授权范围内。
+- 代码（包括 `scenes/` 里画桌宠自己动画的场景代码）按 [MIT](LICENSE) 授权。
+- Clawd 400 的动画素材按 CC BY 4.0 授权，属于原作者（署名见[致谢](#致谢)）。
+- 由 `scenes/` 渲染出的桌宠自己的动画，和本项目用这些动画合成的 README 配图，按 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 提供。
+- Clawd 形象和 Claude 商标不在任何一份许可证的授权范围内。
 
 ## 致谢
 
-全部动画素材来自 **[Clawd 400](https://github.com/khiqwq/clawd-400)**，作者风花叶，按 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 授权：
+动画素材（`scenes/` 里桌宠自己画的除外）来自 **[Clawd 400](https://github.com/khiqwq/clawd-400)**，作者风花叶，按 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 授权：
 
 > Clawd 400 by 风花叶 — CC BY 4.0 — https://github.com/khiqwq/clawd-400
 
-本项目对素材的改动：导入时把 480×480 的 GIF 缩回原本绘制的 40×40 网格并重新编码，画面和帧时长不变，并按动画名重命名文件。素材不包含在本仓库里；README 配图由这些素材合成。
+本项目对素材的改动：导入时把 480×480 的 GIF 缩回原本绘制的 40×40 网格并重新编码，画面和帧时长不变，并按动画名重命名文件。素材不包含在本仓库里；README 配图由这些素材和桌宠自己的动画合成。正式版把导入的素材打包进程序，署名也写在设置的「动画图鉴」页底部。
 
 聊天里的公式由 [KaTeX](https://github.com/KaTeX/KaTeX) 排版（MIT，见 `ui/vendor/katex/LICENSE`）。
 
