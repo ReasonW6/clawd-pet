@@ -158,7 +158,7 @@ const claude = section(
     row({ when: "API 出错，这一轮中止", how: "<code>StopFailure</code>（限流、服务器错误等）。", play: ["force", 3000], say: "呜…出错了（错误类型）", code: "ANIMS.apiError", slugs: ANIMS.apiError }),
 
     sub("额度"),
-    row({ when: "某个额度窗口用掉 80%", how: "开着「显示 Claude 额度」、Claude 也开着（桌面版在运行，或者终端、IDE 里有会话）时，5 小时或本周的用量（来自桌面版或终端的状态栏，40 分钟内的新数字）第一次到 80%。每个窗口每一级只提醒一次，用量回到 50% 以下（窗口重置了）再重新算。两个窗口同时到，只提醒更急的那个。睡着时只弹气泡。", play: ["force", 2500], say: "5 小时额度用掉 86% 啦，悠着点用～（21:30 重置）", code: "ANIMS.quotaNear", slugs: ANIMS.quotaNear }),
+    row({ when: "某个额度窗口用掉 80%", how: "开着「显示 Claude 额度」、Claude 也开着（桌面版在运行，有会话，或者终端的状态栏 40 分钟内报过数字）时，5 小时或本周的用量（来自桌面版或终端的状态栏，40 分钟内的新数字）第一次到 80%。每个窗口每一级只提醒一次，用量回到 50% 以下（窗口重置了）再重新算。两个窗口同时到，只提醒更急的那个。睡着时只弹气泡。", play: ["force", 2500], say: "5 小时额度用掉 86% 啦，悠着点用～（21:30 重置）", code: "ANIMS.quotaNear", slugs: ANIMS.quotaNear }),
     row({ when: "某个额度窗口用掉 95%", how: "同上，到 95% 时。", play: ["force", 2500], say: "5 小时额度快见底了（97%，21:30 重置）", code: "ANIMS.quotaOut", slugs: ANIMS.quotaOut }),
 
     sub("完成"),

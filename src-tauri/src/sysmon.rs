@@ -201,6 +201,7 @@ pub fn cursor_in(hwnd: *mut std::ffi::c_void) -> Option<(f64, f64, f64, f64)> {
 /// app starts and quits. The system delivers these events; nothing runs in between.
 #[cfg(windows)]
 pub fn watch_foreground(events: Events, config: Arc<Mutex<Config>>, on_change: impl Fn() + Send + 'static) {
+    let _ = FOLLOWER.set(events.clone());
     std::thread::spawn(move || {
         // Already running when the pet starts: only its quitting is news.
         if let Some(pid) = win::find_claude_app() {
@@ -231,11 +232,24 @@ pub fn watch_foreground(events: Events, config: Arc<Mutex<Config>>, on_change: i
 #[cfg(windows)]
 static CLAUDE_APP: AtomicU32 = AtomicU32::new(0);
 
-/// The Claude desktop app's main process, if it is running.
+/// Where `claude_app` sends `claude-quit` for a process it starts following; set by
+/// `watch_foreground`.
+#[cfg(windows)]
+static FOLLOWER: std::sync::OnceLock<Events> = std::sync::OnceLock::new();
+
+/// The Claude desktop app's main process, if it is running. One found that isn't
+/// being followed yet (following it at start failed, or it hasn't come to the front)
+/// is followed from here on, so that its quitting is told too.
 #[cfg(windows)]
 pub fn claude_app() -> Option<u32> {
     match CLAUDE_APP.load(Ordering::SeqCst) {
-        0 => win::find_claude_app(),
+        0 => {
+            let pid = win::find_claude_app()?;
+            if let Some(events) = FOLLOWER.get() {
+                follow_claude_app(events, pid);
+            }
+            Some(pid)
+        }
         pid => Some(pid),
     }
 }
