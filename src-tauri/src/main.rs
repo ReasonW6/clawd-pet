@@ -383,6 +383,13 @@ fn ai_identity() -> &'static str {
     ai::IDENTITY
 }
 
+/// The rest of the chat's prompt, part by part with the defaults; the user's rewrites
+/// are in the config (`ai.prompts`).
+#[tauri::command]
+fn ai_prompts() -> &'static [ai::PromptPart] {
+    ai::PROMPTS
+}
+
 /// Answers the chat `history` (ending with the user's message) as chat `id`, in `ai`
 /// events. `now` is the local date and time, in words, and `day` the day as memory
 /// counts it; `chat` numbers the chat the message is in; `looked`, that the chat has
@@ -907,6 +914,7 @@ fn main() {
             ai_providers,
             ai_personas,
             ai_identity,
+            ai_prompts,
             ai_chat,
             ai_cancel,
             ai_models,

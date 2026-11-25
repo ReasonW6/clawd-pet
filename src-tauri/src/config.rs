@@ -160,6 +160,9 @@ pub struct AiConfig {
     /// Preset personas' prompts as the user rewrote them, by id.
     pub persona_prompts: BTreeMap<String, String>,
     pub custom_personas: Vec<CustomPersona>,
+    /// The rest of the chat's prompt as the user rewrote it, by `ai::PROMPTS` key; empty
+    /// leaves that part out, a missing key means the default.
+    pub prompts: BTreeMap<String, String>,
 }
 
 impl Default for AiConfig {
@@ -177,6 +180,7 @@ impl Default for AiConfig {
             persona: "default".into(),
             persona_prompts: BTreeMap::new(),
             custom_personas: Vec::new(),
+            prompts: BTreeMap::new(),
         }
     }
 }

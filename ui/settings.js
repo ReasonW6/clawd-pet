@@ -837,6 +837,7 @@ async function initAi() {
   showExa();
   await initIdentity();
   await initPersonas();
+  await initPrompts();
 }
 
 function renderProviders() {
@@ -1178,6 +1179,64 @@ function showIdentityNote() {
   const empty = !$("ai-identity").value.trim();
   $("ai-identity-reset").hidden = !config.ai.identity && !empty;
   $("ai-identity-note").textContent = empty ? "空着就按默认的身份" : "";
+}
+
+// The rest of the chat's prompt: the parts and their defaults come from ai.rs, the
+// user's rewrites are in config.ai.prompts by key. Back to the default means no
+// rewrite; emptied is a rewrite too, one that leaves the part out.
+
+async function initPrompts() {
+  const parts = await invoke("ai_prompts");
+  const box = $("ai-prompts");
+  box.innerHTML = "";
+  let card = null;
+  for (const [i, p] of parts.entries()) {
+    if (p.group !== parts[i - 1]?.group) {
+      card = el("div", "card");
+      box.append(el("h3", "", p.group), card);
+    }
+    card.append(promptPart(p));
+  }
+}
+
+function promptPart(p) {
+  const row = el("div", "row stack prompt-part");
+  const details = el("details");
+  const summary = el("summary");
+  const name = el("b", "", p.name);
+  const mark = el("span", "edited", "已改");
+  name.append(mark);
+  summary.append(name, el("small", "", p.when));
+  const text = el("textarea");
+  text.spellcheck = false;
+  text.rows = Math.min(10, Math.max(2, p.text.split("\n").length + Math.floor(p.text.length / 60)));
+  text.placeholder = "空着就不发这一段";
+  text.value = config.ai.prompts[p.key] ?? p.text;
+  const note = el("small");
+  const reset = el("button", "ghost", "恢复默认");
+  const foot = el("div", "persona-foot");
+  foot.append(note, reset);
+  details.append(summary, text, foot);
+  row.append(details);
+  const show = () => {
+    const edited = p.key in config.ai.prompts;
+    mark.hidden = reset.hidden = !edited;
+    note.textContent = edited && !config.ai.prompts[p.key].trim() ? "空着，这一段不发" : "";
+  };
+  text.oninput = () => {
+    if (text.value.trim() === p.text.trim()) delete config.ai.prompts[p.key];
+    else config.ai.prompts[p.key] = text.value;
+    show();
+    save();
+  };
+  reset.onclick = () => {
+    delete config.ai.prompts[p.key];
+    text.value = p.text;
+    show();
+    save();
+  };
+  show();
+  return row;
 }
 
 // Personas: the presets come from ai.rs, and the user may rewrite any of them (kept
