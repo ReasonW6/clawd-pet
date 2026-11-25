@@ -1183,54 +1183,124 @@ function showIdentityNote() {
 
 // The rest of the chat's prompt: the parts and their defaults come from ai.rs, the
 // user's rewrites are in config.ai.prompts by key. Back to the default means no
-// rewrite; emptied is a rewrite too, one that leaves the part out.
+// rewrite; emptied is a rewrite too, one that leaves the part out (except a tool's
+// description, which empty puts back to the default: the tool goes to the model anyway).
+// promptBases keeps a hash of the default each rewrite was made against, so that a
+// default changed later shows on the rewrites that still go by the old one.
+
+/** What a group is for, beside its title, where emptying a part does more than it seems. */
+const PROMPT_GROUP_NOTES = {
+  安全: "这几段挡着网页、截图里的文字被当成指令，也挡着屏幕上的内容、记得的事被写进搜索词。删掉或改松了，这些就更可能发生。",
+  工具说明: "这里改的是工具的说明，工具本身照样会给模型；清空就用默认的说明。",
+};
+
+/** A short hash of a default text (FNV-1a, 32 bits), to tell when it changed. */
+function promptHash(text) {
+  let h = 0x811c9dc5;
+  for (const c of text) {
+    h ^= c.codePointAt(0);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
 
 async function initPrompts() {
   const parts = await invoke("ai_prompts");
+  config.ai.promptBases ??= {};
+  const { prompts, promptBases: bases } = config.ai;
+  // Parts that no longer exist go; a rewrite from before bases were kept was made
+  // against the default of the time, as far as anyone knows.
+  let dirty = false;
+  const keys = new Set(parts.map((p) => p.key));
+  for (const key of Object.keys(prompts)) {
+    if (!keys.has(key)) {
+      delete prompts[key];
+      dirty = true;
+    }
+  }
+  for (const key of Object.keys(bases)) {
+    if (!(key in prompts)) {
+      delete bases[key];
+      dirty = true;
+    }
+  }
+  for (const p of parts) {
+    if (p.key in prompts && !(p.key in bases)) {
+      bases[p.key] = promptHash(p.text);
+      dirty = true;
+    }
+  }
+  if (dirty) save();
   const box = $("ai-prompts");
   box.innerHTML = "";
   let card = null;
   for (const [i, p] of parts.entries()) {
     if (p.group !== parts[i - 1]?.group) {
       card = el("div", "card");
-      box.append(el("h3", "", p.group), card);
+      box.append(el("h3", "", p.group));
+      if (PROMPT_GROUP_NOTES[p.group]) box.append(el("p", "hint", PROMPT_GROUP_NOTES[p.group]));
+      box.append(card);
     }
     card.append(promptPart(p));
   }
 }
 
 function promptPart(p) {
+  const tool = p.group === "工具说明";
+  const hash = promptHash(p.text);
+  const { prompts, promptBases: bases } = config.ai;
   const row = el("div", "row stack prompt-part");
   const details = el("details");
   const summary = el("summary");
   const name = el("b", "", p.name);
   const mark = el("span", "edited", "已改");
-  name.append(mark);
+  const newer = el("span", "edited", "默认已更新");
+  name.append(mark, newer);
   summary.append(name, el("small", "", p.when));
   const text = el("textarea");
   text.spellcheck = false;
   text.rows = Math.min(10, Math.max(2, p.text.split("\n").length + Math.floor(p.text.length / 60)));
-  text.placeholder = "空着就不发这一段";
-  text.value = config.ai.prompts[p.key] ?? p.text;
+  text.placeholder = tool ? "空着就用默认的说明" : "空着就不发这一段";
+  text.value = prompts[p.key] ?? p.text;
   const note = el("small");
+  const keep = el("button", "ghost", "保留我的");
   const reset = el("button", "ghost", "恢复默认");
   const foot = el("div", "persona-foot");
-  foot.append(note, reset);
+  foot.append(note, keep, reset);
   details.append(summary, text, foot);
   row.append(details);
   const show = () => {
-    const edited = p.key in config.ai.prompts;
+    const edited = p.key in prompts;
+    const stale = edited && bases[p.key] !== hash;
     mark.hidden = reset.hidden = !edited;
-    note.textContent = edited && !config.ai.prompts[p.key].trim() ? "空着，这一段不发" : "";
+    newer.hidden = keep.hidden = !stale;
+    note.textContent = stale
+      ? "你改这段以后，默认的写法变了；现在发的还是你改的。要新的就「恢复默认」。"
+      : edited && !prompts[p.key].trim()
+        ? "空着，这一段不发"
+        : "";
   };
   text.oninput = () => {
-    if (text.value.trim() === p.text.trim()) delete config.ai.prompts[p.key];
-    else config.ai.prompts[p.key] = text.value;
+    const mine = text.value.trim();
+    if (mine === p.text.trim() || (tool && !mine)) {
+      delete prompts[p.key];
+      delete bases[p.key];
+    } else {
+      // Made against the default on show now, unless it was already behind one.
+      if (!(p.key in prompts)) bases[p.key] = hash;
+      prompts[p.key] = text.value;
+    }
+    show();
+    save();
+  };
+  keep.onclick = () => {
+    bases[p.key] = hash;
     show();
     save();
   };
   reset.onclick = () => {
-    delete config.ai.prompts[p.key];
+    delete prompts[p.key];
+    delete bases[p.key];
     text.value = p.text;
     show();
     save();

@@ -163,6 +163,9 @@ pub struct AiConfig {
     /// The rest of the chat's prompt as the user rewrote it, by `ai::PROMPTS` key; empty
     /// leaves that part out, a missing key means the default.
     pub prompts: BTreeMap<String, String>,
+    /// For each rewrite, a hash of the default it was written against (made by the
+    /// settings page), so that the page can tell when that default has changed since.
+    pub prompt_bases: BTreeMap<String, String>,
 }
 
 impl Default for AiConfig {
@@ -181,6 +184,7 @@ impl Default for AiConfig {
             persona_prompts: BTreeMap::new(),
             custom_personas: Vec::new(),
             prompts: BTreeMap::new(),
+            prompt_bases: BTreeMap::new(),
         }
     }
 }

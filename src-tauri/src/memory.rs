@@ -440,6 +440,11 @@ pub fn for_chat(day: &str) -> String {
     if !on(&cfg) {
         return String::new();
     }
+    // Emptied (blank counts) is memory left out of this chat, `remember` tool and all.
+    let frame = crate::ai::part(&cfg.ai.prompts, "memory");
+    if frame.trim().is_empty() {
+        return String::new();
+    }
     with(|s| {
         let st = &s.state;
         let today = st.pending.get(day).map(describe).unwrap_or_else(|| "还没发生什么".into());
@@ -452,7 +457,6 @@ pub fn for_chat(day: &str) -> String {
             m => format!("\n刚记下、还没整理进笔记的：\n{m}\n"),
         };
         let bond = bond_line(&st.bond, day);
-        let frame = crate::ai::part(&cfg.ai.prompts, "memory");
         crate::ai::fill(frame, &[("{关系}", &bond), ("{今天}", &today), ("{笔记}", note), ("{待整理}", &memos)])
     })
     .unwrap_or_default()

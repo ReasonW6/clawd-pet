@@ -100,7 +100,7 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
 ### 聊天的提示词
 
-身份（`ai.identity`）和人设（`persona_prompts`、`custom_personas`）之外，系统提示的其余部分和工具说明都拆成 `ai::PROMPTS` 里的一段段（`key`、分组、名字、什么时候用、默认文字），设置页「身份、人设与提示词」用 `ai_prompts` 取来逐段显示。用户改过的按 key 存在 `ai.prompts`：没有这个 key 就是默认，空字符串就不发这一段（`ai::part`）。`system_prompt` 仍按状态挑用哪几段，花括号占位符由 `ai::fill` 换掉；工具说明从 `Target::edits` 取；记忆那段的框架是 `memory::CHAT_FRAME`，在 `for_chat` 里填，用户清空它就等于这次聊天不带记忆（也就没有 `remember` 工具）。改提示词文字时改 `ai.rs` 里的 `P_*` 常量（或原来的 `*_DESC`、`SETTING_RULE`、`MEMO_RULE`），新增一段要同时加进 `PROMPTS`。
+身份（`ai.identity`）和人设（`persona_prompts`、`custom_personas`）之外，系统提示的其余部分和工具说明都拆成 `ai::PROMPTS` 里的一段段（`key`、分组、名字、什么时候用、默认文字），设置页「身份、人设与提示词」用 `ai_prompts` 取来逐段显示。用户改过的按 key 存在 `ai.prompts`：没有这个 key 就是默认，空字符串就不发这一段（`ai::part`）。`system_prompt` 仍按状态挑用哪几段，花括号占位符由 `ai::fill` 换掉；工具说明从 `Target::edits` 取；记忆那段的框架是 `memory::CHAT_FRAME`，在 `for_chat` 里填，用户清空它（只剩空白也算）就等于这次聊天不带记忆（也就没有 `remember` 工具）。工具说明那一组例外：工具照样发给模型，所以清空就是默认（`ai::tool_part`），不会发一个没有说明的工具。花括号由 `fill` 从左往右一次换完，填进去的内容里的花括号不再换。改提示词文字时改 `ai.rs` 里的 `P_*` 常量（或原来的 `*_DESC`、`SETTING_RULE`、`MEMO_RULE`），新增一段要同时加进 `PROMPTS`。改写存的是整段全文，改了某段的默认文字，改过它的用户收不到：设置页在 `ai.promptBases` 里记着每段改写当时默认文字的哈希（`promptHash`），对不上就在那段标「默认已更新」，用户自己选「恢复默认」或「保留我的」；`PROMPTS` 里删掉的 key，设置页打开时从配置里清掉。
 
 ### 聊天改设置（`change_setting`）
 
