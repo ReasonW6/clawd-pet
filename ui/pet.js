@@ -1075,7 +1075,12 @@ function onUserEvent({ kind, detail }) {
     render();
   } else if (kind === "back") {
     onBack();
+  } else if (kind === "claude-open") {
+    claudeApp = true;
+    checkClaudeOpen();
+    reactTo(kind, SYS_EVENTS[kind]);
   } else if (kind === "claude-quit") {
+    claudeApp = false;
     // Its sessions went with it, whether or not their SessionEnd made it out.
     for (const [id, s] of sessions) if (fromDesktop(s)) sessions.delete(id);
     if (speech && !sessions.has(speech.sid)) hush();
@@ -1173,6 +1178,7 @@ function desiredSlug() {
 }
 
 function render() {
+  checkClaudeOpen();
   // Its own life makes way as soon as Claude has something going on.
   if (oneShot?.life && (perms.length || anyBusy())) cancelLife();
   peekDrawn = peekState();
@@ -1221,6 +1227,18 @@ const QUOTA_LEVELS = [80, 95];
 const QUOTA_NAMES = { five: "5 小时", week: "本周" };
 let quota = { desktop: null, cli: null };
 let quotaTimer = null;
+/** The bars show only while Claude is open: the desktop app running (sysmon.rs), or a
+ *  Claude Code session elsewhere (terminal, IDE) still around. */
+let claudeApp = false;
+let claudeOpen = false;
+
+/** Looks again at whether Claude is open; redraws the bars when that changed. */
+function checkClaudeOpen() {
+  const open = claudeApp || [...sessions.values()].some((s) => !fromDesktop(s));
+  if (open === claudeOpen) return;
+  claudeOpen = open;
+  renderQuota();
+}
 
 const pad2 = (n) => String(n).padStart(2, "0");
 const hm = (ms) => `${pad2(new Date(ms).getHours())}:${pad2(new Date(ms).getMinutes())}`;
@@ -1249,7 +1267,7 @@ function renderQuota() {
   const wins = { five: quotaWindow("five"), week: quotaWindow("week") };
   const known = Object.values(wins).filter(Boolean);
   const newest = Math.max(0, ...known.map((w) => w.at));
-  const on = Boolean(config?.quota) && t - newest < QUOTA_HIDE_MS;
+  const on = Boolean(config?.quota) && claudeOpen && t - newest < QUOTA_HIDE_MS;
   quotaEl.hidden = !on;
   if (!on) {
     quotaCard.hidden = true;
@@ -3013,6 +3031,8 @@ async function boot() {
   greet();
   // After the greeting, so that a window close to its limit is what it reacts to last.
   quota = await invoke("quota_get");
+  claudeApp = await invoke("claude_running");
+  checkClaudeOpen();
   renderQuota();
   await listen("quota", (e) => {
     quota = e.payload;
