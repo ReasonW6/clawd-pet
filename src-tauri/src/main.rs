@@ -307,6 +307,15 @@ fn quota_get() -> quota::Quota {
     quota::get()
 }
 
+/// Whether the Claude desktop app is running; `claude-open` / `claude-quit` tell of changes.
+#[tauri::command(async)]
+fn claude_running() -> bool {
+    #[cfg(windows)]
+    return sysmon::claude_app().is_some();
+    #[cfg(not(windows))]
+    false
+}
+
 #[tauri::command(async)]
 fn statusline_get() -> bool {
     quota::is_installed()
@@ -895,6 +904,7 @@ fn main() {
             hooks_installed,
             hooks_set,
             quota_get,
+            claude_running,
             statusline_get,
             statusline_set,
             autostart_get,

@@ -1075,7 +1075,14 @@ function onUserEvent({ kind, detail }) {
     render();
   } else if (kind === "back") {
     onBack();
+  } else if (kind === "claude-open") {
+    claudeApp = true;
+    claudeAppNews++;
+    checkClaudeOpen();
+    reactTo(kind, SYS_EVENTS[kind]);
   } else if (kind === "claude-quit") {
+    claudeApp = false;
+    claudeAppNews++;
     // Its sessions went with it, whether or not their SessionEnd made it out.
     for (const [id, s] of sessions) if (fromDesktop(s)) sessions.delete(id);
     if (speech && !sessions.has(speech.sid)) hush();
@@ -1173,6 +1180,7 @@ function desiredSlug() {
 }
 
 function render() {
+  checkClaudeOpen();
   // Its own life makes way as soon as Claude has something going on.
   if (oneShot?.life && (perms.length || anyBusy())) cancelLife();
   peekDrawn = peekState();
@@ -1221,6 +1229,31 @@ const QUOTA_LEVELS = [80, 95];
 const QUOTA_NAMES = { five: "5 小时", week: "本周" };
 let quota = { desktop: null, cli: null };
 let quotaTimer = null;
+/** The bars show only while Claude is open: the desktop app running (sysmon.rs), a
+ *  Claude Code session still around, or the terminal's status line having sent numbers
+ *  lately (it runs only while a terminal session is alive and replying, and needs no
+ *  hooks). */
+let claudeApp = false;
+let claudeOpen = false;
+/** Counts `claude-open` / `claude-quit`: an answer from `claude_running` that one of them
+ *  overtook is out of date. */
+let claudeAppNews = 0;
+
+/** Looks again at whether Claude is open; redraws the bars when that changed. True when
+ *  it redrew them. */
+function checkClaudeOpen() {
+  // Desktop sessions count too: the app may be running untracked (started after the pet
+  // and never in front), and `claude-quit` takes its sessions away anyway.
+  const cliFresh = Boolean(quota.cli) && now() - quota.cli.t < QUOTA_STALE_MS;
+  const open = claudeApp || sessions.size > 0 || cliFresh;
+  if (open === claudeOpen) return false;
+  claudeOpen = open;
+  renderQuota();
+  return true;
+}
+
+/** Redraws the bars, after looking again at whether Claude is open. */
+const refreshQuota = () => checkClaudeOpen() || renderQuota();
 
 const pad2 = (n) => String(n).padStart(2, "0");
 const hm = (ms) => `${pad2(new Date(ms).getHours())}:${pad2(new Date(ms).getMinutes())}`;
@@ -1249,7 +1282,7 @@ function renderQuota() {
   const wins = { five: quotaWindow("five"), week: quotaWindow("week") };
   const known = Object.values(wins).filter(Boolean);
   const newest = Math.max(0, ...known.map((w) => w.at));
-  const on = Boolean(config?.quota) && t - newest < QUOTA_HIDE_MS;
+  const on = Boolean(config?.quota) && claudeOpen && t - newest < QUOTA_HIDE_MS;
   quotaEl.hidden = !on;
   if (!on) {
     quotaCard.hidden = true;
@@ -1268,9 +1301,12 @@ function renderQuota() {
     warnQuota(wins);
     // Looked at again when something changes by itself: numbers going stale, a window
     // starting over, the bars going away. No polling in between.
-    const next = known.flatMap((w) => [w.at + QUOTA_STALE_MS, w.resets || Infinity]).concat(newest + QUOTA_HIDE_MS);
+    // The terminal's numbers going stale may also mean Claude is no longer open.
+    const next = known
+      .flatMap((w) => [w.at + QUOTA_STALE_MS, w.resets || Infinity])
+      .concat(newest + QUOTA_HIDE_MS, quota.cli ? quota.cli.t + QUOTA_STALE_MS : Infinity);
     const soonest = Math.min(...next.filter((x) => x > t));
-    if (soonest < Infinity) quotaTimer = setTimeout(renderQuota, Math.min(soonest - t + 500, 2 ** 31 - 1));
+    if (soonest < Infinity) quotaTimer = setTimeout(refreshQuota, Math.min(soonest - t + 500, 2 ** 31 - 1));
   }
   queueHitRects();
 }
@@ -3013,10 +3049,14 @@ async function boot() {
   greet();
   // After the greeting, so that a window close to its limit is what it reacts to last.
   quota = await invoke("quota_get");
-  renderQuota();
+  // `claude-open` / `claude-quit` may come while this is on its way; they are newer.
+  const news = claudeAppNews;
+  const running = await invoke("claude_running");
+  if (news === claudeAppNews) claudeApp = running;
+  refreshQuota();
   await listen("quota", (e) => {
     quota = e.payload;
-    renderQuota();
+    refreshQuota();
   });
   ticker = setInterval(tick, 1000);
   // Runs while the pet is hidden too: Claude goes on working then.
