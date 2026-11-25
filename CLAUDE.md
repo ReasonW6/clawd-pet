@@ -12,6 +12,7 @@ npm run import-assets   # 从 ../clawd-400-src（没有就用 ../clawd-400，或
 npm run dev             # 开发模式
 npm run build           # 正式版：src-tauri/target/release/clawd-pet.exe + NSIS 安装包
 npm run triggers        # 由 ui/anims.js 重新生成 docs/triggers.html
+python docs/readme/make_art.py   # 由导入的动画重新生成 README 配图（docs/readme/*.gif，要 Pillow 和系统的微软雅黑、Consolas）
 cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得多
 ```
 

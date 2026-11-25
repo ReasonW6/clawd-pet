@@ -2,6 +2,7 @@
   "name": "clawd-pet",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "import-assets": "node scripts/import-assets.mjs",
