@@ -285,6 +285,10 @@ function setShown(on) {
     // Out of sight is unseen: showing again starts the hotkeys' wait over.
     for (const p of perms) p.shownAt = undefined;
     syncHotkeys();
+    // And the cursor must stay a while again before it looks (gaze.rs tells anew on show).
+    gaze = { dir: gaze.dir, near: false };
+    gazeUntil = 0;
+    clearTimeout(gazeTimer);
   }
 }
 
@@ -1956,12 +1960,15 @@ function placeBubble() {
 
 // ---------------------------------------------------------------- eye-follow
 
-// Resting, with the cursor close by (gaze.rs), it follows the cursor with its eyes,
-// and a moment after the cursor has gone it goes back to what it rested with. Only
-// ever instead of resting: anything else it does comes first.
+// Resting, once the cursor has stayed close by (gaze.rs) for a while, it follows the
+// cursor with its eyes, and a moment after the cursor has gone it goes back to what it
+// rested with. Only ever instead of resting: anything else it does comes first.
+const GAZE_DELAY_MS = 3000;
 const GAZE_LINGER_MS = 1500;
 let gaze = { dir: 0, near: false };
+let nearSince = 0;
 let gazeUntil = 0;
+let gazeTimer = null;
 
 function onGaze(g) {
   if (!g.near && peekHover) {
@@ -1970,16 +1977,26 @@ function onGaze(g) {
     peekHover = false;
   }
   if (g.near) {
+    // Back while it is still looking after the cursor: it keeps looking.
+    if (!gaze.near && !gazing()) {
+      nearSince = now();
+      clearTimeout(gazeTimer);
+      gazeTimer = setTimeout(render, GAZE_DELAY_MS);
+    }
     gaze = g;
   } else if (gaze.near) {
+    const was = gazing();
     gaze = { dir: gaze.dir, near: false };
-    gazeUntil = now() + GAZE_LINGER_MS;
-    setTimeout(render, GAZE_LINGER_MS);
+    clearTimeout(gazeTimer);
+    if (was) {
+      gazeUntil = now() + GAZE_LINGER_MS;
+      setTimeout(render, GAZE_LINGER_MS);
+    }
   }
   render();
 }
 
-const gazing = () => gaze.near || now() < gazeUntil;
+const gazing = () => (gaze.near && now() - nearSince >= GAZE_DELAY_MS) || now() < gazeUntil;
 
 // ---------------------------------------------------------------- edge peek
 

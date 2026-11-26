@@ -316,7 +316,7 @@ const touch = section(
     row({ when: "被放下", how: "拖动后松开鼠标。", play: ["force", 1500], code: "ANIMS.dropped", slugs: ANIMS.dropped }),
     row({ when: "文件拖到它上方", how: "从资源管理器拖着文件进入桌宠窗口。", play: ["force", 1500], code: "ANIMS.fileHover", slugs: ANIMS.fileHover }),
     row({ when: "文件丢给它", how: "在它身上松手。文件本身不会被动。", play: ["force", 2500], say: "接住啦～（只是抱一下，文件原封不动）", code: "ANIMS.fileDrop", slugs: ANIMS.fileDrop }),
-    row({ when: "眼睛跟着鼠标", how: "它在歇着（两个场景之间、没有一次性动画、Claude 没在忙、没睡觉、没在聊天），鼠标离它的眼睛不到 360 像素时，放下手里的东西，眼睛跟着鼠标转：鼠标在它脸上就看着你，否则按八个方向看过去，左右看时身子也挪一像素。鼠标离开（超过 400 像素）1.5 秒后回到原来歇着的姿势。后端借鼠标穿透本来就在读的光标位置算方向，只在方向变了时告诉页面；窗口隐藏时不算。", play: ["loop"], code: "ANIMS.gaze", slugs: ANIMS.gaze }),
+    row({ when: "眼睛跟着鼠标", how: "它在歇着（两个场景之间、没有一次性动画、Claude 没在忙、没睡觉、没在聊天），鼠标在它眼睛 360 像素以内停留满 3 秒后，放下手里的东西，眼睛跟着鼠标转：鼠标在它脸上就看着你，否则按八个方向看过去，左右看时身子也挪一像素。鼠标离开（超过 400 像素）1.5 秒后回到原来歇着的姿势。后端借鼠标穿透本来就在读的光标位置算方向，只在方向变了时告诉页面；窗口隐藏时不算。", play: ["loop"], code: "ANIMS.gaze", slugs: ANIMS.gaze }),
     sub("躲到屏幕边上"),
     row({ when: "躲在边上偷看", how: "右键菜单「躲到屏幕边上」（躲到离它近的那一侧），或者拖着它用力往左右边上顶（身子被顶出去三成以上，标签提示「松手就躲到边上」）后松手。只有那一侧外面没有别的显示器、也没有任务栏时才能躲；两边都躲不了时，点菜单它会说一句没地方躲。躲着时只露出半边身子和一只眼睛，Claude 在忙也一样，状态写在下面的标签里；它自己的场景照演，只是看不见。重启后还躲在原处。", play: ["loop"], code: "ANIMS.peek.right[0] / left[0]", slugs: [ANIMS.peek.right[0], ANIMS.peek.left[0]] }),
     row({ when: "鼠标移到它身上", how: "躲着时鼠标移上去，它再往外滑一点，两只眼睛都露出来，挥手打招呼；鼠标离开 0.6 秒后缩回去。单击它就从边上出来，不再躲着。", play: ["loop"], code: "ANIMS.peek.right[1] / left[1]", slugs: [ANIMS.peek.right[1], ANIMS.peek.left[1]] }),
