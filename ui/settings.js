@@ -328,7 +328,7 @@ function showBirthday() {
 }
 
 /** What the chat may change (`change_setting` in main.rs). */
-const CHAT_KEYS = ["nickname", "birthday", "chatty", "liveliness", "sedentaryMinutes", "sleepEnabled", "size"];
+const CHAT_KEYS = ["nickname", "birthday", "chatty", "liveliness", "sleepEnabled", "size"];
 
 /** The chat changed a setting (the `config` event comes only for that): the page shows
  *  it, and saves on top of it. */
@@ -630,7 +630,7 @@ function drawKeys(action) {
     else keys.append(el("span", "waiting", "按下组合键"));
     keys.append(el("i", "caret"));
   } else if (!parts.length) {
-    keys.append(el("span", "none", "未设置"));
+    keys.append(el("span", "none", "点这里设置"));
   }
 }
 
@@ -708,7 +708,7 @@ function provider() {
   return providers.find((p) => p.id === config.ai.provider && !TEMPLATES.includes(p.id)) || providers[0];
 }
 
-const profile = () => (config.ai.profiles[provider().id] ??= { baseUrl: "", model: "", reasoning: "" });
+const profile = () => (config.ai.profiles[provider().id] ??= { baseUrl: "", model: "", reasoning: "", reasoningModel: "" });
 
 /** Settings from before providers of one's own: what was set for a template becomes one. */
 async function migrateCustom() {
@@ -816,25 +816,23 @@ async function initAi() {
     showBase();
     $("ai-base").focus();
   };
-  // The two ways of searching: turning one on turns the other off. Not Exa for a
-  // provider without a search of its own, though: that would leave no search at all
-  // (with both on, the chat uses Exa).
-  const [search, exa] = ["ai.search", "ai.exa"].map((key) => document.querySelector(`[data-key="${key}"]`));
-  for (const [me, other, key] of [[search, exa, "exa"], [exa, search, "search"]]) {
-    me.addEventListener("input", () => {
-      if (me.checked && other.checked && provider().search) {
-        other.checked = false;
-        config.ai[key] = false;
-        save();
-      }
-      showExa();
+  // One way of searching or none: Exa wins in the backend when both are on.
+  // onclick, not onchange: "off" shows as picked while the provider has no search of
+  // its own, and picking it then has to turn the search off too.
+  for (const radio of document.querySelectorAll("input[name=ai-web]")) {
+    radio.onclick = () => {
+      config.ai.search = radio.value === "own";
+      config.ai.exa = radio.value === "exa";
+      save();
+      showWeb();
       showReasoning();
-    });
+    };
   }
+  $("ai-test").onclick = testModel;
   // The DeepSeek warning depends on the screen too.
   document.querySelector('[data-key="ai.screen"]').addEventListener("input", showReasoning);
   showAi();
-  showExa();
+  showWeb();
   await initIdentity();
   await initPersonas();
   await initPrompts();
@@ -924,7 +922,7 @@ function showAi() {
 function showSummary() {
   const p = provider();
   $("provider-summary").textContent = `${p.name} · ${profile().model || p.model || "还没选模型"}`;
-  $("ai-search-note").textContent = p.search ? "问到新闻、天气这类事会自己去查，有的服务商按次收费" : `${p.name} 没有自带的联网搜索，可以用 Exa`;
+  showWeb();
 }
 
 // ---- API keys: in the Windows Credential Manager, never in the config; the page only
@@ -1055,26 +1053,53 @@ function showBase() {
   $("ai-base-show").hidden = !folded;
 }
 
-function showExa() {
-  $("ai-exa-key-row").hidden = !config.ai.exa;
+/** Which way it searches, if at all. With a provider that has no search of its own,
+ *  that choice shows as off, and comes back with a provider that has. */
+function showWeb() {
+  const p = provider();
+  const mode = config.ai.exa ? "exa" : config.ai.search && p.search ? "own" : "off";
+  for (const radio of document.querySelectorAll("input[name=ai-web]")) radio.checked = radio.value === mode;
+  $("ai-web-own").querySelector("input").disabled = !p.search;
+  $("ai-web-own").title = p.search ? "" : `${p.name} 没有自带的联网搜索`;
+  $("ai-search-note").textContent = {
+    off: "只用模型自己知道的，不上网查",
+    own: "问到新闻、天气这类事会自己去查，有的服务商按次收费",
+    exa: "哪家模型都能用，还能读搜到的网页；搜索词和要读的网址会发给 Exa",
+  }[mode];
+  $("ai-exa-key-row").hidden = mode !== "exa";
 }
 
-/** The reasoning levels the model takes: those of the first rule its name starts with. */
+/** The reasoning levels the model takes: those of the first rule its name starts with.
+ *  `generic`: the provider says nothing about this model, so these are a guess
+ *  (`GENERIC` in ai.rs). */
+const modelInUse = () => (profile().model || provider().model).toLowerCase();
+
 function levels() {
-  const model = (profile().model || provider().model).toLowerCase();
+  const model = modelInUse();
   const rule = provider().reasoning.find((r) => model.startsWith(r.prefix.toLowerCase()));
-  return rule ? rule.levels : [];
+  return { list: rule ? rule.levels : [], generic: !!rule?.guess };
+}
+
+/** Levels in words, whatever the provider calls them; thinking budgets ("4k") as low,
+ *  medium and high, with the number in the tooltip. */
+const LEVEL_NAMES = { "": "默认", off: "关", minimal: "最低", low: "低", medium: "中", high: "高", xhigh: "很高", max: "最高", "1k": "低", "4k": "中", "16k": "高" };
+const LEVEL_TIPS = { "": "不指定，按模型自己的默认", off: "不思考，回得最快" };
+
+function levelTip(value) {
+  const budget = /^(\d+)k$/.exec(value);
+  return budget ? `最多想约 ${budget[1]}k token` : LEVEL_TIPS[value] || "";
 }
 
 function showReasoning() {
-  const [p, mine, list] = [provider(), profile(), levels()];
-  // A level the model doesn't take is never sent, so it shows as the default.
-  const level = list.includes(mine.reasoning) ? mine.reasoning : "";
+  const [p, mine, { list, generic }] = [provider(), profile(), levels()];
+  // A level the model doesn't take is never sent, so it shows as the default; so does
+  // one picked for another model when this one's levels are a guess (`target` in ai.rs).
+  const mineHere = !generic || (mine.reasoningModel || "").trim().toLowerCase() === modelInUse();
+  const level = list.includes(mine.reasoning) && mineHere ? mine.reasoning : "";
   const box = $("ai-reasoning");
   box.innerHTML = "";
   $("ai-reasoning-row").hidden = !list.length;
-  // What the provider's levels mean, for whoever wonders.
-  $("ai-reasoning-row").title = p.reasoningNote;
+  $("ai-reasoning-note").textContent = generic ? "这个模型没写能调哪几档，先给常见的低、中、高；它不认会报错，选回「默认」就好。" : p.reasoningNote;
   for (const value of ["", ...list]) {
     const label = el("label");
     const radio = el("input");
@@ -1083,10 +1108,12 @@ function showReasoning() {
     radio.checked = value === level;
     radio.onchange = () => {
       mine.reasoning = value;
+      mine.reasoningModel = profile().model || provider().model;
       showReasoning();
       save();
     };
-    label.append(radio, el("span", "", { "": "默认", off: "关" }[value] ?? value));
+    label.append(radio, el("span", "", LEVEL_NAMES[value] ?? value));
+    label.title = levelTip(value);
     box.append(label);
   }
   // DeepSeek turns down its screenshot tool beside its own search unless it thinks.
@@ -1148,6 +1175,36 @@ async function fetchModels() {
     note.classList.add("bad");
   }
   renderModels();
+}
+
+/** Says hello to the saved provider and model, to see that the key and model work
+ *  without opening a chat. */
+async function testModel() {
+  const [button, note] = [$("ai-test"), $("ai-model-note")];
+  const which = () => `${provider().id} ${provider().mine?.kind ?? ""} ${profile().baseUrl} ${profile().model}`;
+  const asked = which();
+  button.disabled = true;
+  note.classList.remove("bad");
+  note.textContent = "打个招呼试试…";
+  const t0 = performance.now();
+  let [ok, text] = [true, ""];
+  try {
+    // The backend asks with the saved settings (and the key it keeps), so save first.
+    await saveNow();
+    text = await invoke("ai_test");
+  } catch (e) {
+    [ok, text] = [false, String(e)];
+  }
+  button.disabled = false;
+  if (which() !== asked) {
+    // Changed meanwhile: the answer is about something else, and so is "trying".
+    if (note.textContent === "打个招呼试试…") note.textContent = "";
+    return;
+  }
+  const said = text.trim().replace(/\s+/g, " ");
+  const secs = ((performance.now() - t0) / 1000).toFixed(1);
+  note.textContent = ok ? `✓ 通了，${secs} 秒回了「${said.length > 16 ? said.slice(0, 16) + "…" : said || "（空的）"}」` : text;
+  note.classList.toggle("bad", !ok);
 }
 
 // Who the pet is: ai.rs has the default, config.ai.identity the user's rewrite (empty
@@ -1243,6 +1300,34 @@ async function initPrompts() {
     }
     card.append(promptPart(p));
   }
+  promptParts = parts;
+  // Folded away: most never need them. Open by itself when a default changed under a
+  // rewrite, which asks the user to choose.
+  $("prompts-toggle").onclick = () => foldPrompts($("prompts-box").hidden);
+  foldPrompts(parts.some(stalePrompt));
+}
+
+/** The parts of the prompt, as `ai_prompts` gave them. */
+let promptParts = [];
+
+/** A rewrite made against a default that has changed since. */
+function stalePrompt(p) {
+  const { prompts, promptBases: bases } = config.ai;
+  return p.key in prompts && bases[p.key] !== promptHash(p.text);
+}
+
+function foldPrompts(open) {
+  $("prompts-box").hidden = !open;
+  $("prompts-toggle").classList.toggle("open", open);
+  promptsSummary();
+}
+
+/** How many parts there are, and how many the user changed. */
+function promptsSummary() {
+  const edited = promptParts.filter((p) => p.key in config.ai.prompts).length;
+  const stale = promptParts.filter(stalePrompt).length;
+  $("prompts-summary").textContent =
+    `其余发给模型的 ${promptParts.length} 段文字，一般不用动` + (edited ? `；改过 ${edited} 段` : "") + (stale ? `，其中 ${stale} 段的默认已更新` : "");
 }
 
 function promptPart(p) {
@@ -1279,6 +1364,7 @@ function promptPart(p) {
       : edited && !prompts[p.key].trim()
         ? "空着，这一段不发"
         : "";
+    promptsSummary();
   };
   text.oninput = () => {
     const mine = text.value.trim();
@@ -1607,14 +1693,15 @@ async function showRecap() {
   recap = await invoke("recap_get");
   // Without the hooks there is nothing to count.
   $("recap-nohooks").hidden = await invoke("hooks_installed");
-  if (recap.open) openRecapWeek(recap.open);
+  if (recap.open != null) openRecapWeek(recap.open);
   drawRecap();
 }
 
 /** From the weekly card: that week. */
+/** `week`: its Monday, or "" for this week (the menu's "回顾…"). */
 function openRecapWeek(week) {
   recapView = "week";
-  recapStart = week;
+  recapStart = week || periodStart("week", memDay());
   document.querySelector('input[name=recap-view][value="week"]').checked = true;
   showTab("recap");
 }
@@ -1777,8 +1864,14 @@ function drawProjects(data) {
   if (!top.length) {
     const empty = el("div", "recap-empty");
     const seen = data.some(Boolean);
+    // Sessions started without a folder count as tasks, under no project.
+    const tasks = data.some((d) => d?.done.some(Boolean));
     empty.innerHTML = `<img src="assets/clawd/${seen ? "read_doze" : "life_bed_sleep"}.gif" alt="" /><span></span>`;
-    empty.querySelector("span").textContent = seen ? "这段时间还没一起完成任务，歇着也挺好～" : "这段时间我没开着，没有记录";
+    empty.querySelector("span").textContent = tasks
+      ? "这段时间的任务都在临时会话里，没有项目文件夹"
+      : seen
+        ? "这段时间还没一起完成任务，歇着也挺好～"
+        : "这段时间我没开着，没有记录";
     box.append(empty);
     return;
   }
@@ -1791,7 +1884,7 @@ function drawProjects(data) {
     const fill = el("i");
     fill.style.width = `${Math.max(4, (n / most) * 100)}%`;
     bar.append(fill);
-    const [v, unit] = durationText(m * 60);
+    const [v, unit] = m ? durationText(m * 60) : ["不到 1 ", "分钟"];
     const count = el("span", "count");
     count.innerHTML = `${n} 个<small> · ${v}${unit}</small>`;
     row.append(label, bar, count);

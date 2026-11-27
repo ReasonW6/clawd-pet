@@ -1417,6 +1417,18 @@ a.link[hidden] {
   width: 100%;
 }
 
+/* Under its name, the model takes the card's width: model ids are long. */
+.row.stack .model-pick {
+  width: auto;
+}
+
+/* A choice the provider doesn't have. */
+.segmented input:disabled + span {
+  color: var(--muted);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Up to 8 levels: they wrap rather than run out of the card, with the gaps drawn as
    the lines between them. */
 #ai-reasoning {
@@ -1597,6 +1609,27 @@ a.back {
 
 #memory-milestones-row[hidden] {
   display: none;
+}
+
+/* Can't be undone: red from the start. */
+button.danger {
+  border-color: #c0392b;
+  color: #c0392b;
+  box-shadow: none;
+}
+
+button.danger:hover {
+  background: #fbe9e7;
+}
+
+#prompts-toggle.open .chevron {
+  margin-top: 3px;
+  transform: rotate(-135deg);
+}
+
+#prompts-toggle .chevron {
+  margin-right: 6px;
+  color: var(--muted);
 }
 
 /* Asks for a second click before deleting. */
