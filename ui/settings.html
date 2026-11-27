@@ -84,6 +84,10 @@
               <select id="birth-day"></select>
             </span>
           </div>
+          <label class="row">
+            <span class="text"><b>过节</b><small>节日和你的生日有专属动画和祝福</small></span>
+            <input type="checkbox" class="switch" data-key="sys.holidays" />
+          </label>
         </div>
         <p class="hint">小贴士：单击逗它，双击表演（开了 AI 聊天就是聊天），来回蹭是摸摸，按住能拎着走，拖文件给它会接住。</p>
       </section>
@@ -105,10 +109,6 @@
             <span class="text"><b>多久没操作它就自己玩</b><small>键盘鼠标这么久没动，它就自己找乐子</small></span>
             <span class="unit"><input type="number" data-key="aloneMinutes" min="1" max="120" />分钟</span>
           </label>
-          <label class="row">
-            <span class="text"><b>久坐提醒</b><small>填 0 关闭</small></span>
-            <span class="unit"><input type="number" data-key="sedentaryMinutes" min="0" max="480" />分钟</span>
-          </label>
         </div>
       </section>
 
@@ -129,6 +129,10 @@
           <label class="row">
             <span class="text"><b>权限审批气泡</b><small>直接在它头顶点「允许 / 拒绝」</small></span>
             <input type="checkbox" class="switch" data-key="bubbles" />
+          </label>
+          <label class="row">
+            <span class="text"><b>请求提示音</b><small>气泡里来了权限请求或提问时，响一声系统的通知音；安静时不响</small></span>
+            <input type="checkbox" class="switch" data-key="permSound" />
           </label>
           <label class="row">
             <span class="text"><b>头顶显示对话进度</b><small>显示 Claude 每段话的第一行，点一下回到那个会话</small></span>
@@ -220,14 +224,14 @@
             <span class="text"><b>允许它看屏幕</b><small>需要时截一张你所在屏幕的图给模型</small></span>
             <input type="checkbox" class="switch" data-key="ai.screen" />
           </label>
-          <label class="row">
-            <span class="text"><b>上网搜索：服务商自带</b><small id="ai-search-note"></small></span>
-            <input type="checkbox" class="switch" data-key="ai.search" />
-          </label>
-          <label class="row">
-            <span class="text"><b>上网搜索：Exa</b><small>哪家模型都能用，还能读搜到的网页；搜索词和要读的网址会发给 Exa；和上一项二选一</small></span>
-            <input type="checkbox" class="switch" data-key="ai.exa" />
-          </label>
+          <div class="row">
+            <span class="text"><b>上网搜索</b><small id="ai-search-note"></small></span>
+            <span class="segmented" id="ai-web">
+              <label><input type="radio" name="ai-web" value="off" /><span>不上网</span></label>
+              <label id="ai-web-own"><input type="radio" name="ai-web" value="own" /><span>服务商自带</span></label>
+              <label><input type="radio" name="ai-web" value="exa" /><span>Exa</span></label>
+            </span>
+          </div>
           <div class="row" id="ai-exa-key-row">
             <span class="text"><b>Exa API 密钥</b><small>不填用免费额度，每天约 50 次；填了按次计费，还能用更深的 deep 搜索 <a id="ai-exa-link" class="link">去申请 ↗</a></small></span>
             <span class="vault" id="ai-exa-vault">
@@ -313,18 +317,19 @@
         </div>
 
         <div class="card">
-          <div class="row">
+          <div class="row stack">
             <span class="text"><b>模型</b><small id="ai-model-note"></small></span>
             <span class="model-pick">
               <span class="add">
                 <select id="ai-model" data-search></select>
                 <button id="ai-fetch">获取列表</button>
+                <button id="ai-test" title="用保存的服务商、密钥和模型打个招呼，看看通不通">试一下</button>
               </span>
               <input type="text" id="ai-model-input" class="wide" placeholder="模型名" spellcheck="false" hidden />
             </span>
           </div>
           <div class="row stack" id="ai-reasoning-row">
-            <span class="text"><b>推理</b></span>
+            <span class="text"><b>推理</b><small id="ai-reasoning-note"></small></span>
             <span class="segmented" id="ai-reasoning"></span>
           </div>
           <div class="error clash-warn" hidden></div>
@@ -357,9 +362,16 @@
             </div>
           </div>
         </div>
-        <h3>完整提示词</h3>
-        <p class="hint">除了上面的身份和人设，聊天时发给模型的其余文字都在这里，按什么时候用分好了组，每次只带上当时用得着的几段。花括号里的词会换成当时的内容。清空就不发这一段，「恢复默认」回到原来的写法。</p>
-        <div id="ai-prompts"></div>
+        <div class="card">
+          <a class="row more" id="prompts-toggle">
+            <span class="text"><b>完整提示词</b><small id="prompts-summary"></small></span>
+            <i class="chevron"></i>
+          </a>
+        </div>
+        <div id="prompts-box" hidden>
+          <p class="hint">除了上面的身份和人设，聊天时发给模型的其余文字都在这里，按什么时候用分好了组，每次只带上当时用得着的几段。花括号里的词会换成当时的内容。清空就不发这一段，「恢复默认」回到原来的写法。</p>
+          <div id="ai-prompts"></div>
+        </div>
       </section>
 
       <!-- ------------------------------------------------ 记忆（AI 聊天的子页面） -->
@@ -383,10 +395,15 @@
             <div class="persona-foot">
               <small id="memory-note-info"></small>
               <button id="memory-dream" class="ghost">现在整理一次</button>
-              <button id="memory-forget" class="ghost">全部忘掉</button>
             </div>
           </div>
           <div id="memory-error" class="error" hidden></div>
+        </div>
+        <div class="card">
+          <div class="row">
+            <span class="text"><b>全部忘掉</b><small>笔记、认识的天数和里程碑、还没说出口的话一起删掉，不能恢复</small></span>
+            <button id="memory-forget" class="danger">全部忘掉</button>
+          </div>
         </div>
         <p class="hint">只记你说的事和你们一起经历的事，不记聊天原文、截图和证件、密码这类信息。整理时笔记会发给你选的服务商。文件在 <code>~/.clawd-pet/memory</code>。</p>
       </section>
@@ -423,10 +440,6 @@
           <label class="row">
             <span class="text"><b>深色 / 浅色模式</b><small>系统主题切换时</small></span>
             <input type="checkbox" class="switch" data-key="sys.theme" />
-          </label>
-          <label class="row">
-            <span class="text"><b>节日</b><small>节日和你的生日有专属动画</small></span>
-            <input type="checkbox" class="switch" data-key="sys.holidays" />
           </label>
         </div>
         <div class="card">

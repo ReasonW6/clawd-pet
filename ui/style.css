@@ -38,6 +38,18 @@ body {
   pointer-events: none;
 }
 
+/* Gives a little under a click. */
+#sprite.squish {
+  animation: squish 0.18s ease-out;
+  transform-origin: 50% 92%;
+}
+
+@keyframes squish {
+  40% {
+    transform: scale(1.05, 0.92);
+  }
+}
+
 /* The crab lives in the lower part of the canvas; only that part is clickable. */
 #pet-hit {
   position: absolute;
@@ -274,7 +286,7 @@ body {
   background: var(--ink);
 }
 
-.speech.done {
+.speech.go {
   cursor: pointer;
 }
 

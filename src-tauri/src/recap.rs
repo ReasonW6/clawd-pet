@@ -80,8 +80,33 @@ static STORE: Mutex<Option<Store>> = Mutex::new(None);
 static OPEN: Mutex<Option<String>> = Mutex::new(None);
 
 pub fn load(path: PathBuf) {
-    let state = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-    *STORE.lock().unwrap() = Some(Store { path, state, dirty: false });
+    let mut state: State = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+    let dirty = drop_scratch(&mut state);
+    *STORE.lock().unwrap() = Some(Store { path, state, dirty });
+}
+
+/// Whether a project name is the folder the desktop app gives a session started
+/// without one, `scratch-2026-11-25-ef6a05`.
+fn scratch(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix("scratch-") else { return false };
+    rest.len() == 17
+        && rest.bytes().enumerate().all(|(i, b)| match i {
+            4 | 7 | 10 => b == b'-',
+            0..=9 => b.is_ascii_digit(),
+            _ => b.is_ascii_hexdigit(),
+        })
+}
+
+/// Earlier versions counted those sessions under their scratch folders; the front end
+/// now sends no project for them. Whether any were dropped.
+fn drop_scratch(state: &mut State) -> bool {
+    let mut dropped = false;
+    for d in state.days.values_mut() {
+        let n = d.projects.len();
+        d.projects.retain(|k, _| !scratch(k));
+        dropped |= d.projects.len() != n;
+    }
+    dropped
 }
 
 /// Writes the file if it changed, whole or not at all. Called every couple of seconds
@@ -210,6 +235,23 @@ mod tests {
         assert!(day_minute("23:59") < day_minute("00:10"));
         assert_eq!(day_minute("24:00"), None);
         assert_eq!(day_minute(""), None);
+    }
+
+    #[test]
+    fn scratch_folders_are_not_projects() {
+        assert!(scratch("scratch-2026-11-25-ef6a05"));
+        assert!(!scratch("scratch"));
+        assert!(!scratch("scratch-notes"));
+        assert!(!scratch("scratch-2026-11-25-zz6a05"));
+        assert!(!scratch("my-scratch-2026-11-25-ef6a05"));
+        let mut state = State::default();
+        let mut d = Day::default();
+        d.projects.insert("pet".into(), [2, 3]);
+        d.projects.insert("scratch-2026-11-25-ef6a05".into(), [1, 1]);
+        state.days.insert("2026-11-25".into(), d);
+        assert!(drop_scratch(&mut state));
+        assert_eq!(state.days["2026-11-25"].projects.keys().collect::<Vec<_>>(), ["pet"]);
+        assert!(!drop_scratch(&mut state));
     }
 
     // One test for everything that goes through the one store, so that tests running

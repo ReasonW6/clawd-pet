@@ -162,12 +162,12 @@ const claude = section(
     row({ when: "某个额度窗口用掉 95%", how: "同上，到 95% 时。", play: ["force", 2500], say: "5 小时额度快见底了（97%，21:30 重置）", code: "ANIMS.quotaOut", slugs: ANIMS.quotaOut }),
 
     sub("完成"),
-    row({ when: "Claude 答完了", how: "<code>Stop</code>，耗时不到 5 分钟。开着「头顶显示对话进度」时，气泡换成 Claude 最后一句话的第一行加一个勾，动画和气泡一起留 15 秒，这期间点气泡或小螃蟹会切到桌面版里的这个会话，然后气泡缩回去；关着时弹「搞定啦」，动画播 2.6 秒。动画只在没有别的会话在忙时播。", play: ["polite", 2600], say: "项目名 搞定啦～", code: "ANIMS.done", slugs: ANIMS.done }),
+    row({ when: "Claude 答完了", how: "<code>Stop</code>，耗时不到 5 分钟。开着「头顶显示对话进度」时，气泡换成 Claude 最后一句话的第一行加一个勾，动画和气泡一起留 15 秒，这期间点气泡或小螃蟹会切到桌面版里的这个会话，然后气泡缩回去；关着时弹「搞定啦」，点它也切过去，动画播 2.6 秒。动画只在没有别的会话在忙时播。", play: ["polite", 2600], say: "项目名 搞定啦～", code: "ANIMS.done", slugs: ANIMS.done }),
     row({ when: "长任务完成", how: "<code>Stop</code>，耗时 5 分钟以上。", play: ["polite", 3500], say: "项目名 跑了 N 分钟，终于搞定啦！", code: "ANIMS.bigDone", slugs: ANIMS.bigDone }),
     row({ when: "睡眠时段里完成", how: "<code>Stop</code> 时正处在睡眠时段。", play: ["polite", 2500], say: "项目名 搞定…困了 💤", code: "ANIMS.sleepyDone", slugs: ANIMS.sleepyDone }),
     row({ when: "你中途叫停", how: "按 Esc 或 Desktop 的停止按钮。中断不触发 <code>Stop</code>，桌宠从会话记录（transcript）里读到中断标记后回到待命，挂着的审批气泡一起收起。不是你发消息开始的那一轮（后台任务回来、桌面版唤醒会话）也算；之后后台子代理的动静不会再让它忙起来。动画只在没有别的会话在忙时播。", play: ["polite", 2000], code: "ANIMS.interrupted", slugs: ANIMS.interrupted }),
-    `<div class="note">干活时的头顶气泡：开着「头顶显示对话进度」时，Claude 每说完一段话（会话记录里多一条），气泡就换成那段话的第一行；几个会话同时在忙时，上面加一行会话名。点气泡右上角的「－」收起，小螃蟹下方的状态标签右边多一个圆点，数字是在忙或刚说完话的会话数（开出去的会话和它的来源算一个），点它再展开；收起状态一直保持到你点圆点。长任务完成和睡眠时段里完成也一样走完成气泡（各自的动画留 15 秒）。</div>`,
-    `<div class="note">完成之后的余韵：任务跑了 1 分钟以上，它会开心 3 分钟；长任务完成会得意 5 分钟（见「它自己的生活 → 情绪」）。如果完成时键鼠已经一阵没动静，「搞定啦」的气泡会一直留着（开着对话进度时则是完成气泡照常 15 秒后收起），等你碰了电脑它再提醒一次「已经搞定啦，快去看看～」。</div>`,
+    `<div class="note">干活时的头顶气泡：开着「头顶显示对话进度」时，Claude 每说完一段话（会话记录里多一条），气泡就换成那段话的第一行；几个会话同时在忙时，上面加一行会话名。点这个气泡会切到桌面版里的那个会话，气泡留着（点小螃蟹还是戳它）。点气泡右上角的「－」收起，小螃蟹下方的状态标签右边多一个圆点，数字是在忙或刚说完话的会话数（开出去的会话和它的来源算一个），点它再展开；收起状态一直保持到你点圆点。长任务完成和睡眠时段里完成也一样走完成气泡（各自的动画留 15 秒）。</div>`,
+    `<div class="note">完成之后的余韵：任务跑了 1 分钟以上，它会开心 3 分钟；长任务完成会得意 5 分钟（见「它自己的生活 → 情绪」）。</div>`,
     `<div class="note">从一个会话开出去的会话（桌面版的 /btw 分支、另开的侧会话）算作同一件事：桌宠从桌面版自己的会话记录里认出它们的来源。标签用最上面那个会话的名字，后面加「分支 ×N」表示有几个开出去的会话在忙；一家子都停下才算完成，在那之前先停下的只显示它最后一句话，不庆祝。刚开出会话的那一轮停下时，先等 8 秒让新会话报到再决定。</div>`,
     `<div class="note">没有动画的情况：会话超过 30 分钟没有任何事件，会当作已结束，直接回到待命。</div>`,
   ],
@@ -263,7 +263,7 @@ const life = section(
     row({ when: "时段结束，起床", how: "先拍闹钟，紧接着做下一行的伸展，然后接上早晨的作息。", play: ["polite", 2200], say: "早上好！新的一天开始啦～ / 睡醒啦，继续开工～", code: "ANIMS.wakeAlarm", slugs: ANIMS.wakeAlarm }),
     row({ when: "做梦", how: "打开了「记忆」时（设置的「AI 聊天」里），每个睡眠时段第一次睡着时在梦里整理记忆：把这些天一起经历的事、聊天时记下的事写进记忆笔记，顺便准备几句接下来想说的话（午睡准备的是当天下午说的）。没有新东西就不整理，也不做梦。整理时，以及整理完后 1 分半钟里，按睡姿轮流演这些梦，每个约 6 秒，之后回到平常的睡觉动画。还有更早的日子没整理的话（电脑夜里关着、通宵没睡，或者熬过了零点），过了凌晨 5 点第一次有动静时补上：那时还睡着就照样演梦，醒着就不演。", play: ["loop"], code: "ANIMS.dreamNight", slugs: ANIMS.dreamNight }),
     row({ when: "做梦（午睡）", how: "同上，午睡时（捧着书打盹的姿势）。", play: ["loop"], code: "ANIMS.dreamNap", slugs: ANIMS.dreamNap }),
-    row({ when: "伸展", how: "起床拍完闹钟之后；以及久坐提醒时（连续在用电脑超过设定的分钟数，默认 60）。", play: ["polite", 2000], say: "已经坐了 N 分钟啦，起来活动一下～", code: "ANIMS.stretch", slugs: ANIMS.stretch }),
+    row({ when: "伸展", how: "起床拍完闹钟之后。", play: ["polite", 2000], code: "ANIMS.stretch", slugs: ANIMS.stretch }),
 
     sub("问候与提醒"),
     row({ when: "桌宠启动", how: "按钟点说早上好 / 中午好 / 下午好 / 晚上好；当天是节日则改播节日动画。", play: ["polite", 1800], say: "下午好～", code: "ANIMS.hello", slugs: ANIMS.hello }),
@@ -308,7 +308,7 @@ const touch = section(
   "四、你和它的互动",
   "直接对小螃蟹做的动作。这些都会打断 Claude 的状态动画，播完再回去。",
   [
-    row({ when: "单击", how: "点一下，等 0.3 秒确认不是双击后播放。三连击、四连击也算这个。AI 聊天开着时，单击是打开输入框。", play: ["force", 1200], code: "ANIMS.click", slugs: ANIMS.click }),
+    row({ when: "单击", how: "点一下，它马上轻轻一弹（不换动画），等 0.3 秒确认不是双击后播放。三连击、四连击也算这个。AI 聊天开着时，单击是打开输入框。", play: ["force", 1200], code: "ANIMS.click", slugs: ANIMS.click }),
     row({ when: "2.5 秒内点满 5 下", how: "第 5 下立刻生气，播完之前不理会更多点击。之后闹 30 秒脾气。开了 AI 聊天时不会发生：点第 2 下就打开聊天了。", play: ["force", 1500], code: "ANIMS.clickSpam", slugs: ANIMS.clickSpam }),
     row({ when: "摸摸", how: "不按键，鼠标在它身上左右来回蹭（1.2 秒内连续变向 4 次）。4 秒内不重复触发，睡着时无效。之后 30 秒钟它是「被宠着」的心情。", play: ["force", 1800], code: "ANIMS.petted", slugs: ANIMS.petted }),
     row({ when: "鼠标停在它身上", how: "悬停 2.5 秒且 Claude 没在忙（它自己的场景会被打断）。30 秒内不重复。", play: ["polite", 1500], code: "ANIMS.noticed", slugs: ANIMS.noticed }),
@@ -328,7 +328,10 @@ const touch = section(
     row({ when: "聊天：回复中", how: "回复一个字一个字打出来的时候。", play: ["loop"], code: "ANIMS.chatTyping", slugs: ANIMS.chatTyping }),
     row({ when: "聊天：回复留在头顶", how: "回完了、输入框没开着，直到关掉聊天。没在回复、输入框也没开着（或者开着但空着、你点去了别处）满 4 分钟，聊天会自己关掉。", play: ["loop"], code: "ANIMS.chatIdle", slugs: ANIMS.chatIdle }),
     row({ when: "聊天：看一眼屏幕", how: "模型觉得要看你的屏幕、调用截图工具时（设置里允许看屏幕才有）。回复上会标出「看了一眼屏幕」。", play: ["force", 0], code: "ANIMS.chatSnap", slugs: ANIMS.chatSnap }),
+    row({ when: "聊天：上网搜索", how: "模型每搜一次（服务商自带的搜索，或 Exa），搜索期间都播这个，搜完回到原来的样子。回复上的标记跟着变：第一次「搜一下…」，之后「搜第 N 次…」，结束后「搜了 N 次」，一次都没搜成就是「没搜成」。打开用户发的链接也算，标成「打开链接…」「看了链接」。", play: ["loop"], code: "ANIMS.chatSearch", slugs: ANIMS.chatSearch }),
+    row({ when: "聊天：读网页", how: "用 Exa 读搜到的网页时，每读一批都播这个。回复上标「读网页…」，读完是「读了网页」或「读了 N 次网页」。", play: ["loop"], code: "ANIMS.chatRead", slugs: ANIMS.chatRead }),
     `<div class="note">不走固定动画的操作：<b>双击</b>（没开 AI 聊天时）和右键菜单的<b>「随机来一段」</b>从随机惊喜的范围里抽一个播 2.5 秒以上；设置里的<b>动画图鉴</b>点哪个已收集的就播哪个（没收集到的不播，图鉴里点着看的也不算收集）；<b>右键</b>弹菜单；<b>托盘图标</b>单击显示/隐藏、双击打开设置。</div>`,
+    `<div class="note">右键菜单的<b>「安静一小时」</b>：这一小时里不演场景和小动作，不对系统事件、前台应用和 Git 反应，不说早安晚安、饭点和节日的话，不提起做梦时准备的话，不举每周小结卡片，长任务中间也不喝咖啡；Claude 说的话、完成的气泡和动画都不显示（任务照样记进回顾和记忆）。权限请求、提问和出错照常弹出，请求提示音不响。睡觉照常，只是不说晚安。到点自己结束，菜单里也能提前取消；鼠标放在它身上能看到还剩几分钟。</div>`,
   ],
 );
 

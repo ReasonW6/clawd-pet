@@ -63,7 +63,7 @@
   <h1>Clawd Pet 动画触发一览</h1>
   <p>每个动画什么时候播、怎么触发、播多久。动画列表直接取自 <code>ui/anims.js</code>，改完后运行 <code>npm run triggers</code> 重新生成本页。</p>
   <div class="stats">
-    <div class="stat"><b>181</b>个触发时机</div>
+    <div class="stat"><b>183</b>个触发时机</div>
     <div class="stat"><b>446</b>个动画有固定戏份</div>
     <div class="stat"><b>9</b>个只随机出现</div>
     <div class="stat"><b>455</b>个动画总数</div>
@@ -571,7 +571,7 @@
 <div class="row">
   <div class="info">
     <h4>Claude 答完了</h4>
-    <p><code>Stop</code>，耗时不到 5 分钟。开着「头顶显示对话进度」时，气泡换成 Claude 最后一句话的第一行加一个勾，动画和气泡一起留 15 秒，这期间点气泡或小螃蟹会切到桌面版里的这个会话，然后气泡缩回去；关着时弹「搞定啦」，动画播 2.6 秒。动画只在没有别的会话在忙时播。</p>
+    <p><code>Stop</code>，耗时不到 5 分钟。开着「头顶显示对话进度」时，气泡换成 Claude 最后一句话的第一行加一个勾，动画和气泡一起留 15 秒，这期间点气泡或小螃蟹会切到桌面版里的这个会话，然后气泡缩回去；关着时弹「搞定啦」，点它也切过去，动画播 2.6 秒。动画只在没有别的会话在忙时播。</p>
     <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.8–4 秒</span><span class="say">💬 项目名 搞定啦～</span></p>
     <code>ANIMS.done</code>
   </div>
@@ -604,8 +604,8 @@
   </div>
   <div class="thumbs"><figure title="cos_crossing_guard · 2.1s"><img loading="lazy" src="../ui/assets/clawd/cos_crossing_guard.gif" alt=""><figcaption>导护员举牌</figcaption></figure><figure title="desk_flail · 1.4s"><img loading="lazy" src="../ui/assets/clawd/desk_flail.gif" alt=""><figcaption>从椅子上蹦起</figcaption></figure></div>
 </div>
-<div class="note">干活时的头顶气泡：开着「头顶显示对话进度」时，Claude 每说完一段话（会话记录里多一条），气泡就换成那段话的第一行；几个会话同时在忙时，上面加一行会话名。点气泡右上角的「－」收起，小螃蟹下方的状态标签右边多一个圆点，数字是在忙或刚说完话的会话数（开出去的会话和它的来源算一个），点它再展开；收起状态一直保持到你点圆点。长任务完成和睡眠时段里完成也一样走完成气泡（各自的动画留 15 秒）。</div>
-<div class="note">完成之后的余韵：任务跑了 1 分钟以上，它会开心 3 分钟；长任务完成会得意 5 分钟（见「它自己的生活 → 情绪」）。如果完成时键鼠已经一阵没动静，「搞定啦」的气泡会一直留着（开着对话进度时则是完成气泡照常 15 秒后收起），等你碰了电脑它再提醒一次「已经搞定啦，快去看看～」。</div>
+<div class="note">干活时的头顶气泡：开着「头顶显示对话进度」时，Claude 每说完一段话（会话记录里多一条），气泡就换成那段话的第一行；几个会话同时在忙时，上面加一行会话名。点这个气泡会切到桌面版里的那个会话，气泡留着（点小螃蟹还是戳它）。点气泡右上角的「－」收起，小螃蟹下方的状态标签右边多一个圆点，数字是在忙或刚说完话的会话数（开出去的会话和它的来源算一个），点它再展开；收起状态一直保持到你点圆点。长任务完成和睡眠时段里完成也一样走完成气泡（各自的动画留 15 秒）。</div>
+<div class="note">完成之后的余韵：任务跑了 1 分钟以上，它会开心 3 分钟；长任务完成会得意 5 分钟（见「它自己的生活 → 情绪」）。</div>
 <div class="note">从一个会话开出去的会话（桌面版的 /btw 分支、另开的侧会话）算作同一件事：桌宠从桌面版自己的会话记录里认出它们的来源。标签用最上面那个会话的名字，后面加「分支 ×N」表示有几个开出去的会话在忙；一家子都停下才算完成，在那之前先停下的只显示它最后一句话，不庆祝。刚开出会话的那一轮停下时，先等 8 秒让新会话报到再决定。</div>
 <div class="note">没有动画的情况：会话超过 30 分钟没有任何事件，会当作已结束，直接回到待命。</div></section>
 <section id="life"><h2>二、它自己的生活</h2><p class="intro">Claude 没活给它的时候，它过自己的日子：演完一个<b>场景</b>，歇一会儿，再演下一个。一个场景由一到几个动画按顺序接成（图里的箭头就是顺序），循环的那几步平分 20–50 秒，标了 ×N 的只播 N 遍；只有一个动画的场景播 20–30 秒。歇多久由「活跃度」决定：悠闲 30–70 秒（约三分之一时间在活动），活泼 10–25 秒（约六成），闹腾 3–8 秒（约八成），安静则只待着不演场景。任何别的事（Claude 开工、你逗它、系统事件）都会打断当前场景，之后至少安静 6 秒再接着过日子。</p><h3>下一个场景怎么抽</h3>
@@ -1062,8 +1062,8 @@
 <div class="row">
   <div class="info">
     <h4>伸展</h4>
-    <p>起床拍完闹钟之后；以及久坐提醒时（连续在用电脑超过设定的分钟数，默认 60）。</p>
-    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.5–2.6 秒</span><span class="say">💬 已经坐了 N 分钟啦，起来活动一下～</span></p>
+    <p>起床拍完闹钟之后。</p>
+    <p class="meta"><span class="badge polite" title="Claude 正忙、或开着 AI 聊天时不显示">一次性 · 让路</span><span class="dur">2.5–2.6 秒</span></p>
     <code>ANIMS.stretch</code>
   </div>
   <div class="thumbs"><figure title="stretch_tall · 1.3s"><img loading="lazy" src="../ui/assets/clawd/stretch_tall.gif" alt=""><figcaption>拉长跳</figcaption></figure><figure title="sport_warmup · 2.5s"><img loading="lazy" src="../ui/assets/clawd/sport_warmup.gif" alt=""><figcaption>热身拉伸</figcaption></figure><figure title="sport_jumping_jacks · 0.9s"><img loading="lazy" src="../ui/assets/clawd/sport_jumping_jacks.gif" alt=""><figcaption>开合跳</figcaption></figure></div>
@@ -1289,7 +1289,7 @@
 <section id="touch"><h2>四、你和它的互动</h2><p class="intro">直接对小螃蟹做的动作。这些都会打断 Claude 的状态动画，播完再回去。</p><div class="row">
   <div class="info">
     <h4>单击</h4>
-    <p>点一下，等 0.3 秒确认不是双击后播放。三连击、四连击也算这个。AI 聊天开着时，单击是打开输入框。</p>
+    <p>点一下，它马上轻轻一弹（不换动画），等 0.3 秒确认不是双击后播放。三连击、四连击也算这个。AI 聊天开着时，单击是打开输入框。</p>
     <p class="meta"><span class="badge force" title="立刻播放，Claude 正忙也会插进来">一次性 · 会打断</span><span class="dur">1.4–2.2 秒</span></p>
     <code>ANIMS.click</code>
   </div>
@@ -1442,7 +1442,26 @@
   </div>
   <div class="thumbs"><figure title="chat_snap · 2.7s"><img loading="lazy" src="../ui/assets/clawd/chat_snap.gif" alt=""><figcaption>看一眼屏幕</figcaption></figure></div>
 </div>
-<div class="note">不走固定动画的操作：<b>双击</b>（没开 AI 聊天时）和右键菜单的<b>「随机来一段」</b>从随机惊喜的范围里抽一个播 2.5 秒以上；设置里的<b>动画图鉴</b>点哪个已收集的就播哪个（没收集到的不播，图鉴里点着看的也不算收集）；<b>右键</b>弹菜单；<b>托盘图标</b>单击显示/隐藏、双击打开设置。</div></section>
+<div class="row">
+  <div class="info">
+    <h4>聊天：上网搜索</h4>
+    <p>模型每搜一次（服务商自带的搜索，或 Exa），搜索期间都播这个，搜完回到原来的样子。回复上的标记跟着变：第一次「搜一下…」，之后「搜第 N 次…」，结束后「搜了 N 次」，一次都没搜成就是「没搜成」。打开用户发的链接也算，标成「打开链接…」「看了链接」。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.chatSearch</code>
+  </div>
+  <div class="thumbs"><figure title="cc_web_search · 4.5s"><img loading="lazy" src="../ui/assets/clawd/cc_web_search.gif" alt=""><figcaption>网页搜索</figcaption></figure></div>
+</div>
+<div class="row">
+  <div class="info">
+    <h4>聊天：读网页</h4>
+    <p>用 Exa 读搜到的网页时，每读一批都播这个。回复上标「读网页…」，读完是「读了网页」或「读了 N 次网页」。</p>
+    <p class="meta"><span class="badge loop" title="状态持续多久就播多久">循环</span></p>
+    <code>ANIMS.chatRead</code>
+  </div>
+  <div class="thumbs"><figure title="cc_web_read · 4.4s"><img loading="lazy" src="../ui/assets/clawd/cc_web_read.gif" alt=""><figcaption>读网页</figcaption></figure></div>
+</div>
+<div class="note">不走固定动画的操作：<b>双击</b>（没开 AI 聊天时）和右键菜单的<b>「随机来一段」</b>从随机惊喜的范围里抽一个播 2.5 秒以上；设置里的<b>动画图鉴</b>点哪个已收集的就播哪个（没收集到的不播，图鉴里点着看的也不算收集）；<b>右键</b>弹菜单；<b>托盘图标</b>单击显示/隐藏、双击打开设置。</div>
+<div class="note">右键菜单的<b>「安静一小时」</b>：这一小时里不演场景和小动作，不对系统事件、前台应用和 Git 反应，不说早安晚安、饭点和节日的话，不提起做梦时准备的话，不举每周小结卡片，长任务中间也不喝咖啡；Claude 说的话、完成的气泡和动画都不显示（任务照样记进回顾和记忆）。权限请求、提问和出错照常弹出，请求提示音不响。睡觉照常，只是不说晚安。到点自己结束，菜单里也能提前取消；鼠标放在它身上能看到还剩几分钟。</div></section>
 <section id="system"><h2>五、系统联动</h2><p class="intro">对你在 Claude Code 之外的操作做反应。全部是「一次性 · 让路」：Claude 正忙时不显示，它睡着时不理会。同一种事件默认 20 秒内只反应一次。每项都能在设置的「系统联动」里单独关掉。status、fetch、log 这类编辑器在后台反复执行的 git 命令，以及别的 git 命令派生出来的子命令，都不触发。</p><div class="row">
   <div class="info">
     <h4>文件进了文件夹</h4>

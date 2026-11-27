@@ -357,9 +357,24 @@ function onDream(on) {
 // watching a video; either way the pet entertains itself.
 let leftAlone = false;
 let aloneSince = 0;
-let presentSince = now();
-/** Projects that finished while it was left alone, kept on show until the user is back. */
-let unseenDone = [];
+
+// An hour of quiet, from the menu (main.rs): no scenes, chatter or reactions of its own
+// and no words over its head; what Claude asks still shows. Ends by itself.
+let quietUntil = 0;
+let quietTimer = 0;
+const quiet = () => now() < quietUntil;
+
+function setQuiet(until) {
+  quietUntil = until;
+  clearTimeout(quietTimer);
+  if (quiet()) {
+    toast("好，我安静待一个小时～", { ms: 2500 });
+    quietTimer = setTimeout(() => setQuiet(0), until - now());
+  }
+  renderBubble();
+  renderLabel();
+  queueHitRects();
+}
 
 let dragging = false;
 let dragAnim = null;
@@ -637,7 +652,9 @@ function familyDone(s, took) {
     return;
   }
   remember("task", { project: name, minutes: Math.round(took / MIN) });
-  recap("task", { project: name, minutes: Math.round(took / MIN) });
+  // A session with no folder of its own counts as a task, not under any project.
+  recap("task", { project: inFolder(rootOf(s)) ? name : "", minutes: Math.round(took / MIN) });
+  if (quiet()) return;
 
   let [text, ms, anims, minMs] = [`${name} 搞定啦～`, TOAST_MS, ANIMS.done, 2600];
   if (sleepWindowAt(new Date())) {
@@ -649,21 +666,13 @@ function familyDone(s, took) {
     feel("happy", 3);
   }
   if (config.replies && s.reply) {
-    // Its last words, ticked, with the done animation for a while; onBack still
-    // tells a user who was away.
-    if (leftAlone) unseenDone.push(name);
+    // Its last words, ticked, with the done animation for a while.
     say(s, true);
     if (!anyBusy()) speech.anim = pick(anims);
     if (speech.anim) playOnce(speech.anim, { minMs: DONE_SHOW_MS });
     return;
   }
-  if (leftAlone) {
-    // Maybe nobody is looking: keep the news up until the user touches the computer again.
-    unseenDone.push(name);
-    toast(`${[...new Set(unseenDone)].join("、")} 搞定啦～`, { sticky: true });
-  } else {
-    toast(text, { ms });
-  }
+  toast(text, { ms, onClick: () => goTo(s) });
   if (!anyBusy()) playOnce(pick(anims), { minMs });
 }
 
@@ -736,11 +745,14 @@ function renderDot() {
   dot.textContent = n > 99 ? "99+" : String(n);
 }
 
+/** Over to this session in the desktop app; other sessions can't be gone to. Must run
+ *  in the click handler itself (claude_app.rs). */
+const goTo = (s) => s && fromDesktop(s) && invoke("focus_claude", { title: s.title || null });
+
 /** A click on finished words or on the pet under them: back to that session. */
 function followSpeech() {
   if (!speech?.done || speech.leaving) return false;
-  const s = sessions.get(speech.sid);
-  if (s && fromDesktop(s)) invoke("focus_claude", { title: s.title || null });
+  goTo(sessions.get(speech.sid));
   if (speech.anim && oneShot?.slug === speech.anim) {
     clearTimeout(oneShotTimer);
     oneShot = null;
@@ -795,7 +807,7 @@ function fallAsleep(win) {
   // The first time in a window, as opposed to dozing off again after being woken.
   const first = tuckedIn !== key;
   tuckedIn = key;
-  if (first && config.chatty) toast(nap ? "午休时间，我眯一会儿～" : `我先睡啦${nick()}，你也早点休息哦～ 💤`);
+  if (first && config.chatty && !quiet()) toast(nap ? "午休时间，我眯一会儿～" : `我先睡啦${nick()}，你也早点休息哦～ 💤`);
   // Its first sleep in a window is when it goes over its memory; the dream animations
   // play only if that asks the model (the "dream" event).
   if (first && memOn()) invoke("memory_dream", { day: memDay(), now: nowText(), why: nap ? "nap" : "night" });
@@ -819,7 +831,7 @@ function wakeUp(date) {
     minMs: 2200,
     then: () => playOnce(pick(ANIMS.stretch), { minMs: 2000 }),
   });
-  if (!config.chatty) return;
+  if (!config.chatty || quiet()) return;
   const hello = date.getHours() < 11 ? `早上好${nick()}！新的一天开始啦～` : "睡醒啦，继续开工～";
   // Something it prepared in its dream, if it did.
   bringUp(date.getHours() < 11 ? "morning" : "anytime").then((said) => said || toastText || toast(hello));
@@ -941,7 +953,7 @@ function tick() {
 
   // A coffee break now and then during long tasks.
   const lead = leader();
-  if (lead && lead.turnStart && t > lead.nextBreak && (lead.state === "working" || lead.state === "thinking") && !perms.length) {
+  if (lead && lead.turnStart && t > lead.nextBreak && (lead.state === "working" || lead.state === "thinking") && !perms.length && !quiet()) {
     lead.nextBreak = t + LONG_TASK_BREAK_MS;
     playOnce(pick(ANIMS.longTask), { force: true, minMs: 3000 });
   }
@@ -956,18 +968,14 @@ function tick() {
     else if (t - chat.quietSince >= CHAT_IDLE_MS) closeChat();
   }
 
-  const quiet = !lead && !perms.length && !oneShot && !dragging && !chat;
-  if (!quiet) nextSceneAt = Math.max(nextSceneAt, t + CALM_AFTER_MS);
+  const calm = !lead && !perms.length && !oneShot && !dragging && !chat;
+  if (!calm) nextSceneAt = Math.max(nextSceneAt, t + CALM_AFTER_MS);
   const win = sleepWindowAt(d);
   if (asleep && !win) {
     wakeUp(d);
-  } else if (!asleep && win && quiet && t > awakeUntil) {
+  } else if (!asleep && win && calm && t > awakeUntil) {
     fallAsleep(win);
-  } else if (!asleep && !leftAlone && !chat && config.sedentaryMinutes > 0 && t - presentSince >= config.sedentaryMinutes * MIN) {
-    presentSince = t;
-    playOnce(pick(ANIMS.stretch), { minMs: 3000 });
-    toast(`已经坐了 ${config.sedentaryMinutes} 分钟啦，起来活动一下～`, { ms: 7000 });
-  } else if (!asleep && !win && quiet) {
+  } else if (!asleep && !win && calm && !quiet()) {
     idleLife(t, d);
   }
   render();
@@ -1103,7 +1111,7 @@ function onUserEvent({ kind, detail }) {
 }
 
 function reactTo(key, def) {
-  if (!def || asleep) return;
+  if (!def || asleep || quiet()) return;
   const t = now();
   if (t < (cooldowns[key] || 0)) return;
   cooldowns[key] = t + (def.cooldown || 20) * 1000;
@@ -1115,10 +1123,6 @@ function reactTo(key, def) {
  *  been getting on with its own life meanwhile, so it doesn't drop it to say hello. */
 function onBack() {
   leftAlone = false;
-  presentSince = now();
-  const names = [...new Set(unseenDone)].join("、");
-  unseenDone = [];
-  if (names) toast(`${names} 已经搞定啦，快去看看～`, { ms: 9000 });
   render();
 }
 
@@ -1143,6 +1147,10 @@ function projectName(s) {
   if (wt > 0) return parts[wt - 1];
   return parts[parts.length - 1] || "会话";
 }
+
+/** Whether the session works in a folder of the user's: the desktop app runs one
+ *  started without a folder in <data dir>\scratch-workspaces\...\scratch-<date>-<id>. */
+const inFolder = (s) => Boolean(s.cwd) && !/[\\/]scratch-workspaces[\\/]/i.test(s.cwd);
 
 /** The session's title (as in the Desktop app's sidebar, or set by /rename), else where it runs. */
 function sessionName(s) {
@@ -1210,6 +1218,8 @@ function renderLabel() {
     const root = rootOf(lead);
     const forks = busyKin(root).length;
     text = `${sessionName(root)} · ${stateText(lead)}${forks ? ` · 分支 ×${forks}` : ""}`;
+  } else if (petHit.matches(":hover") && quiet()) {
+    text = `安静中 🤫 还剩 ${Math.ceil((quietUntil - now()) / MIN)} 分钟`;
   } else if (petHit.matches(":hover")) {
     // What the pet is up to on its own, and how it feels.
     text = asleep ? (dreamSlug() ? "做梦中 💭" : "睡觉中 💤") : [manifest[currentSlug]?.zh, MOODS[mood()]?.label].filter(Boolean).join(" · ");
@@ -1567,7 +1577,7 @@ function drawBubble() {
     bubble.hidden = false;
     return;
   }
-  if (speech && !folded && !tucked()) {
+  if (speech && !folded && !tucked() && !quiet()) {
     // Whose words, when more than one session is going.
     const s = sessions.get(speech.sid);
     const busy = [...sessions.values()].filter((x) => x.state !== "idle" && x !== s).length;
@@ -1591,7 +1601,10 @@ function drawBubble() {
       fold();
     };
     card.append(close);
-    card.onclick = followSpeech;
+    // Words of a turn still going stay up when clicked; only the session comes forward.
+    const sid = speech.sid;
+    card.onclick = speech.done ? followSpeech : () => goTo(sessions.get(sid));
+    card.classList.toggle("go", Boolean(speech.done || (s && fromDesktop(s))));
     bubble.append(card);
     bubble.hidden = false;
     return;
@@ -2211,6 +2224,7 @@ function onDragEnd() {
 // once, and it ignores further clicks until that tantrum has played out.
 function onPetClick() {
   const t = now();
+  squish();
   // A click on it peeking out from behind an edge brings it out.
   if (tucked()) return leavePeek();
   if (chat) return chatPoke();
@@ -2246,6 +2260,14 @@ function onPetClick() {
     if (n === 2) playRandom();
     else playOnce(pick(ANIMS.click), { force: true, minMs: 1200 });
   }, CLICK_SETTLE_MS);
+}
+
+/** A little give under the click, at once: what the click does comes once it's clear
+ *  that no second one follows. */
+function squish() {
+  sprite.classList.remove("squish");
+  void sprite.offsetWidth; // restarts the animation
+  sprite.classList.add("squish");
 }
 
 function playRandom() {
@@ -2579,7 +2601,7 @@ function sendChat(m) {
   m.body.replaceChildren(el("div", "text", text));
   // ...and the reply comes up from below, pushing it up.
   const r = addMsg("ai");
-  Object.assign(r, { full: "", shown: "", buffer: "", chip: null, text: null, looked: false, blind: false, searched: null, read: false, searching: false, reading: false, remembered: false, ended: false, error: null });
+  Object.assign(r, { full: "", shown: "", buffer: "", chip: null, text: null, looked: false, blind: false, web: [], remembered: false, ended: false, error: null });
   r.body.append(dots());
   chat.reply = r;
   // Once a chat, even if its first question goes unanswered and out of the log.
@@ -2612,20 +2634,30 @@ function setChip(r, text) {
   layoutChat();
 }
 
-/** What the reply went and did on the way: under way until its text comes in, or it ends. */
+/** What the reply went and did on the way. The screenshot is under way until its text
+ *  comes in, or it ends; going online, each time, from "web-start" to its end. */
 function chipFor(r) {
   const done = Boolean(r.text) || r.ended;
   const sight = r.blind ? "🙈 这个模型看不了图" : r.looked && (done ? "👀 看了一眼屏幕" : "👀 瞄一眼屏幕…");
-  // Exa's searches and reads are marked as they start, and only count once one came
-  // back; none did by the end, and the mark says so.
-  const web =
-    r.searched === "link" ? (done ? "🔗 看了链接" : "🔗 打开链接…")
-    : r.searched ? (done ? "🔎 搜了一下" : "🔎 搜一下…")
-    : r.searching && (r.ended ? "🔎 没搜成" : "🔎 搜一下…");
-  const read = r.read ? (done ? "📖 读了网页" : "📖 读网页…") : r.reading && (r.ended ? "📖 没读成" : "📖 读网页…");
+  const web = ["search", "link", "read"].map((how) => webWords(r, how));
   const memo = r.remembered && "📝 记下了";
   const set = r.set && "⚙️ 改了设置";
-  return [sight, web, read, memo, set].filter(Boolean).join(" · ");
+  return [sight, ...web, memo, set].filter(Boolean).join(" · ");
+}
+
+/** One way of going online ("search", "link", "read") in a few words: which time it is
+ *  while one is under way, then how many came back, or that none did. */
+function webWords(r, how) {
+  const all = r.web.filter((w) => w.how === how);
+  const n = all.length;
+  const got = all.filter((w) => w.state === "done").length;
+  if (!n) return "";
+  if (all.some((w) => w.state === "busy")) {
+    return { search: n > 1 ? `🔎 搜第 ${n} 次…` : "🔎 搜一下…", link: "🔗 打开链接…", read: n > 1 ? "📖 接着读网页…" : "📖 读网页…" }[how];
+  }
+  if (!got) return { search: "🔎 没搜成", link: "🔗 没打开链接", read: "📖 没读成" }[how];
+  if (got === 1) return { search: "🔎 搜了一下", link: "🔗 看了链接", read: "📖 读了网页" }[how];
+  return { search: `🔎 搜了 ${got} 次`, link: `🔗 看了 ${got} 个链接`, read: `📖 读了 ${got} 次网页` }[how];
 }
 
 function onAi({ id, kind, text }) {
@@ -2644,6 +2676,30 @@ function onAi({ id, kind, text }) {
     r.buffer += text;
     typing.add(r);
     typeOn();
+  } else if (kind === "unsay") {
+    // What came last was the model thinking, unmarked until it ended: back to `text`,
+    // which is what came before it.
+    if (!r.text) return;
+    r.full = text;
+    if (!text) {
+      // Nothing said yet after all: thinking dots again, till the answer comes.
+      r.text.remove();
+      r.text = null;
+      r.shown = r.buffer = "";
+      r.body.append(dots());
+      chat.phase = "waiting";
+      layoutChat();
+      render();
+      return;
+    }
+    r.shown = r.shown.slice(0, Math.min(r.shown.length, text.length));
+    r.buffer = text.slice(r.shown.length);
+    showReply(r);
+    if (r.buffer) {
+      typing.add(r);
+      typeOn();
+    }
+    layoutChat();
   } else if (kind === "look") {
     r.looked = true;
     chat.looked = true;
@@ -2652,19 +2708,18 @@ function onAi({ id, kind, text }) {
   } else if (kind === "blind") {
     r.blind = true;
     setChip(r, chipFor(r));
-  } else if (kind === "search") {
-    r.searched = text === "link" ? "link" : "search";
+  } else if (kind === "web-start") {
+    // What it asked went out, whether or not anything comes back. The pet looks it up
+    // meanwhile (chatSlug).
+    r.web.push({ how: text, state: "busy" });
     chat.searched = true;
     setChip(r, chipFor(r));
-  } else if (kind === "read") {
-    r.read = true;
-    chat.searched = true;
+    render();
+  } else if (kind === "web-done" || kind === "web-fail") {
+    const w = r.web.find((x) => x.how === text && x.state === "busy");
+    if (w) w.state = kind === "web-done" ? "done" : "fail";
     setChip(r, chipFor(r));
-  } else if (kind === "searching" || kind === "reading") {
-    // What it asked went out, whether or not anything came back.
-    r[kind] = true;
-    chat.searched = true;
-    setChip(r, chipFor(r));
+    render();
   } else if (kind === "remember") {
     r.remembered = true;
     setChip(r, chipFor(r));
@@ -2673,6 +2728,8 @@ function onAi({ id, kind, text }) {
     setChip(r, chipFor(r));
   } else if (kind === "done" || kind === "error") {
     r.ended = true;
+    // Cut off on the way: nothing came of it.
+    for (const w of r.web) if (w.state === "busy") w.state = "fail";
     r.error = kind === "error" ? text : null;
     r.refused = kind === "done" && text === "refused";
     if (r.chip) setChip(r, chipFor(r));
@@ -2925,6 +2982,8 @@ function frame(t) {
 /** What the pet does while chatting, all at one desk. */
 function chatSlug() {
   if (chat.stack.some((m) => m.kind === "compose")) return ANIMS.chatListen[0];
+  const web = chat.reply?.web.find((w) => w.state === "busy");
+  if (web) return (web.how === "read" ? ANIMS.chatRead : ANIMS.chatSearch)[0];
   if (chat.phase === "waiting") return ANIMS.chatPonder[0];
   if (chat.phase === "typing") return ANIMS.chatTyping[0];
   return ANIMS.chatIdle[0];
@@ -2999,6 +3058,7 @@ async function boot() {
       if (!req.ask) return invoke("resolve_permission", { id: req.id, body: "" });
     }
     stir(AWAKE_AFTER_WORK_MS);
+    if (config.permSound && shown && !quiet()) invoke("chime");
     perms.push(req);
     const s = session(e.payload.payload);
     if (s.state !== "waiting") wait(s);
@@ -3041,6 +3101,8 @@ async function boot() {
   onEdges(await invoke("get_edges"));
   await listen("config", (e) => applyConfig(e.payload));
   await listen("play-random", () => playRandom());
+  await listen("quiet", (e) => setQuiet(e.payload));
+  await listen("open-chat", () => config.ai.enabled && openChat());
   await listen("shown", (e) => setShown(e.payload));
   await listen("play", (e) => {
     stir(AWAKE_AFTER_POKE_MS);

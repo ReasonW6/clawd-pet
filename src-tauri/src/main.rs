@@ -118,6 +118,10 @@ fn apply_config(app: &AppHandle, state: &AppState, mut config: Config, settings:
             resize_anchored(&w, window_size(&old), window_size(&config));
         }
     }
+    // The tray's menu has "和它聊天" only with the chat on.
+    if old.ai.enabled != config.ai.enabled {
+        refresh_tray(app);
+    }
     if old.sys != config.sys {
         state.rewatch();
     }
@@ -171,13 +175,6 @@ pub fn change_setting(app: &AppHandle, key: &str, value: &serde_json::Value) -> 
             config.liveliness = number(0, 3)? as u8;
             format!("活跃度改成了「{}」", ["安静", "悠闲", "活泼", "闹腾"][config.liveliness as usize])
         }
-        "sedentaryMinutes" => {
-            config.sedentary_minutes = number(0, 480)?;
-            match config.sedentary_minutes {
-                0 => "关掉了久坐提醒".to_owned(),
-                n => format!("久坐提醒改成了 {n} 分钟"),
-            }
-        }
         "sleepEnabled" => {
             config.sleep_enabled = switch()?;
             format!("{}了按时睡觉", on_off(config.sleep_enabled))
@@ -213,6 +210,48 @@ fn birthday(s: &str) -> Option<String> {
 #[tauri::command]
 fn focus_claude(title: Option<String>) {
     claude_app::focus(title);
+}
+
+/// The system's notification sound, as the user's sound scheme has it (none if it has
+/// none), for a permission request that came in.
+#[tauri::command]
+fn chime() {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ALIAS, SND_ASYNC, SND_NODEFAULT};
+        let name: Vec<u16> = "Notification.Default\0".encode_utf16().collect();
+        unsafe {
+            PlaySoundW(name.as_ptr(), std::ptr::null_mut(), SND_ALIAS | SND_ASYNC | SND_NODEFAULT);
+        }
+    }
+}
+
+/// Until when the pet keeps quiet (ms since 1970), from the menu: no scenes, chatter or
+/// reactions of its own, no words over its head; requests from Claude still show.
+static QUIET_UNTIL: AtomicU64 = AtomicU64::new(0);
+const QUIET_MS: u64 = 60 * 60 * 1000;
+
+fn epoch_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+}
+
+/// Starts or ends an hour of quiet, tells the page, and puts the menu right again when
+/// the hour is up.
+fn toggle_quiet(app: &AppHandle) {
+    let now = epoch_ms();
+    let until = if QUIET_UNTIL.load(Ordering::SeqCst) > now { 0 } else { now + QUIET_MS };
+    QUIET_UNTIL.store(until, Ordering::SeqCst);
+    let _ = app.emit_to("main", "quiet", until);
+    refresh_tray(app);
+    if until > 0 {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(QUIET_MS));
+            if QUIET_UNTIL.load(Ordering::SeqCst) == until {
+                refresh_tray(&app);
+            }
+        });
+    }
 }
 
 /// `body`: where the pet itself is, which is kept on the screen (edges.rs).
@@ -502,6 +541,13 @@ async fn ai_models(provider: String, state: State<'_, AppState>) -> Result<Vec<S
     ai::models(ai, provider).await
 }
 
+/// The settings page's "试一下": a hello with the saved provider, key and model.
+#[tauri::command]
+async fn ai_test(state: State<'_, AppState>) -> Result<String, String> {
+    let ai = state.config.lock().unwrap().ai.clone();
+    ai::test(&ai).await
+}
+
 #[tauri::command]
 fn ai_key_page(provider: String) {
     ai::open_key_page(&provider);
@@ -595,17 +641,28 @@ fn chat_focus(window: WebviewWindow) {
 
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let visible = main_window(app).and_then(|w| w.is_visible().ok()).unwrap_or(true);
-    Menu::with_items(
+    let chat = app.state::<AppState>().config.lock().unwrap().ai.enabled;
+    let left = QUIET_UNTIL.load(Ordering::SeqCst).saturating_sub(epoch_ms());
+    let quiet = if left > 0 { format!("不用安静了（还剩 {} 分钟）", left.div_ceil(60_000)) } else { "安静一小时".to_owned() };
+    let menu = Menu::with_items(
         app,
         &[
             &MenuItem::with_id(app, "toggle_visible", if visible { "隐藏桌宠" } else { "显示桌宠" }, true, None::<&str>)?,
             &MenuItem::with_id(app, "random", "随机来一段", true, None::<&str>)?,
             &peek_item(app)?,
+            &MenuItem::with_id(app, "quiet", quiet, true, None::<&str>)?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, "recap", "回顾…", true, None::<&str>)?,
             &MenuItem::with_id(app, "settings", "设置…", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?,
         ],
-    )
+    )?;
+    // With the AI chat on, it comes first.
+    if chat {
+        menu.insert(&MenuItem::with_id(app, "chat", "和它聊天", true, None::<&str>)?, 0)?;
+    }
+    Ok(menu)
 }
 
 /// Tucking the pet behind the nearer side of the screen it can hide behind, or bringing
@@ -685,6 +742,12 @@ fn on_menu(app: &AppHandle, id: &str) {
         "random" => {
             let _ = app.emit("play-random", ());
         }
+        "chat" => {
+            let _ = app.emit_to("main", "open-chat", ());
+        }
+        "quiet" => toggle_quiet(app),
+        // This week's.
+        "recap" => recap::open(app, String::new()),
         // The page knows where to cut the pet, so it does the tucking in (`set_peek`).
         "peek" => {
             if let Some(w) = main_window(app) {
@@ -901,6 +964,8 @@ fn main() {
             set_hit_rects,
             get_edges,
             focus_claude,
+            chime,
+            ai_test,
             drag_started,
             set_peek,
             resolve_permission,

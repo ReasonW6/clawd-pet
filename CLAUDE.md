@@ -14,9 +14,10 @@ npm run build           # 正式版：src-tauri/target/release/clawd-pet.exe + N
 npm run triggers        # 由 ui/anims.js 重新生成 docs/triggers.html
 python docs/readme/make_art.py   # 由导入的动画重新生成 README 配图（docs/readme/*.gif，要 Pillow 和系统的微软雅黑、Consolas）
 cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得多
+cd src-tauri && cargo test --release    # 全部单元测试；cargo test --release thinking 只跑名字里带 thinking 的
 ```
 
-- 没有 lint，测试只有少数几个单元测试，要在 Windows 上 `cargo test`（`collection`、`secrets` 等）。`secrets` 的测试读写开发机真实的凭据管理器（`clawd-pet/test-<pid>-*`，测试结束时删掉，失败也删）。验证方式主要是 `cargo check`，加上实际运行。
+- 没有 lint。单元测试写在各模块自己的 `mod tests` 里（`ai`、`collection`、`gaze`、`hotkeys`、`memory`、`quota`、`recap`、`secrets`），只能在 Windows 上跑。加 `--release` 是为了和 `cargo check --release`、`npm run build` 走同一套配置，不用再编一遍 debug 版的依赖。`secrets` 的测试读写开发机真实的凭据管理器（`clawd-pet/test-<pid>-*`，测试结束时删掉，失败也删）。前端没有测试，改完 JS 至少跑一下 `node --check`。验证方式主要是 `cargo check`、单元测试，加上实际运行。
 - `docs/readme/*.gif` 提交在仓库里，四张约 2.4 MB，每重新生成一次历史里就永久多一份，改配图时尽量攒在一起改。
 - `ui/assets/clawd/` 被 gitignore，是生成物；新克隆的仓库要先有素材来源并跑 `import-assets`，否则前端和 `npm run triggers` 都会缺 `manifest.json`。
 - 素材来源有两种，manifest 格式不同，`import-assets` 都能读：
@@ -39,7 +40,7 @@ cd src-tauri && cargo check --release   # 只做类型检查，比 build 快得�
 
 Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
-- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）、`config`（只在聊天改了设置时）、`collected`（桌面上每演一个都发，带 `slug`、`first`、`count`）和 `recap-open`（点了每周小结卡片，带那周的周一）；只发给主窗口的还有 `dream`（做梦开始、结束）、`edges` / `peek` / `peek-push` / `peek-none`（来自 `edges.rs` 和菜单）、`gaze`（来自 `gaze.rs`）、`quota`（来自 `quota.rs`），以及 `perm-hotkey`（来自 `hotkeys.rs`）。
+- 后端发给前端的事件：`hook-event`、`permission-request`、`permission-closed`（来自 `server.rs`），`user-event { kind, detail }`（来自 `sysmon.rs` 和 `git.rs`），`ai { id, kind, text }`（来自 `ai.rs`，AI 聊天的流式回复），以及 `config`、`drag-end`、`play`、`play-random`、`shown`；发给设置窗口的有 `memory`（记忆变了，重新读）、`config`（只在聊天改了设置时）、`collected`（桌面上每演一个都发，带 `slug`、`first`、`count`）和 `recap-open`（点了每周小结卡片时带那周的周一；菜单的「回顾…」带空字符串，就是这周）；只发给主窗口的还有 `dream`（做梦开始、结束）、`edges` / `peek` / `peek-push` / `peek-none`（来自 `edges.rs` 和菜单）、`gaze`（来自 `gaze.rs`）、`quota`（来自 `quota.rs`）、`perm-hotkey`（来自 `hotkeys.rs`），以及菜单发的 `quiet`（安静到什么时候，毫秒时间戳，0 是结束）和 `open-chat`。
 - 前端调用的命令都在 `main.rs` 的 `generate_handler!` 里注册；`window.__TAURI__` 是全局对象（`withGlobalTauri`），前端没有打包器和 import。
 
 ### Claude Code 联动
@@ -61,7 +62,7 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 - 快捷键审批（`hotkeys.rs`）：`RegisterHotKey` 把热键绑在注册它的线程上，所以由一个专门的线程注册、注销并跑消息循环收 `WM_HOTKEY`；别的线程改 `STATE` 里想要的东西，再 `PostThreadMessageW` 叫醒它（`reconcile`）。只在气泡显示请求时持有（显示的是问题卡 `req.ask` 时不持有：没有允许、拒绝可选）：前端在 `renderBubble` 和隐藏时调 `permission_hotkeys { on, always }`（有「总是允许」按钮才要第三个），设置页录新组合键时调 `hotkeys_pause` 先全放掉（设置窗口关了也会恢复）。按下发 `perm-hotkey`（`"allow"` / `"deny"` / `"always"`），前端按 `perms[0]` 走 `decide`，和点按钮完全一样，但只在它已经显示了 `HOTKEY_SETTLE_MS`（700 ms，从 `drawBubble` 第一次在可见时画它算起，隐藏后重来）之后：热键不知道是给哪个请求按的，连按第二下、或者按下时原来那个刚在别处答掉，都会落到用户没看过的下一个上。默认组合是 `Ctrl+Alt+Y` / `Ctrl+Alt+N`，「总是允许」写的是持久规则，默认不绑。`combos` 把和前面某个动作重复的组合（写法不同也算）置空，设置页也按归一后的写法查重；按钮上不显示快捷键。注册失败（别的程序占着）就不持有，下次变化时再试；设置页用 `hotkey_check` 试注册一下再放掉来判断占没占用（自己持有的算可用）。没用 global-shortcut 插件：Win32 调用本来就都走 `windows-sys`，这点事几十行就够，不必多一个依赖。
 - 子代理的事件带 `agent_id`（会话 id 和主线程一样）。子代理自己的 `UserPromptSubmit` 不算会话的新一轮；会话已经回到待命时，子代理的 `PreToolUse` / `PostToolUse` / `PostToolUseFailure` 也不再让它忙起来：后台子代理会比这一轮活得久，中断后也可能还有零星事件。
 - 嵌套会话（`desktop_sessions.rs`）：桌面版的 /btw 分支、侧会话在 Claude Code 里是独立的会话，hook 不带来源。桌面版自己的会话记录 `<数据目录>\claude-code-sessions\<账号>\<组织>\local_<应用 id>.json` 里有：`cliSessionId` 是 hook 里的 `session_id`，`spawnedFrom.sessionId` 是来源会话的应用 id。数据目录在商店版是 `%LOCALAPPDATA%\Claude-Data\<包名>`，否则是 `%APPDATA%\Claude`。`cliSessionId` 总在文件开头，所以只读每个文件的前 256 字节来找；还没有记录的会话，全部记录最多每 5 秒重新搜一遍。来源会话被 rewind 后 `cliSessionId` 会变，所以每 30 秒重读一次它的文件开头。找到的来源作为 `_parent` / `_parent_title` / `_parent_cwd` 加进事件。前端用 `rootOf` 把一家子归到最上面那个会话名下，一家子都停了才庆祝完成。用过桌面版开会话的工具（`SPAWN_TOOLS`）的那一轮，结束后先等 8 秒，让刚开的会话报到。这是桌面版的内部格式，读不到就当没有来源。
-- 点完成气泡切到桌面版会话（`claude_app.rs`）：桌面版的 `claude://code/<id>` 被功能开关关着，要的也是应用内部的 id，所以用 UI Automation 在它的侧边栏里按会话标题找 Invoke 按钮去点（行的名字是「标题」或「标题 运行中」这样带状态的）。依赖 `windows` crate（和 tauri 用的同一版本），只用于这里的 COM 调用；其余 Win32 调用仍用 `windows-sys`。`SetForegroundWindow` 只在桌宠刚被点过、自己是前台时才管用，所以 `focus_claude` 要在点击处理里同步调用，不能等。
+- 点 Claude 说的话（干活中的气泡、完成气泡和完成时的小螃蟹、没开对话进度时的「搞定啦」）切到桌面版会话（`claude_app.rs`，前端的 `goTo`）：桌面版的 `claude://code/<id>` 被功能开关关着，要的也是应用内部的 id，所以用 UI Automation 在它的侧边栏里按会话标题找 Invoke 按钮去点（行的名字是「标题」或「标题 运行中」这样带状态的）。依赖 `windows` crate（和 tauri 用的同一版本），只用于这里的 COM 调用；其余 Win32 调用仍用 `windows-sys`。`SetForegroundWindow` 只在桌宠刚被点过、自己是前台时才管用，所以 `focus_claude` 要在点击处理里同步调用，不能等。
 
 ### 记忆（`memory.rs`）
 
@@ -84,7 +85,7 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
 和 AI、记忆的开关无关，一直在记。`~/.clawd-pet/recap.json` 按天存（一天从 05:00 算起，前端用 `memDay()` 算好，连同 `at`「HH:MM」一起传来）：
 
-- 每个钟点的忙碌秒数（`busy`）和完成的任务数（`done`），下标是钟点 0–23；桌宠开着的钟点（`seen` 位图）；当天最晚完成的时间（`last`，凌晨比晚上晚）；会话、批过的权限、出错次数；按项目文件夹的任务数和分钟数（每天最多 30 个文件夹）。
+- 每个钟点的忙碌秒数（`busy`）和完成的任务数（`done`），下标是钟点 0–23；桌宠开着的钟点（`seen` 位图）；当天最晚完成的时间（`last`，凌晨比晚上晚）；会话、批过的权限、出错次数；按项目文件夹的任务数和分钟数（每天最多 30 个文件夹；桌面版不带文件夹开的临时会话，工作目录在 `<数据目录>\scratch-workspaces\...\scratch-<日期>-<id>`，前端 `inFolder` 认出来后不报项目名，只算任务；旧版本记下的这类名字在 `load` 时删掉）。
 - 不在文件里的天、`seen` 里没有的钟点是「没数据」，页面上和零分开画。不记会话标题、prompt、文件内容；不打分，不连续打卡，不导出。
 - 保留 190 天，新的一天第一条事件到来时删掉更早的。和记忆一样置脏后由 2 秒的保存循环和退出时 `flush`，先写 `.tmp` 再 rename。每分钟的 `time` 只在忙碌秒数或 `seen` 真变了时置脏。
 - 前端 `recap(kind, detail)`：任务和 `remember("task")` 在同一处（`familyDone`）。忙碌时间每 10 秒采样一次（有会话在思考、干活、压缩，等你确认不算；超过 `STALE_BUSY_MS` 没有动静的忙碌会话也不算，隐藏时 `tick` 不跑、不会把它们改回待命；两次采样隔得太久说明电脑睡过，不算），每分钟报一次，这个定时器在隐藏时也跑。会话按 `rootOf` 一家子每天记一次，后端也按根会话 id 的哈希（`counted`，只留当天的）去重，重启后不再记一次。权限在气泡里作答，或 `permission-closed` 带了 `outcome` 时记一次；问题卡不是权限，两边都不记。
@@ -106,7 +107,7 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
 ### 聊天改设置（`change_setting`）
 
-模型支持工具调用时（和记忆开关无关），`Kit` 带 `change_setting { key, value }`，由 `main.rs` 的 `change_setting` 执行：只认白名单里的几项（`nickname`、`birthday`、`chatty`、`liveliness`、`sedentaryMinutes`、`sleepEnabled`、`size`），按设置页的范围严格校验，再和 `set_config` 一样经 `apply_config` 生效（窗口大小、保存、发 `config`）。设置页自己保存的 `config` 只发给主窗口；聊天改的发给所有窗口，设置页对照它记下的后端配置（`known`），只同步聊天改了的项（`onConfig`），免得之后保存时把改动盖掉，也不盖掉还没保存的输入。工具结果告诉模型改了什么，前端在回复上只显示「⚙️ 改了设置」；一轮最多 3 次；模型用不了工具时，提示词让它请用户去设置里改。
+模型支持工具调用时（和记忆开关无关），`Kit` 带 `change_setting { key, value }`，由 `main.rs` 的 `change_setting` 执行：只认白名单里的几项（`nickname`、`birthday`、`chatty`、`liveliness`、`sleepEnabled`、`size`），按设置页的范围严格校验，再和 `set_config` 一样经 `apply_config` 生效（窗口大小、保存、发 `config`）。设置页自己保存的 `config` 只发给主窗口；聊天改的发给所有窗口，设置页对照它记下的后端配置（`known`），只同步聊天改了的项（`onConfig`），免得之后保存时把改动盖掉，也不盖掉还没保存的输入。工具结果告诉模型改了什么，前端在回复上只显示「⚙️ 改了设置」；一轮最多 3 次；模型用不了工具时，提示词让它请用户去设置里改。
 
 ### Claude 额度（`quota.rs`）
 
@@ -121,6 +122,9 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 
 - `anims.js` 是「剧本」：全部用 `window.XXX = ...` 定义成全局（`ANIMS`、`LIFE`、`ROUTINE`、`MOODS`、`SYS_EVENTS` 等），按 slug 引用 clawd-400 的动画。`scripts/gen-triggers.mjs` 用 `node:vm` 执行这个文件来读取这些全局，所以它必须保持为普通脚本，不能改成 ES module。
 - `markdown.js` 定义 `window.renderMarkdown`，把聊天回复画成 HTML（回复每打出几个字就重画一次，`pet.js` 的 `drawBlocks` 只换掉从第一个变了的块往后的部分，表格、公式的横向滚动和正被按下的链接才不会每帧被换掉）。它先转义全部文字，只输出自己拼的标签：回复可能转述网页内容，不能把模型的 HTML 放进页面（页面能调后端命令）。链接只放行 http(s) 和 mailto，点击走 `open_link` 用默认浏览器打开（后端再解析一遍：http(s) 要有 host，mailto 只留 `subject` / `body` 的原文；`ShellExecuteW` 在另开的线程里调，不卡主线程）；图片只画成链接，不加载（加载远程图片能把内容带出去）。`**粗体**` 用宽松匹配，挨着中文标点也能闭合。公式交给 `ui/vendor/katex/katex.min.js`（从 npm 的 katex 0.19.1 包原样复制，带 LICENSE），第一次遇到公式才插 `<script>` 加载，输出 MathML，不需要 KaTeX 的样式和字体；加载完回调重画那条回复。
+- 有的模型把思考写在回复正文里（`<think>…</think>` 等，`ai.rs` 的 `THOUGHT_TAGS`），`Speaker` 用 `Thoughts` 在流里去掉，两种协议都过它；只认每一轮正文开头的标签，回复里提到标签不受影响。聊天模板把开头的 `<think>` 放进提示词时，正文里只有一个 `</think>`，到那时这一轮已经显示了，所以发 `ai { kind: "unsay" }`（`text` 是去掉这一轮后的全文）让前端收回。往模型回传的同一轮 assistant 消息仍带原文（MiniMax 这类要求带回思考）；`complete` 返回的是去掉思考后的文字。
+- 上网的每一次（服务商自带的搜索、打开用户发的链接、Exa 搜索和读网页）都发 `ai { kind: "web-start" }`，回来时发 `web-done` / `web-fail`，`text` 是 `search` / `link` / `read`。服务商自带的搜索没有结束信号，以模型接着写字或这一轮结束为准（`Speaker::settle`）；只在事后露出痕迹的（智谱的 `web_search`、引用）每轮算一次（`marked`）。前端按次数标「搜第 N 次…」「搜了 N 次」，有搜索在进行时 `chatSlug` 播 `ANIMS.chatSearch` / `chatRead`。
+- 推理档位：服务商的 `reasoning` 按模型名前缀给档位，空列表是这些模型没什么可设的；只有兜底规则（前缀为空）的列表是空的，才给 `GENERIC`（低中高，`offered`），服务商根本没有推理开关的（混元）`reasoning` 整个为空。设置页把档位一律显示成中文（`LEVEL_NAMES`，1k / 4k / 16k 显示为低中高，数字在悬停提示里），送给接口的仍是原值。记忆整理（`complete`）只用服务商写明的档位（`levels_for`）。设置页的「试一下」调 `ai_test`，和 `ai_models` 一样只用已保存的配置。
 - `tauri.conf.json` 设了 CSP：脚本只能是 `ui/` 里的文件（不能写内联 `<script>` 或 `onclick=` 这类属性），图片只能是本地、`data:` 和 `blob:`，样式可以内联。加新的外部资源前先改 CSP。
 - 聊天气泡的尺寸由弹簧控制，目标是 `.body` 的尺寸加上卡片两侧的边框（`CARD_BORDER`）。少算边框的话卡片比内容小，能被滚动（输入法、光标会把它滚上去），停下后橙色底就够不到卡片底部。
 - `pet.js` 是状态机：
@@ -129,6 +133,9 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
   - 情绪（`feel(name, minutes)`）、睡眠、互动、气泡。
 - 每个动画在 manifest 里有 `top` 字段（画面最高像素占高度的比例），渲染时写进 CSS 变量 `--content-top`，用来把气泡放在画面正上方。
 - 素材是 40×40 的像素画（clawd-400 里是放大 12 倍的 480×480，导入时缩回去；不是整数倍放大的图会原样保留）。显示它们的 `<img>` 都要写固定宽高和 `image-rendering: pixelated`。
+- 安静一小时：菜单项由 `main.rs` 的 `QUIET_UNTIL` 记着（不存盘），切换时发 `quiet` 给主窗口，到点由一个线程刷新托盘菜单的文字。前端 `quiet()` 期间不调 `idleLife`，`reactTo`、早晚安、`familyDone` 的提示和庆祝、长任务的咖啡休息、头顶的 `speech` 都跳过；权限请求和问题卡、出错的提示照常。
+- 请求提示音（`permSound`，默认关）：`permission-request` 到来、窗口显示、不在安静中时调 `chime`，后端用 `PlaySoundW` 放声音方案里的 `Notification.Default`（`SND_NODEFAULT`：方案里关掉了就不响）。
+- 单击先给 `#sprite` 加 `.squish`（0.18 秒的回弹），点击的反应要等 `CLICK_SETTLE_MS` 确认不是双击才播。
 - 隐藏时暂停：WebView2 对隐藏的窗口照样渲染，所以收到 `shown: false` 后 `setShown` 会停掉 `tick`、撤下 `sprite` 的 `src`；会话状态照常跟踪，显示时恢复。
 
 ### 改了行为就要同步 `docs/triggers.html`

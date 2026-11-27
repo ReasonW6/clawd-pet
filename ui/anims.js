@@ -95,6 +95,8 @@ window.ANIMS = {
   chatTyping: ["desk_typing"], // the reply coming in
   chatIdle: ["desk_coffee"], // the reply is up
   chatSnap: ["chat_snap"], // the model takes a screenshot
+  chatSearch: ["cc_web_search"], // a search under way, each one
+  chatRead: ["cc_web_read"], // pages being read through Exa
 };
 
 // Human readable status for each tool category.
