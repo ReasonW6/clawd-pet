@@ -149,7 +149,7 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
   - `config.peek` 记住躲在哪一侧，和 `x` / `y` 一样归窗口所有（`apply_config` 保留当前值）。启动时 `edges::restore` 先记下这一侧、不带 `cut`，这时 `fit` 不动窗口，等页面调 `set_peek`。
   - 页面：有权限请求、提示、完成的那句话、聊天、拖动时完全出来（`peekOut`），其他时候缩着，播 `ANIMS.peek`，干活中的那行进度气泡不画，`#status` 靠到露出来的一侧（`body[data-peek]`）。`renderBubble` 发现该出来或该缩回时调 `render`。
   - 悬停滑出来要 `mouseenter` 和 `gaze.near` 都成立：光标一下甩开时，窗口可能先变成鼠标穿透、页面收不到 `mouseleave`，`:hover` 就一直留着。
-- 眼睛跟着鼠标（`gaze.rs`）：鼠标穿透的那个轮询线程顺便按 `edges::body()` 算光标在眼睛的哪个方向（0 正对、1–8 从上开始顺时针，和 `ANIMS.gaze` 的顺序一致）、离得够不够近，变了才发 `gaze`。页面只在本该播 `idleBase` 的时候换成看鼠标的帧，所以别的动画、忙、睡觉、聊天、躲边都优先；窗口隐藏时 `cursor_in` 返回 None，不发。
+- 眼睛跟着鼠标（`gaze.rs`）：鼠标穿透的那个轮询线程顺便按 `edges::body()` 算光标在眼睛的哪个方向（0 正对、1–8 从上开始顺时针，和 `ANIMS.gaze` 的顺序一致）、离得够不够近，变了才发 `gaze`。后端一靠近就报，3 秒的延迟（`GAZE_DELAY_MS`）和离开后的 1.5 秒（`GAZE_LINGER_MS`）都在 `pet.js` 里算。页面只在光标停够 3 秒、又本该播 `idleBase` 的时候换成看鼠标的帧，所以别的动画、忙、睡觉、聊天、躲边都优先；窗口隐藏时 `cursor_in` 返回 None，不发。
 - 全屏让开（`step_aside`）：
   - 判定：前台窗口铺满小螃蟹所在的显示器、没有标题栏、不是 explorer，也不在例外名单里。
   - 显示和隐藏一律走 `sysmon::set_shown`（原生 `ShowWindow`），不要用 `w.hide()` / `w.show()`。那两个会改掉用户自己选择的显示状态，`show()` 还会抢走焦点；而且混用会让 tao 记录的可见状态跟实际不一致。

@@ -285,7 +285,7 @@ function setShown(on) {
     // Out of sight is unseen: showing again starts the hotkeys' wait over.
     for (const p of perms) p.shownAt = undefined;
     syncHotkeys();
-    // And the cursor must stay a while again before it looks (gaze.rs tells anew on show).
+    // And the cursor must stay a while again before it looks (the cursor loop in main.rs tells anew on show).
     gaze = { dir: gaze.dir, near: false };
     gazeUntil = 0;
     clearTimeout(gazeTimer);
@@ -1977,7 +1977,8 @@ function onGaze(g) {
     peekHover = false;
   }
   if (g.near) {
-    // Back while it is still looking after the cursor: it keeps looking.
+    // Coming close starts the count, unless it is still looking (back within the
+    // linger): then it keeps looking.
     if (!gaze.near && !gazing()) {
       nearSince = now();
       clearTimeout(gazeTimer);
