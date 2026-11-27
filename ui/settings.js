@@ -708,7 +708,7 @@ function provider() {
   return providers.find((p) => p.id === config.ai.provider && !TEMPLATES.includes(p.id)) || providers[0];
 }
 
-const profile = () => (config.ai.profiles[provider().id] ??= { baseUrl: "", model: "", reasoning: "" });
+const profile = () => (config.ai.profiles[provider().id] ??= { baseUrl: "", model: "", reasoning: "", reasoningModel: "" });
 
 /** Settings from before providers of one's own: what was set for a template becomes one. */
 async function migrateCustom() {
@@ -1072,8 +1072,10 @@ function showWeb() {
 /** The reasoning levels the model takes: those of the first rule its name starts with.
  *  `generic`: the provider says nothing about this model, so these are a guess
  *  (`GENERIC` in ai.rs). */
+const modelInUse = () => (profile().model || provider().model).toLowerCase();
+
 function levels() {
-  const model = (profile().model || provider().model).toLowerCase();
+  const model = modelInUse();
   const rule = provider().reasoning.find((r) => model.startsWith(r.prefix.toLowerCase()));
   return { list: rule ? rule.levels : [], generic: !!rule?.guess };
 }
@@ -1090,8 +1092,10 @@ function levelTip(value) {
 
 function showReasoning() {
   const [p, mine, { list, generic }] = [provider(), profile(), levels()];
-  // A level the model doesn't take is never sent, so it shows as the default.
-  const level = list.includes(mine.reasoning) ? mine.reasoning : "";
+  // A level the model doesn't take is never sent, so it shows as the default; so does
+  // one picked for another model when this one's levels are a guess (`target` in ai.rs).
+  const mineHere = !generic || (mine.reasoningModel || "").trim().toLowerCase() === modelInUse();
+  const level = list.includes(mine.reasoning) && mineHere ? mine.reasoning : "";
   const box = $("ai-reasoning");
   box.innerHTML = "";
   $("ai-reasoning-row").hidden = !list.length;
@@ -1104,6 +1108,7 @@ function showReasoning() {
     radio.checked = value === level;
     radio.onchange = () => {
       mine.reasoning = value;
+      mine.reasoningModel = profile().model || provider().model;
       showReasoning();
       save();
     };
@@ -1121,9 +1126,6 @@ function showReasoning() {
 }
 
 function modelChanged() {
-  // A level picked for another model isn't sent to one whose levels are a guess: the
-  // user picks one for it, if they want.
-  if (levels().generic) profile().reasoning = "";
   showReasoning();
   showSummary();
   save();

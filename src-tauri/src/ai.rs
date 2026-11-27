@@ -922,7 +922,9 @@ fn target(ai: &AiConfig, provider: &str, need_model: bool) -> Result<Target, Str
         Wire::OpenAi => base.trim_end_matches("/chat/completions").trim_end_matches("/models"),
         Wire::Anthropic => base.trim_end_matches("/messages").trim_end_matches("/models").trim_end_matches("/v1"),
     };
-    // A level the model doesn't take (picked for another model) is left out.
+    // A level the model doesn't take (picked for another model) is left out, and so is
+    // one for a model whose levels are a guess unless it was picked for this one.
+    let mine = profile.reasoning_model.trim().eq_ignore_ascii_case(model) || !rule_for(p, model).is_some_and(|l| l.guess);
     let levels = offered(p, model);
     let level = profile.reasoning.trim();
     Ok(Target {
@@ -933,7 +935,7 @@ fn target(ai: &AiConfig, provider: &str, need_model: bool) -> Result<Target, Str
         official: p.id == "anthropic" && base == p.base_url,
         search: p.search,
         reasoning: levels.map_or(Effort, |l| l.0),
-        level: levels.filter(|l| l.1.contains(&level)).map_or(String::new(), |_| level.to_owned()),
+        level: levels.filter(|l| mine && l.1.contains(&level)).map_or(String::new(), |_| level.to_owned()),
         edits: ai.prompts.clone(),
     })
 }
@@ -1222,31 +1224,32 @@ fn tag_start(s: &str, tag: &str) -> usize {
     (1..tag.len()).rev().find(|&k| tag.is_char_boundary(k) && s.ends_with(&tag[..k])).unwrap_or(0)
 }
 
-/// How much of the end of the text given out is kept: more than the longest opening tag.
-const OPEN_MAX: usize = 16;
-
-/// Whether `s` has one of the tags that open thinking in it.
-fn has_open_tag(s: &str) -> bool {
-    THOUGHT_TAGS.iter().any(|(open, _)| s.contains(open))
+/// Whether a `</think>` after `before` (the round's text up to it) is the reply talking
+/// about the tags rather than the end of thinking the chat template opened: it is in
+/// code, right after a backtick or inside a code block, or an opening tag was written
+/// in code before it ("`<think>.*?</think>`"). Thinking itself may name a tag too, but
+/// in plain words, which still counts as thinking.
+fn talks_of_tags(before: &str) -> bool {
+    before.ends_with('`') || before.matches("```").count() % 2 == 1 || THOUGHT_TAGS.iter().any(|(open, _)| before.contains(&format!("`{open}")))
 }
 
 /// Takes the thinking out of one round's text as it streams in. Thinking counts only at
-/// the start (whitespace aside), so that a reply that talks about the tags keeps them:
-/// once it has written an opening tag, a `</think>` after it is what it says too.
+/// the start (whitespace aside), so that a reply that talks about the tags keeps them;
+/// a `</think>` nothing opened is the end of thinking unless it is in code
+/// (`talks_of_tags`).
 #[derive(Default)]
 struct Thoughts {
     /// Text not given out yet, as it may be the start of a tag.
     held: String,
     /// Inside thinking, which ends with this tag.
     until: Option<&'static str>,
-    /// A closing tag is just text: the thinking was marked as such, or the reply wrote
-    /// an opening tag of its own.
+    /// A closing tag is just text: the thinking was marked as such, or the reply was
+    /// seen to talk about the tags.
     opened: bool,
     /// Text was given out this round.
     told: bool,
-    /// The end of what was given out (up to `OPEN_MAX` bytes), for an opening tag cut
-    /// across pieces.
-    tail: String,
+    /// What was given out this round while a `</think>` could still take it back.
+    seen: String,
 }
 
 impl Thoughts {
@@ -1284,13 +1287,12 @@ impl Thoughts {
             }
             if !self.opened {
                 if let Some(i) = self.held.find(THINK_END) {
-                    if has_open_tag(&format!("{}{}", self.tail, &self.held[..i])) {
-                        // "wrap it in `<think>` and `</think>`": talking about the tags.
-                        self.opened = true;
-                    } else {
+                    self.seen.push_str(&self.held[..i]);
+                    let talk = talks_of_tags(&self.seen);
+                    (self.seen, self.opened) = (String::new(), true);
+                    if !talk {
                         self.held.drain(..i + THINK_END.len());
-                        (back, self.told, self.opened) = (true, false, true);
-                        self.tail.clear();
+                        (back, self.told) = (true, false);
                         out.clear();
                         continue;
                     }
@@ -1299,13 +1301,7 @@ impl Thoughts {
             let keep = if self.opened { 0 } else { tag_start(&self.held, THINK_END) };
             let n = self.held.len() - keep;
             if !self.opened {
-                self.tail.push_str(&self.held[..n]);
-                self.opened = has_open_tag(&self.tail);
-                let mut cut = self.tail.len().saturating_sub(OPEN_MAX);
-                while !self.tail.is_char_boundary(cut) {
-                    cut += 1;
-                }
-                self.tail.drain(..cut);
+                self.seen.push_str(&self.held[..n]);
             }
             out.push_str(&self.held[..n]);
             self.held.drain(..n);
@@ -3258,6 +3254,21 @@ mod tests {
         assert!(levels_for(p("mistral"), "codestral-9").is_none());
     }
 
+    #[test]
+    fn a_guessed_level_goes_only_to_the_model_it_was_picked_for() {
+        let mut ai = AiConfig { provider: "mistral".into(), ..Default::default() };
+        let mine = AiProfile { api_key: "k".into(), model: "codestral-9".into(), reasoning: "high".into(), ..Default::default() };
+        ai.profiles.insert("mistral".into(), mine);
+        let level = |ai: &AiConfig| target(ai, "mistral", true).map(|t| t.level).unwrap_or_default();
+        // Kept from before, or picked for another model.
+        assert_eq!(level(&ai), "");
+        ai.profiles.get_mut("mistral").unwrap().reasoning_model = "Codestral-9".into();
+        assert_eq!(level(&ai), "high");
+        // Models the provider describes go by their own levels.
+        ai.profiles.get_mut("mistral").unwrap().model = "mistral-small-2".into();
+        assert_eq!(level(&ai), "high");
+    }
+
     /// What a round shows when its text comes in these pieces, as the front end ends up
     /// with it ("unsay" taking the round back).
     fn shown(pieces: &[&str]) -> String {
@@ -3289,6 +3300,11 @@ mod tests {
         assert_eq!(shown(&["用正则 `<think>.*?</think>` 把它删掉就行"]), "用正则 `<think>.*?</think>` 把它删掉就行");
         assert_eq!(shown(&["用 `<th", "ink>` 和 `</think>` 包起来"]), "用 `<think>` 和 `</think>` 包起来");
         assert_eq!(shown(&["用 `<think>` 和", "很多很多很多很多字", " `</think>` 包起来"]), "用 `<think>` 和很多很多很多很多字 `</think>` 包起来");
+        // Or one in code by itself, or in a code block.
+        assert_eq!(shown(&["多出来的 `</think>` 是模板的问题，删掉就行"]), "多出来的 `</think>` 是模板的问题，删掉就行");
+        assert_eq!(shown(&["像这样：\n```\n", "<think>想</think>\n```"]), "像这样：\n```\n<think>想</think>\n```");
+        // Thinking from the template that names a tag in plain words is still thinking.
+        assert_eq!(shown(&["用户在问 <think> 标签怎么去。", "</think>", "答：用正则删掉"]), "答：用正则删掉");
         assert_eq!(shown(&["a <"]), "a <");
         assert_eq!(shown(&["<"]), "<");
         assert_eq!(shown(&["<b>粗</b>"]), "<b>粗</b>");

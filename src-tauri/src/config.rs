@@ -107,6 +107,10 @@ pub struct AiProfile {
     /// How hard the model thinks: "off" or one of the levels `ai::PROVIDERS` lists for
     /// the model; empty leaves it to the model, and nothing about it is sent.
     pub reasoning: String,
+    /// The model `reasoning` was picked for, as it was named then. A model the provider
+    /// says nothing about (`ai::any`) gets the level only when it is that one: picked for
+    /// another model, or kept from before this was written, it may not take it.
+    pub reasoning_model: String,
 }
 
 /// A provider the user added: a name over an address and key of their own (kept in
