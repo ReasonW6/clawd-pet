@@ -124,7 +124,7 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
 - `markdown.js` 定义 `window.renderMarkdown`，把聊天回复画成 HTML（回复每打出几个字就重画一次，`pet.js` 的 `drawBlocks` 只换掉从第一个变了的块往后的部分，表格、公式的横向滚动和正被按下的链接才不会每帧被换掉）。它先转义全部文字，只输出自己拼的标签：回复可能转述网页内容，不能把模型的 HTML 放进页面（页面能调后端命令）。链接只放行 http(s) 和 mailto，点击走 `open_link` 用默认浏览器打开（后端再解析一遍：http(s) 要有 host，mailto 只留 `subject` / `body` 的原文；`ShellExecuteW` 在另开的线程里调，不卡主线程）；图片只画成链接，不加载（加载远程图片能把内容带出去）。`**粗体**` 用宽松匹配，挨着中文标点也能闭合。公式交给 `ui/vendor/katex/katex.min.js`（从 npm 的 katex 0.19.1 包原样复制，带 LICENSE），第一次遇到公式才插 `<script>` 加载，输出 MathML，不需要 KaTeX 的样式和字体；加载完回调重画那条回复。
 - 有的模型把思考写在回复正文里（`<think>…</think>` 等，`ai.rs` 的 `THOUGHT_TAGS`），`Speaker` 用 `Thoughts` 在流里去掉，两种协议都过它；只认每一轮正文开头的标签，回复里提到标签不受影响。聊天模板把开头的 `<think>` 放进提示词时，正文里只有一个 `</think>`，到那时这一轮已经显示了，所以发 `ai { kind: "unsay" }`（`text` 是去掉这一轮后的全文）让前端收回。往模型回传的同一轮 assistant 消息仍带原文（MiniMax 这类要求带回思考）；`complete` 返回的是去掉思考后的文字。
 - 上网的每一次（服务商自带的搜索、打开用户发的链接、Exa 搜索和读网页）都发 `ai { kind: "web-start" }`，回来时发 `web-done` / `web-fail`，`text` 是 `search` / `link` / `read`。服务商自带的搜索没有结束信号，以模型接着写字或这一轮结束为准（`Speaker::settle`）；只在事后露出痕迹的（智谱的 `web_search`、引用）每轮算一次（`marked`）。前端按次数标「搜第 N 次…」「搜了 N 次」，有搜索在进行时 `chatSlug` 播 `ANIMS.chatSearch` / `chatRead`。
-- 推理档位：服务商的 `reasoning` 按模型名前缀给档位，空列表是这些模型没什么可设的；只有兜底规则（前缀为空）的列表是空的，才给 `GENERIC`（低中高，`offered`），服务商根本没有推理开关的（混元）`reasoning` 整个为空。设置页把档位一律显示成中文（`LEVEL_NAMES`，1k / 4k / 16k 显示为低中高，数字在悬停提示里），送给接口的仍是原值。记忆整理（`complete`）只用服务商写明的档位（`levels_for`）。设置页的「试一下」调 `ai_test`，和 `ai_models` 一样只用已保存的配置。
+- 推理档位：服务商的 `reasoning` 按模型名前缀给档位，空列表是这些模型没什么可设的（服务商写明不能调的，比如 Sonnet 4.5、Haiku 4.5 这类旧 Claude，单独写一条空的放在兜底前面）；服务商没提到的模型走兜底的 `any(...)`，给 `GENERIC`（低中高，`guess` 为 true，设置页据此显示「没写能调哪几档」的提示，换到这样的模型时清掉存着的档位），服务商根本没有推理开关的（混元）`reasoning` 整个为空。设置页把档位一律显示成中文（`LEVEL_NAMES`，1k / 4k / 16k 显示为低中高，数字在悬停提示里），送给接口的仍是原值。记忆整理（`complete`）只用服务商写明的档位（`levels_for`）。设置页的「试一下」调 `ai_test`，和 `ai_models` 一样只用已保存的配置，并且和聊天一样带用户选的档位（`ask`，不走 `complete` 的最低档），档位不被接受时在这里就能看出来。
 - `tauri.conf.json` 设了 CSP：脚本只能是 `ui/` 里的文件（不能写内联 `<script>` 或 `onclick=` 这类属性），图片只能是本地、`data:` 和 `blob:`，样式可以内联。加新的外部资源前先改 CSP。
 - 聊天气泡的尺寸由弹簧控制，目标是 `.body` 的尺寸加上卡片两侧的边框（`CARD_BORDER`）。少算边框的话卡片比内容小，能被滚动（输入法、光标会把它滚上去），停下后橙色底就够不到卡片底部。
 - `pet.js` 是状态机：
@@ -133,7 +133,7 @@ Rust 只负责「感知」和窗口，所有「演什么」都在前端决定。
   - 情绪（`feel(name, minutes)`）、睡眠、互动、气泡。
 - 每个动画在 manifest 里有 `top` 字段（画面最高像素占高度的比例），渲染时写进 CSS 变量 `--content-top`，用来把气泡放在画面正上方。
 - 素材是 40×40 的像素画（clawd-400 里是放大 12 倍的 480×480，导入时缩回去；不是整数倍放大的图会原样保留）。显示它们的 `<img>` 都要写固定宽高和 `image-rendering: pixelated`。
-- 安静一小时：菜单项由 `main.rs` 的 `QUIET_UNTIL` 记着（不存盘），切换时发 `quiet` 给主窗口，到点由一个线程刷新托盘菜单的文字。前端 `quiet()` 期间不调 `idleLife`，`reactTo`、早晚安、`familyDone` 的提示和庆祝、长任务的咖啡休息、头顶的 `speech` 都跳过；权限请求和问题卡、出错的提示照常。
+- 安静一小时：菜单项由 `main.rs` 的 `QUIET_UNTIL` 记着（不存盘），切换时发 `quiet` 给主窗口，到点由一个线程刷新托盘菜单的文字。前端 `quiet()` 期间不调 `idleLife`，`reactTo`、早晚安、`familyDone` 的提示和庆祝、长任务的咖啡休息、头顶的 `speech` 都跳过（开始安静时 `cancelLife` 停掉正在演的场景；会话在安静中停下时 `familyDone` 清掉它的 `speech`，免得结束后以「还在干活」的样子冒出来）；额度提醒等安静结束再说（`warnQuota` 不记已提醒，`setQuiet(0)` 时重画一遍）；权限请求和问题卡、出错的提示照常。托盘菜单只在切换和到点时重建，所以只写「不用安静了」，右键菜单每次重建，带还剩几分钟。
 - 请求提示音（`permSound`，默认关）：`permission-request` 到来、窗口显示、不在安静中时调 `chime`，后端用 `PlaySoundW` 放声音方案里的 `Notification.Default`（`SND_NODEFAULT`：方案里关掉了就不响）。
 - 单击先给 `#sprite` 加 `.squish`（0.18 秒的回弹），点击的反应要等 `CLICK_SETTLE_MS` 确认不是双击才播。
 - 隐藏时暂停：WebView2 对隐藏的窗口照样渲染，所以收到 `shown: false` 后 `setShown` 会停掉 `tick`、撤下 `sprite` 的 `src`；会话状态照常跟踪，显示时恢复。

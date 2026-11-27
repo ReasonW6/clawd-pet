@@ -369,7 +369,8 @@ fn describe(d: &Day) -> String {
         let minutes: u32 = d.projects.values().map(|p| p[1]).sum();
         let mut by: Vec<(&String, &[u32; 2])> = d.projects.iter().collect();
         by.sort_by(|a, b| b.1[1].cmp(&a.1[1]).then(b.1[0].cmp(&a.1[0])));
-        let names: Vec<String> = by.iter().take(4).map(|(k, v)| format!("{k} {} 个", v[0])).collect();
+        // "?": not in a project folder of its own (a scratch session, say).
+        let names: Vec<String> = by.iter().take(4).map(|(k, v)| format!("{} {} 个", if *k == "?" { "零散的" } else { k.as_str() }, v[0])).collect();
         let mut s = format!("用户用 Claude Code 完成了 {turns} 个任务（{}，共约 {minutes} 分钟）", names.join("、"));
         if d.big > 0 {
             s += &format!("，其中 {} 个跑了 5 分钟以上", d.big);

@@ -55,9 +55,9 @@ pub struct Provider {
     #[serde(serialize_with = "has_search")]
     pub search: Search,
     /// The reasoning levels its models take, from its documentation: the first entry
-    /// whose prefix the model id starts with. A catch-all entry with no levels is for
-    /// models it doesn't say anything about, which get `GENERIC`; none at all, that the
-    /// provider has no reasoning setting.
+    /// whose prefix the model id starts with. An entry with no levels says that those
+    /// models take none; a catch-all `any` entry is for the models it says nothing about,
+    /// which get `GENERIC`; no entries at all, that the provider has no reasoning setting.
     pub reasoning: &'static [Levels],
     /// What the settings page says under the reasoning setting, beside the levels.
     pub reasoning_note: &'static str,
@@ -73,8 +73,10 @@ pub struct Levels {
     pub how: Reasoning,
     /// What the user can pick: "off", the provider's own level names, or for a thinking
     /// budget "1k", "4k" and so on (the page names them all in words). None: nothing to
-    /// set for these models, or for a catch-all entry, `GENERIC`.
+    /// set for these models.
     pub levels: &'static [&'static str],
+    /// The provider says nothing about these models (`any`): `levels` is `GENERIC`, a guess.
+    pub guess: bool,
 }
 
 /// How a level goes into a request.
@@ -94,12 +96,18 @@ pub enum Reasoning {
 }
 
 const fn lv(prefix: &'static str, how: Reasoning, levels: &'static [&'static str]) -> Levels {
-    Levels { prefix, how, levels }
+    Levels { prefix, how, levels, guess: false }
+}
+
+/// The catch-all for models the provider says nothing about: they are offered `GENERIC`.
+/// Models it says can't be set get an entry of their own with no levels, before this.
+const fn any(how: Reasoning) -> Levels {
+    Levels { prefix: "", how, levels: GENERIC, guess: true }
 }
 
 /// The levels `model` takes at `provider`, if the provider says.
 fn levels_for(p: &Provider, model: &str) -> Option<&'static Levels> {
-    rule_for(p, model).filter(|l| !l.levels.is_empty())
+    rule_for(p, model).filter(|l| !l.levels.is_empty() && !l.guess)
 }
 
 fn rule_for(p: &Provider, model: &str) -> Option<&'static Levels> {
@@ -111,14 +119,9 @@ fn rule_for(p: &Provider, model: &str) -> Option<&'static Levels> {
 const GENERIC: &[&str] = &["low", "medium", "high"];
 
 /// How a level goes in for `model` and which ones the user may pick: the provider's,
-/// or `GENERIC` for a model only its catch-all entry covers.
+/// or `GENERIC` for a model only its catch-all `any` entry covers.
 fn offered(p: &Provider, model: &str) -> Option<(Reasoning, &'static [&'static str])> {
-    let rule = rule_for(p, model)?;
-    match rule.levels {
-        [] if rule.prefix.is_empty() => Some((rule.how, GENERIC)),
-        [] => None,
-        levels => Some((rule.how, levels)),
-    }
+    rule_for(p, model).filter(|l| !l.levels.is_empty()).map(|l| (l.how, l.levels))
 }
 
 /// How a provider's own web search is turned on: one the model uses when it wants and
@@ -183,7 +186,14 @@ pub const PROVIDERS: &[Provider] = &[
             lv("claude-opus-4-6", Claude, &["off", "low", "medium", "high", "max"]),
             lv("claude-sonnet-4-6", Claude, &["off", "low", "medium", "high", "max"]),
             lv("claude-opus-4-5", Claude, &["off", "low", "medium", "high"]),
-            lv("", Claude, &[]),
+            // Older ones (Haiku 4.5, Sonnet 4.5 and before) take no effort.
+            lv("claude-opus-4", Claude, &[]),
+            lv("claude-sonnet-4", Claude, &[]),
+            lv("claude-haiku-4", Claude, &[]),
+            lv("claude-3", Claude, &[]),
+            lv("claude-2", Claude, &[]),
+            lv("claude-instant", Claude, &[]),
+            any(Claude),
         ],
         reasoning_note: "Claude Opus 5.5 和 Fable 关不掉思考；Haiku 4.5 这类旧模型不能调。",
         ..BASE
@@ -252,7 +262,7 @@ pub const PROVIDERS: &[Provider] = &[
             lv("mistral-small", Effort, &["off", "high"]),
             lv("mistral-medium", Effort, &["off", "high"]),
             lv("zai-glm-5-3", Effort, &["low", "high", "max"]),
-            lv("", Effort, &[]),
+            any(Effort),
         ],
         reasoning_note: "Small 和 Medium 选「关」时只想一点点；Large 4 关不掉思考。",
         ..BASE
@@ -268,6 +278,7 @@ pub const PROVIDERS: &[Provider] = &[
             lv("qwen/qwen3.8", Effort, &["off", "low", "medium", "high"]),
             lv("qwen/", Effort, &["off"]),
             lv("meta-models/muse-spark", Effort, &["low", "medium", "high", "xhigh"]),
+            // Groq says the rest don't take it.
             lv("", Effort, &[]),
         ],
         reasoning_note: "只有 GPT-OSS、Qwen 等少数模型能调。",
@@ -312,7 +323,9 @@ pub const PROVIDERS: &[Provider] = &[
         reasoning: &[
             lv("kimi-k3", Thinking, &["low", "high", "max"]),
             lv("kimi-k2.6", Thinking, &["off"]),
-            lv("", Thinking, &[]),
+            // The older Moonshot models don't think.
+            lv("moonshot-v1", Thinking, &[]),
+            any(Thinking),
         ],
         reasoning_note: "Kimi K3 系列一直在思考，只能调深浅；K2.6 只能关掉。",
         ..BASE
@@ -389,7 +402,9 @@ pub const PROVIDERS: &[Provider] = &[
         reasoning: &[
             lv("minimax-m3.1-flash", Effort, &["low", "medium", "high", "xhigh", "max"]),
             lv("minimax-m3", Thinking, &["off"]),
-            lv("", Effort, &[]),
+            // The older abab models don't think.
+            lv("abab", Effort, &[]),
+            any(Effort),
         ],
         reasoning_note: "MiniMax-M3.1-Flash 关不掉思考；MiniMax-M3 只能关掉。",
         ..BASE
@@ -1207,18 +1222,31 @@ fn tag_start(s: &str, tag: &str) -> usize {
     (1..tag.len()).rev().find(|&k| tag.is_char_boundary(k) && s.ends_with(&tag[..k])).unwrap_or(0)
 }
 
+/// How much of the end of the text given out is kept: more than the longest opening tag.
+const OPEN_MAX: usize = 16;
+
+/// Whether `s` has one of the tags that open thinking in it.
+fn has_open_tag(s: &str) -> bool {
+    THOUGHT_TAGS.iter().any(|(open, _)| s.contains(open))
+}
+
 /// Takes the thinking out of one round's text as it streams in. Thinking counts only at
-/// the start (whitespace aside), so that a reply that talks about the tags keeps them.
+/// the start (whitespace aside), so that a reply that talks about the tags keeps them:
+/// once it has written an opening tag, a `</think>` after it is what it says too.
 #[derive(Default)]
 struct Thoughts {
     /// Text not given out yet, as it may be the start of a tag.
     held: String,
     /// Inside thinking, which ends with this tag.
     until: Option<&'static str>,
-    /// The thinking was marked as such: a closing tag after it is just text.
+    /// A closing tag is just text: the thinking was marked as such, or the reply wrote
+    /// an opening tag of its own.
     opened: bool,
     /// Text was given out this round.
     told: bool,
+    /// The end of what was given out (up to `OPEN_MAX` bytes), for an opening tag cut
+    /// across pieces.
+    tail: String,
 }
 
 impl Thoughts {
@@ -1256,14 +1284,29 @@ impl Thoughts {
             }
             if !self.opened {
                 if let Some(i) = self.held.find(THINK_END) {
-                    self.held.drain(..i + THINK_END.len());
-                    (back, self.told, self.opened) = (true, false, true);
-                    out.clear();
-                    continue;
+                    if has_open_tag(&format!("{}{}", self.tail, &self.held[..i])) {
+                        // "wrap it in `<think>` and `</think>`": talking about the tags.
+                        self.opened = true;
+                    } else {
+                        self.held.drain(..i + THINK_END.len());
+                        (back, self.told, self.opened) = (true, false, true);
+                        self.tail.clear();
+                        out.clear();
+                        continue;
+                    }
                 }
             }
             let keep = if self.opened { 0 } else { tag_start(&self.held, THINK_END) };
             let n = self.held.len() - keep;
+            if !self.opened {
+                self.tail.push_str(&self.held[..n]);
+                self.opened = has_open_tag(&self.tail);
+                let mut cut = self.tail.len().saturating_sub(OPEN_MAX);
+                while !self.tail.is_char_boundary(cut) {
+                    cut += 1;
+                }
+                self.tail.drain(..cut);
+            }
             out.push_str(&self.held[..n]);
             self.held.drain(..n);
             return (back, out);
@@ -1392,6 +1435,19 @@ impl Speaker<'_> {
         } else if !std::mem::replace(&mut self.marked, true) {
             self.web("web-start", how);
             self.web("web-done", how);
+        }
+    }
+
+    /// A search of the provider's came back with an error instead of results: the first
+    /// under way, or one this round from a provider that only tells afterwards.
+    fn search_failed(&mut self, how: &'static str) {
+        self.online = true;
+        if !self.going.is_empty() {
+            let how = self.going.remove(0);
+            self.web("web-fail", how);
+        } else if !std::mem::replace(&mut self.marked, true) {
+            self.web("web-start", how);
+            self.web("web-fail", how);
         }
     }
 
@@ -1787,7 +1843,12 @@ async fn anthropic_round(t: &Target, system: &str, msgs: &[Value], kit: Kit, las
                 if blocks[i]["type"] == "server_tool_use" {
                     out.searching("search");
                 } else if blocks[i]["type"] == "web_search_tool_result" {
-                    out.searched("search");
+                    // Its content is the results, or an error (out of searches, say).
+                    if blocks[i]["content"]["type"] == "web_search_tool_result_error" {
+                        out.search_failed("search");
+                    } else {
+                        out.searched("search");
+                    }
                 }
             }
             "content_block_delta" => {
@@ -2867,21 +2928,28 @@ pub async fn complete(ai: &AiConfig, system: &str, user: &str) -> Result<String,
         // "off" comes first where there is one, the lowest level otherwise.
         .and_then(|l| l.levels.first())
         .map_or(String::new(), |l| l.to_string());
+    ask(&t, system, user, "模型不肯做这次整理").await
+}
+
+/// One message to `t` with no tools or search: what it said, with any thinking written
+/// into the text left out, or what went wrong in words (`refused` when it declined).
+async fn ask(t: &Target, system: &str, user: &str, refused: &str) -> Result<String, String> {
     let msgs = [json!({ "role": "user", "content": user })];
     let kit = Kit { shot: false, exa: false, deep: false, fetch: false, search: false, links: false, memo: false, setting: false };
     let mut out = Speaker::default();
-    let round = send(&t, system, &msgs, kit, false, &mut out).await.map_err(|f| explain(f, &t))?;
+    let round = send(t, system, &msgs, kit, false, &mut out).await.map_err(|f| explain(f, t))?;
     if round.refused {
-        return Err("模型不肯做这次整理".into());
+        return Err(refused.into());
     }
-    // What it said, with any thinking written into the text left out.
     Ok(out.said)
 }
 
 /// A hello to the saved provider and model, for the settings page to tell that they
-/// work: what came back, or what went wrong in words.
+/// work: what came back, or what went wrong in words. Sent with the reasoning level the
+/// chat uses, so that a level the model doesn't take shows up here.
 pub async fn test(ai: &AiConfig) -> Result<String, String> {
-    complete(ai, "这是一次连通测试。只回复两个字：在呢", "在吗？").await
+    let t = target(ai, &ai.provider, true)?;
+    ask(&t, "这是一次连通测试。只回复两个字：在呢", "在吗？", "通了，但模型这次不肯回话，换个模型试试").await
 }
 
 /// The models the provider offers, with the address in `ai` (the settings being
@@ -3179,6 +3247,13 @@ mod tests {
         // Named with nothing to set, or a provider without the setting: none.
         assert_eq!(levels("zhipu", "glm-5.3-air"), None);
         assert_eq!(levels("hunyuan", "hunyuan-t2"), None);
+        // Ones it says take none aren't guessed at: a level picked for another model
+        // isn't sent to them.
+        assert_eq!(levels("anthropic", "claude-haiku-4-5"), None);
+        assert_eq!(levels("anthropic", "claude-sonnet-4-5-20250929"), None);
+        assert_eq!(levels("anthropic", "claude-opus-5-5"), Some(CLAUDE_ON));
+        assert_eq!(levels("anthropic", "claude-zeta-7"), Some(GENERIC));
+        assert_eq!(levels("groq", "llama-4-scout"), None);
         // Tidying memory sends a level only where the provider names one.
         assert!(levels_for(p("mistral"), "codestral-9").is_none());
     }
@@ -3210,6 +3285,10 @@ mod tests {
         // Tags anywhere but the start, or after marked thinking, are what it says.
         assert_eq!(shown(&["用 <think> 标签"]), "用 <think> 标签");
         assert_eq!(shown(&["<think>a</think>写 </think> 就行"]), "写 </think> 就行");
+        // A closing tag after an opening one the reply wrote is what it says, too.
+        assert_eq!(shown(&["用正则 `<think>.*?</think>` 把它删掉就行"]), "用正则 `<think>.*?</think>` 把它删掉就行");
+        assert_eq!(shown(&["用 `<th", "ink>` 和 `</think>` 包起来"]), "用 `<think>` 和 `</think>` 包起来");
+        assert_eq!(shown(&["用 `<think>` 和", "很多很多很多很多字", " `</think>` 包起来"]), "用 `<think>` 和很多很多很多很多字 `</think>` 包起来");
         assert_eq!(shown(&["a <"]), "a <");
         assert_eq!(shown(&["<"]), "<");
         assert_eq!(shown(&["<b>粗</b>"]), "<b>粗</b>");

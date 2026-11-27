@@ -368,8 +368,13 @@ function setQuiet(until) {
   quietUntil = until;
   clearTimeout(quietTimer);
   if (quiet()) {
+    // A scene goes on step by step without tick: it stops here.
+    cancelLife();
     toast("好，我安静待一个小时～", { ms: 2500 });
     quietTimer = setTimeout(() => setQuiet(0), until - now());
+  } else {
+    // A quota warning held back meanwhile.
+    renderQuota();
   }
   renderBubble();
   renderLabel();
@@ -648,13 +653,23 @@ function familyDone(s, took) {
   // Sessions started from one another are done when all of them are; till then only
   // its last words show.
   if (busyKin(s).length) {
-    if (config.replies && s.reply) say(s, true);
+    // Quiet, its words go: unseen and done, they'd take clicks and pull it out of hiding.
+    if (quiet()) {
+      if (speech?.sid === s.id) hush();
+    } else if (config.replies && s.reply) {
+      say(s, true);
+    }
     return;
   }
-  remember("task", { project: name, minutes: Math.round(took / MIN) });
   // A session with no folder of its own counts as a task, not under any project.
-  recap("task", { project: inFolder(rootOf(s)) ? name : "", minutes: Math.round(took / MIN) });
-  if (quiet()) return;
+  const project = inFolder(rootOf(s)) ? name : "";
+  remember("task", { project, minutes: Math.round(took / MIN) });
+  recap("task", { project, minutes: Math.round(took / MIN) });
+  if (quiet()) {
+    // What it said while at work would come back as still working when the quiet ends.
+    if (speech?.sid === s.id) hush();
+    return;
+  }
 
   let [text, ms, anims, minMs] = [`${name} 搞定啦～`, TOAST_MS, ANIMS.done, 2600];
   if (sleepWindowAt(new Date())) {
@@ -1382,7 +1397,8 @@ function warnQuota(wins) {
     if (w.pct < 50 && was) {
       warned[key] = 0;
       changed = true;
-    } else if (level > was) {
+    } else if (level > was && !quiet()) {
+      // Quiet, it waits: told when the quiet ends (setQuiet).
       warned[key] = level;
       changed = true;
       if (!worst || level > worst.level) worst = { key, w, level };

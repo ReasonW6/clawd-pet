@@ -817,8 +817,10 @@ async function initAi() {
     $("ai-base").focus();
   };
   // One way of searching or none: Exa wins in the backend when both are on.
+  // onclick, not onchange: "off" shows as picked while the provider has no search of
+  // its own, and picking it then has to turn the search off too.
   for (const radio of document.querySelectorAll("input[name=ai-web]")) {
-    radio.onchange = () => {
+    radio.onclick = () => {
       config.ai.search = radio.value === "own";
       config.ai.exa = radio.value === "exa";
       save();
@@ -1067,16 +1069,13 @@ function showWeb() {
   $("ai-exa-key-row").hidden = mode !== "exa";
 }
 
-/** What a model the provider says nothing about is offered (`GENERIC` in ai.rs). */
-const GENERIC_LEVELS = ["low", "medium", "high"];
-
 /** The reasoning levels the model takes: those of the first rule its name starts with.
- *  `generic`: the provider's catch-all rule names none, so these are a guess. */
+ *  `generic`: the provider says nothing about this model, so these are a guess
+ *  (`GENERIC` in ai.rs). */
 function levels() {
   const model = (profile().model || provider().model).toLowerCase();
   const rule = provider().reasoning.find((r) => model.startsWith(r.prefix.toLowerCase()));
-  if (rule && !rule.levels.length && !rule.prefix) return { list: GENERIC_LEVELS, generic: true };
-  return { list: rule ? rule.levels : [], generic: false };
+  return { list: rule ? rule.levels : [], generic: !!rule?.guess };
 }
 
 /** Levels in words, whatever the provider calls them; thinking budgets ("4k") as low,
@@ -1122,6 +1121,9 @@ function showReasoning() {
 }
 
 function modelChanged() {
+  // A level picked for another model isn't sent to one whose levels are a guess: the
+  // user picks one for it, if they want.
+  if (levels().generic) profile().reasoning = "";
   showReasoning();
   showSummary();
   save();
@@ -1192,7 +1194,11 @@ async function testModel() {
     [ok, text] = [false, String(e)];
   }
   button.disabled = false;
-  if (which() !== asked) return; // changed meanwhile: the answer is about something else
+  if (which() !== asked) {
+    // Changed meanwhile: the answer is about something else, and so is "trying".
+    if (note.textContent === "打个招呼试试…") note.textContent = "";
+    return;
+  }
   const said = text.trim().replace(/\s+/g, " ");
   const secs = ((performance.now() - t0) / 1000).toFixed(1);
   note.textContent = ok ? `✓ 通了，${secs} 秒回了「${said.length > 16 ? said.slice(0, 16) + "…" : said || "（空的）"}」` : text;

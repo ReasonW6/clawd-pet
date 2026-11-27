@@ -322,7 +322,7 @@ fn hotkey_check(combo: String) -> Result<(), String> {
 
 #[tauri::command]
 fn show_menu(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
-    let menu = build_menu(&app).map_err(|e| e.to_string())?;
+    let menu = build_menu(&app, true).map_err(|e| e.to_string())?;
     window.popup_menu(&menu).map_err(|e| e.to_string())
 }
 
@@ -639,11 +639,17 @@ fn chat_focus(window: WebviewWindow) {
 
 // ---------- menu & windows ----------
 
-fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
+/// `fresh`: the menu opens right away (the pet's own), so the minutes of quiet left
+/// can be in it; the tray's is kept until the next change and goes without them.
+fn build_menu(app: &AppHandle, fresh: bool) -> tauri::Result<Menu<Wry>> {
     let visible = main_window(app).and_then(|w| w.is_visible().ok()).unwrap_or(true);
     let chat = app.state::<AppState>().config.lock().unwrap().ai.enabled;
     let left = QUIET_UNTIL.load(Ordering::SeqCst).saturating_sub(epoch_ms());
-    let quiet = if left > 0 { format!("不用安静了（还剩 {} 分钟）", left.div_ceil(60_000)) } else { "安静一小时".to_owned() };
+    let quiet = match left {
+        0 => "安静一小时".to_owned(),
+        _ if fresh => format!("不用安静了（还剩 {} 分钟）", left.div_ceil(60_000)),
+        _ => "不用安静了".to_owned(),
+    };
     let menu = Menu::with_items(
         app,
         &[
@@ -674,7 +680,7 @@ fn peek_item(app: &AppHandle) -> tauri::Result<MenuItem<Wry>> {
 }
 
 fn refresh_tray(app: &AppHandle) {
-    if let (Some(tray), Ok(menu)) = (app.tray_by_id("main"), build_menu(app)) {
+    if let (Some(tray), Ok(menu)) = (app.tray_by_id("main"), build_menu(app, false)) {
         let _ = tray.set_menu(Some(menu));
     }
 }
@@ -743,6 +749,12 @@ fn on_menu(app: &AppHandle, id: &str) {
             let _ = app.emit("play-random", ());
         }
         "chat" => {
+            // Opened in the hidden window, the chat would show nothing till the pet came
+            // back: it comes out first.
+            if main_window(app).is_some_and(|w| !w.is_visible().unwrap_or(true)) {
+                toggle_visible(app);
+                refresh_tray(app);
+            }
             let _ = app.emit_to("main", "open-chat", ());
         }
         "quiet" => toggle_quiet(app),
@@ -1095,7 +1107,7 @@ fn main() {
             TrayIconBuilder::with_id("main")
                 .icon(app.default_window_icon().cloned().expect("icon"))
                 .tooltip("Clawd Pet")
-                .menu(&build_menu(&handle)?)
+                .menu(&build_menu(&handle, false)?)
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, e| on_tray_event(tray.app_handle(), e))
                 .build(app)?;
